@@ -35,17 +35,12 @@
           <h2>Importar CSV</h2>
         </div>
         <div class="card-body">
-          <p class="muted">
-            Importe um arquivo CSV (formato CutList: <code>C, L, Q, Material, NOME…</code>).
-            As medidas e materiais abastecem os painéis automaticamente.
-          </p>
           <div class="import-row">
             <label class="btn primary file-btn">
-              <span class="material-symbols-outlined">upload_file</span>Selecionar CSV
+              <span class="material-symbols-outlined">upload_file</span>Importar CSV
               <input type="file" id="csv-input" accept=".csv,text/csv" hidden />
             </label>
-            <button class="btn" id="load-sample"><span class="material-symbols-outlined">dataset</span>Carregar exemplo</button>
-            <button class="btn ghost" id="clear-panels"><span class="material-symbols-outlined">delete_sweep</span>Limpar painéis</button>
+            <button class="btn ghost" id="clear-panels"><span class="material-symbols-outlined">delete_sweep</span>Limpar</button>
             <span class="import-status" id="import-status"></span>
           </div>
         </div>
@@ -54,36 +49,32 @@
       <div class="card">
         <div class="card-head">
           <h2>Painéis</h2>
-          <button class="btn small" id="add-panel"><span class="material-symbols-outlined">add</span>Adicionar peça</button>
         </div>
         <div class="card-body table-wrap">
-          <table class="grid" id="panels-table">
+          <table class="grid compact" id="panels-table">
             <thead>
               <tr>
-                <th>Compr. (C)</th>
-                <th>Largura (L)</th>
-                <th>Qtd</th>
+                <th class="cell-act"></th>
+                <th class="cell-num" title="Comprimento">C</th>
+                <th class="cell-num" title="Largura">L</th>
+                <th class="cell-qty">Qtd</th>
                 <th>Material</th>
-                <th>Nome</th>
-                <th title="Direção do grão">Grão</th>
-                <th title="Fita de borda: Topo / Esq / Base / Dir">Fitas (T·E·B·D)</th>
-                <th></th>
+                <th class="cell-name">Nome</th>
+                <th class="cell-fita" title="Fita de borda">Fita</th>
+                <th class="cell-act"></th>
               </tr>
             </thead>
             <tbody id="panels-body"></tbody>
           </table>
-          <p class="empty-hint" id="panels-empty">Nenhum painel. Importe um CSV ou adicione peças.</p>
         </div>
       </div>
 
       <div class="card">
-        <div class="card-head"><h2>Stock (Chapas)</h2>
-          <button class="btn small" id="add-stock"><span class="material-symbols-outlined">add</span>Adicionar chapa</button>
-        </div>
+        <div class="card-head"><h2>Stock (Chapas)</h2></div>
         <div class="card-body table-wrap">
-          <table class="grid" id="stock-table">
+          <table class="grid compact" id="stock-table">
             <thead>
-              <tr><th>Largura</th><th>Comprimento</th><th>Qtd</th><th>Material</th><th></th></tr>
+              <tr><th class="cell-act"></th><th class="cell-num">Larg.</th><th class="cell-num">Compr.</th><th class="cell-qty">Qtd</th><th>Material</th><th class="cell-act"></th></tr>
             </thead>
             <tbody id="stock-body"></tbody>
           </table>
@@ -148,7 +139,7 @@
           <span class="muted small">Quantidades em <b>cinza</b> vêm do plano de corte.</span>
         </div>
         <div class="card-body table-wrap">
-          <table class="grid budget" id="budget-table">
+          <table class="grid budget compact" id="budget-table">
             <thead>
               <tr><th>Material</th><th>Quant.</th><th>Valor Und.</th><th>Sub. Total</th></tr>
             </thead>
@@ -189,6 +180,30 @@
   </main>
 
   <div class="toast" id="toast"></div>
+
+  <!-- Modal: editor de fita de borda + direção do grão -->
+  <div class="modal-overlay" id="band-modal" hidden>
+    <div class="modal">
+      <div class="modal-head">
+        <b id="bm-title">Peça</b>
+        <button class="icon-btn" id="bm-close"><span class="material-symbols-outlined">close</span></button>
+      </div>
+      <p class="muted small" id="bm-hint">Toque em um lado da peça para aplicar/retirar a fita.</p>
+      <div class="band-editor" id="bm-canvas"></div>
+      <div class="bm-grain">
+        <span>Direção do grão</span>
+        <div class="seg" id="bm-grain">
+          <button type="button" data-g="">—</button>
+          <button type="button" data-g="h">↔</button>
+          <button type="button" data-g="v">↕</button>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn" id="bm-cancel">Cancelar</button>
+        <button class="btn primary" id="bm-ok"><span class="material-symbols-outlined">check</span>Confirmar</button>
+      </div>
+    </div>
+  </div>
 
   <script src="js/csv.js"></script>
   <script src="js/optimizer.js"></script>

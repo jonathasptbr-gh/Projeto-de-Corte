@@ -108,21 +108,58 @@ code { background: #eef1ef; padding: 1px 5px; border-radius: 5px; font-size: .85
 .import-row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 8px; }
 .import-status { color: var(--green); font-weight: 600; font-size: .88rem; }
 
-/* ---------- Tables ---------- */
-.table-wrap { overflow-x: auto; }
-table.grid { width: 100%; border-collapse: collapse; font-size: .88rem; }
+/* ---------- Tables (mobile-first, larguras mínimas) ---------- */
+.table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+table.grid { width: 100%; border-collapse: collapse; font-size: .85rem; table-layout: auto; }
 table.grid th, table.grid td {
   border: 1px solid var(--line);
-  padding: 6px 8px; text-align: left; white-space: nowrap;
+  padding: 4px 5px; text-align: left; vertical-align: middle;
 }
-table.grid thead th { background: #f0f3f1; font-weight: 700; position: sticky; top: 0; }
+table.grid thead th { background: #f0f3f1; font-weight: 700; }
 table.grid input, table.grid select {
-  width: 100%; min-width: 56px; border: none; background: transparent;
-  font: inherit; padding: 2px 2px; color: var(--text);
+  width: 100%; min-width: 0; border: none; background: transparent;
+  font: inherit; padding: 2px; color: var(--text);
 }
 table.grid input:focus, table.grid select:focus { outline: 2px solid var(--green-light); border-radius: 4px; }
-.col-del { width: 34px; text-align: center; cursor: pointer; color: #c0392b; font-weight: 700; }
-.band-cell input { width: 38px; text-align: center; }
+
+/* colunas de largura mínima — dimensionadas pelo dígito mais longo */
+table.grid.compact { font-size: .8rem; }
+table.grid.compact th, table.grid.compact td { padding: 2px 3px; }
+.cell-num { width: 2.9rem; }
+.cell-num input { text-align: right; }
+.cell-qty { width: 2.1rem; }
+.cell-qty input { text-align: right; }
+.cell-mat { min-width: 3.6rem; }
+.cell-name { width: 3.4rem; }
+.cell-fita { width: 2.6rem; text-align: center; }
+.cell-act { width: 1.6rem; padding: 2px !important; text-align: center; }
+.icon-btn { width: 22px; height: 22px; }
+.icon-btn .material-symbols-outlined { font-size: 18px; }
+
+/* botão "+" à esquerda e lixeira à direita */
+.icon-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px; padding: 0;
+  border: none; background: transparent; cursor: pointer; border-radius: 6px;
+}
+.icon-btn .material-symbols-outlined { font-size: 19px; }
+.icon-btn.add { color: var(--green); }
+.icon-btn.add:hover { background: #e6f0e8; }
+.icon-btn.del { color: #c0392b; }
+.col-del { width: 30px; text-align: center; }
+
+/* botão de fita na linha: mostra nº de lados com fita */
+.fita-btn {
+  display: inline-flex; align-items: center; gap: 3px;
+  border: 1px solid var(--line); border-radius: 7px; background: #f6f8f6;
+  padding: 3px 6px; font-size: .78rem; font-weight: 700; cursor: pointer; color: var(--muted);
+}
+.fita-btn.has { color: var(--green); border-color: var(--green-light); background: #eef6ee; }
+.fita-btn .material-symbols-outlined { font-size: 16px; }
+
+/* linha vazia da base (nova) levemente esmaecida */
+tr.row-new td { background: #fcfdfc; }
+tr.row-new input::placeholder { color: #b9c2bd; }
 
 /* ---------- Options ---------- */
 .options-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
@@ -186,6 +223,30 @@ table.conditions tr.total td:last-child { background: #cfe0f0; }
   font-size: .88rem; opacity: 0; pointer-events: none; transition: .25s; z-index: 50;
 }
 .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+/* ---------- Modal (editor de fita) ---------- */
+.modal-overlay {
+  position: fixed; inset: 0; z-index: 60;
+  background: rgba(20,28,24,.55);
+  display: flex; align-items: center; justify-content: center; padding: 16px;
+}
+.modal-overlay[hidden] { display: none; }
+.modal {
+  background: #fff; border-radius: 16px; width: 100%; max-width: 360px;
+  padding: 16px; box-shadow: 0 12px 40px rgba(0,0,0,.3);
+}
+.modal-head { display: flex; align-items: center; justify-content: space-between; }
+.modal-head b { font-size: 1.05rem; }
+.band-editor { display: flex; justify-content: center; margin: 6px 0 10px; }
+.band-editor svg { width: 100%; max-width: 280px; height: auto; touch-action: manipulation; }
+.band-editor .edge-hit { fill: transparent; cursor: pointer; }
+.band-editor .edge { stroke-linecap: round; }
+.bm-grain { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 4px 0 14px; font-size: .9rem; font-weight: 600; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 9px; overflow: hidden; }
+.seg button { border: none; background: #f1f4f2; padding: 7px 14px; font-size: 1rem; cursor: pointer; }
+.seg button + button { border-left: 1px solid var(--line); }
+.seg button.active { background: var(--green); color: #fff; }
+.modal-actions { display: flex; gap: 10px; justify-content: flex-end; }
 
 @media (max-width: 560px) {
   .badges { grid-template-columns: repeat(3, 1fr); }

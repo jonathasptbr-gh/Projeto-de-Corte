@@ -18,60 +18,21 @@
     plan: null,
   };
 
-  // CSV de exemplo (lucas.csv) embutido para uso offline.
-  const SAMPLE_CSV = `C,L,Q,Material,NOME,Enabled,Grain direction,Top band,Left band,Bottom band,Right band,Ordem
-64.7,45.8,1,White 2 - Maple,F1,TRUE,,,,,,1f
-44,13.3,4,White 1 - Maple,F1,TRUE,,,,,,1f
-64.7,44,2,White 1 - Maple,F1,TRUE,,,,,,1f
-64.7,44,1,White 2 - Maple,F1,TRUE,,,,,,1f
-60.2,30.5,2,White 1 - Maple,F1,TRUE,,,,,,1f
-74.5,8,4,White 1 - Maple,E1A,TRUE,,,,,,ae1
-74.5,70,1,White 1 - Maple,L1A,TRUE,,,,,,al1
-74.5,55,1,White 1 - Maple,L2A,TRUE,,,,,,al2
-74.5,60,2,White 1 - Maple,L3A,TRUE,,,,,,al3
-182.4,5,1,White 1 - Maple,BB,TRUE,,,,,,bb
-177.4,8,1,White 1 - Maple,BB,TRUE,,,,,,bb
-106.4,47.5,1,White 1 - Maple,BB,TRUE,,,,,,bb
-212.4,8,1,White 1 - Maple,BB,TRUE,,,,,,bb
-112.6,8,1,White 1 - Maple,BB,TRUE,,,,,,bb
-104.6,8,1,White 1 - Maple,BB,TRUE,,,,,,bb
-61.5,8,1,White 1 - Maple,BB,TRUE,,,,,,bb
-37.7,8,1,White 1 - Maple,BB,TRUE,,,,,,bb
-45.1,43.7,1,White 1 - Maple,BB,TRUE,,,,,,bb
-106.4,5,1,White 1 - Maple,BB,TRUE,,,,,,bb
-223.1,8,1,White 1 - Maple,BB,TRUE,,,,,,bb
-86.8,45.5,1,White 1 - Maple,BB,TRUE,,,,,,bb
-89.1,45.5,1,White 1 - Maple,BB,TRUE,,,,,,bb
-226.7,47.5,1,White 1 - Maple,BB,TRUE,,,,,,bb
-86,47.5,1,White 1 - Maple,L1B,TRUE,,,,,,bl1
-86,5,1,White 1 - Maple,L1B,TRUE,,,,,,bl1
-72.4,10.7,1,White 1 - Maple,L1B,TRUE,,,,,,bl1
-72.4,43.1,1,White 1 - Maple,L1B,TRUE,,,,,,bl1
-85.5,10,1,White 1 - Maple,L1B,TRUE,,,,,,bl1
-72.4,35,1,White 1 - Maple,L1B,TRUE,,,,,,bl1
-72.4,45.5,3,White 1 - Maple,L1B,TRUE,,,,,,bl1
-85.5,50,1,White 1 - Maple,L1B,TRUE,,,,,,bl1
-72.4,12.5,1,White 1 - Maple,L1B,TRUE,,,,,,bl1`;
-
   // ---------- Persistência ----------
-  function save() {
-    try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch (e) {}
-  }
+  function save() { try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch (e) {} }
   function load() {
     try {
-      const raw = localStorage.getItem(STORE_KEY);
-      if (!raw) return;
-      const s = JSON.parse(raw);
+      const s = JSON.parse(localStorage.getItem(STORE_KEY) || 'null');
+      if (!s) return;
       Object.assign(state.options, s.options || {});
       Object.assign(state.budgetCfg, s.budgetCfg || {});
       if (Array.isArray(s.panels)) state.panels = s.panels;
       if (Array.isArray(s.stock) && s.stock.length) state.stock = s.stock;
       if (Array.isArray(s.budgetItems)) {
-        // mescla preserva chaves novas
         const def = Budget.defaultItems();
         state.budgetItems = def.map(d => {
-          const found = s.budgetItems.find(i => i.key === d.key);
-          return found ? Object.assign(d, { price: found.price, qty: found.qty }) : d;
+          const f = s.budgetItems.find(i => i.key === d.key);
+          return f ? Object.assign(d, { price: f.price, qty: f.qty }) : d;
         });
       }
     } catch (e) {}
@@ -80,21 +41,49 @@
   // ---------- Utilidades ----------
   const brl = n => 'R$ ' + (n || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const numFmt = n => (Math.round((n || 0) * 100) / 100).toLocaleString('pt-BR');
+  const fmtNum = v => (v || v === 0) ? String(v).replace('.', ',') : '';
+  const parseNum = s => { const n = parseFloat(String(s).replace(',', '.')); return isFinite(n) ? n : 0; };
+  function esc(s) { return String(s == null ? '' : s).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c])); }
 
   let toastTimer;
   function toast(msg) {
-    const t = $('#toast');
-    t.textContent = msg;
-    t.classList.add('show');
-    clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => t.classList.remove('show'), 2200);
+    const t = $('#toast'); t.textContent = msg; t.classList.add('show');
+    clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('show'), 2200);
   }
+
+  // Material simplificado: Branco/Cor + espessura (ex.: "Branco 18mm").
+  function normalizeMaterial(raw) {
+    const s = String(raw || '');
+    const th = s.match(/(\d+(?:[.,]\d+)?)\s*mm/i);
+    const base = /white|branc/i.test(s) ? 'Branco' : 'Cor';
+    return th ? `${base} ${th[1].replace(',', '.')}mm` : base;
+  }
+
+  // Chave de ordenação: última letra (conjunto) primeiro, depois o resto.
+  function nameSortKey(name) {
+    const n = String(name || '').trim().toUpperCase();
+    if (!n) return '￿';
+    return n.slice(-1) + ' ' + n.slice(0, -1);
+  }
+
+  // ---------- Linhas vazias / em branco ----------
+  function blankPanel() { return { length: 0, width: 0, qty: 1, material: '', name: '', grain: '', bands: {} }; }
+  function blankStock() { return { width: 0, length: 0, qty: 1, material: '' }; }
+  const isBlankPanel = p => !(p.length > 0) && !(p.width > 0) && !String(p.material || '').trim() && !String(p.name || '').trim();
+  const isBlankStock = s => !(s.width > 0) && !(s.length > 0) && !String(s.material || '').trim();
+  function ensureTrailingBlank(arr, isBlank, mk) {
+    if (!arr.length || !isBlank(arr[arr.length - 1])) arr.push(mk());
+  }
+  const validPanels = () => state.panels.filter(p => p.length > 0 && p.width > 0);
+  const validStock = () => {
+    const v = state.stock.filter(s => s.width > 0 && s.length > 0);
+    return v.length ? v : [{ width: 184, length: 274, qty: 999, material: '' }];
+  };
 
   // ---------- Navegação de abas ----------
   function initTabs() {
     $('#tabs').addEventListener('click', e => {
-      const btn = e.target.closest('.tab');
-      if (!btn) return;
+      const btn = e.target.closest('.tab'); if (!btn) return;
       $$('.tab').forEach(b => b.classList.toggle('active', b === btn));
       const tab = btn.dataset.tab;
       $$('.view').forEach(v => v.classList.toggle('active', v.id === 'view-' + tab));
@@ -103,71 +92,137 @@
   }
 
   // ---------- Painéis ----------
+  function bandCount(p) { const b = p.bands || {}; return ['top', 'left', 'bottom', 'right'].filter(s => b[s]).length; }
+
+  function makeFitaButton(p) {
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'fita-btn';
+    refreshFitaButton(b, p);
+    b.addEventListener('click', () => openBandModal(p, b));
+    return b;
+  }
+  function refreshFitaButton(b, p) {
+    const n = bandCount(p);
+    b.classList.toggle('has', n > 0);
+    b.innerHTML = `<span class="material-symbols-outlined">border_style</span>${n}`;
+    b.title = n ? `${n} lado(s) com fita` : 'Sem fita';
+  }
+
+  function makePanelRow(p) {
+    const tr = document.createElement('tr');
+    tr.innerHTML =
+      `<td class="cell-act"><button class="icon-btn add" title="Inserir linha acima"><span class="material-symbols-outlined">add</span></button></td>` +
+      `<td class="cell-num"><input inputmode="decimal" data-f="length" placeholder="C"></td>` +
+      `<td class="cell-num"><input inputmode="decimal" data-f="width" placeholder="L"></td>` +
+      `<td class="cell-qty"><input inputmode="numeric" data-f="qty" placeholder="1"></td>` +
+      `<td class="cell-mat"><input data-f="material" placeholder="material"></td>` +
+      `<td class="cell-name"><input data-f="name" placeholder="nome"></td>` +
+      `<td class="cell-fita"></td>` +
+      `<td class="cell-act"><button class="icon-btn del" title="Excluir"><span class="material-symbols-outlined">delete</span></button></td>`;
+    const q = s => tr.querySelector(s);
+    q('[data-f="length"]').value = p.length > 0 ? fmtNum(p.length) : '';
+    q('[data-f="width"]').value = p.width > 0 ? fmtNum(p.width) : '';
+    q('[data-f="qty"]').value = p.qty > 0 ? p.qty : '';
+    q('[data-f="material"]').value = p.material || '';
+    q('[data-f="name"]').value = p.name || '';
+    q('.cell-fita').appendChild(makeFitaButton(p));
+
+    tr.querySelectorAll('input[data-f]').forEach(inp => inp.addEventListener('change', () => {
+      const f = inp.dataset.f;
+      if (f === 'length' || f === 'width') p[f] = parseNum(inp.value);
+      else if (f === 'qty') p[f] = Math.max(1, Math.round(parseNum(inp.value) || 1));
+      else p[f] = inp.value.trim();
+      afterRowEdit('panels');
+    }));
+    q('.icon-btn.add').addEventListener('click', () => insertAbove('panels', p));
+    q('.icon-btn.del').addEventListener('click', () => deleteRow('panels', p));
+    return tr;
+  }
+
   function renderPanels() {
+    ensureTrailingBlank(state.panels, isBlankPanel, blankPanel);
     const body = $('#panels-body');
     body.innerHTML = '';
     state.panels.forEach((p, i) => {
-      const tr = document.createElement('tr');
-      tr.innerHTML =
-        `<td><input type="number" step="0.1" value="${p.length}" data-f="length"></td>` +
-        `<td><input type="number" step="0.1" value="${p.width}" data-f="width"></td>` +
-        `<td><input type="number" step="1" value="${p.qty}" data-f="qty"></td>` +
-        `<td><input value="${attr(p.material)}" data-f="material"></td>` +
-        `<td><input value="${attr(p.name)}" data-f="name"></td>` +
-        `<td><select data-f="grain">
-            <option value="" ${p.grain===''?'selected':''}>—</option>
-            <option value="h" ${p.grain==='h'?'selected':''}>↔</option>
-            <option value="v" ${p.grain==='v'?'selected':''}>↕</option>
-          </select></td>` +
-        `<td class="band-cell">${bandBox(p,'top')}${bandBox(p,'left')}${bandBox(p,'bottom')}${bandBox(p,'right')}</td>` +
-        `<td class="col-del" data-del="${i}"><span class="material-symbols-outlined">delete</span></td>`;
-      tr.querySelectorAll('[data-f]').forEach(inp => {
-        inp.addEventListener('change', () => {
-          const f = inp.dataset.f;
-          if (f === 'length' || f === 'width' || f === 'qty') p[f] = parseFloat(inp.value) || 0;
-          else p[f] = inp.value;
-          save();
-        });
-      });
-      tr.querySelectorAll('[data-band]').forEach(cb => {
-        cb.addEventListener('change', () => { p.bands[cb.dataset.band] = cb.checked; save(); });
-      });
-      tr.querySelector('[data-del]').addEventListener('click', () => {
-        state.panels.splice(i, 1); renderPanels(); save();
-      });
+      const tr = makePanelRow(p);
+      if (i === state.panels.length - 1) tr.classList.add('row-new');
       body.appendChild(tr);
     });
-    $('#panels-empty').style.display = state.panels.length ? 'none' : 'block';
   }
-  function bandBox(p, side) {
-    const s = { top: 'T', left: 'E', bottom: 'B', right: 'D' }[side];
-    return `<label title="${side}"><input type="checkbox" data-band="${side}" ${p.bands && p.bands[side] ? 'checked' : ''}>${s}</label>`;
-  }
-  function attr(s) { return String(s == null ? '' : s).replace(/"/g, '&quot;'); }
-  function esc(s) { return String(s == null ? '' : s).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c])); }
 
   // ---------- Stock ----------
+  function makeStockRow(s) {
+    const tr = document.createElement('tr');
+    tr.innerHTML =
+      `<td class="cell-act"><button class="icon-btn add" title="Inserir linha acima"><span class="material-symbols-outlined">add</span></button></td>` +
+      `<td class="cell-num"><input inputmode="decimal" data-f="width" placeholder="Larg."></td>` +
+      `<td class="cell-num"><input inputmode="decimal" data-f="length" placeholder="Compr."></td>` +
+      `<td class="cell-qty"><input inputmode="numeric" data-f="qty" placeholder="1"></td>` +
+      `<td class="cell-mat"><input data-f="material" placeholder="(qualquer)"></td>` +
+      `<td class="cell-act"><button class="icon-btn del" title="Excluir"><span class="material-symbols-outlined">delete</span></button></td>`;
+    const q = sel => tr.querySelector(sel);
+    q('[data-f="width"]').value = s.width > 0 ? fmtNum(s.width) : '';
+    q('[data-f="length"]').value = s.length > 0 ? fmtNum(s.length) : '';
+    q('[data-f="qty"]').value = s.qty > 0 ? s.qty : '';
+    q('[data-f="material"]').value = s.material || '';
+    tr.querySelectorAll('input[data-f]').forEach(inp => inp.addEventListener('change', () => {
+      const f = inp.dataset.f;
+      if (f === 'material') s[f] = inp.value.trim();
+      else if (f === 'qty') s[f] = Math.max(1, Math.round(parseNum(inp.value) || 1));
+      else s[f] = parseNum(inp.value);
+      afterRowEdit('stock');
+    }));
+    q('.icon-btn.add').addEventListener('click', () => insertAbove('stock', s));
+    q('.icon-btn.del').addEventListener('click', () => deleteRow('stock', s));
+    return tr;
+  }
+
   function renderStock() {
+    ensureTrailingBlank(state.stock, isBlankStock, blankStock);
     const body = $('#stock-body');
     body.innerHTML = '';
     state.stock.forEach((s, i) => {
-      const tr = document.createElement('tr');
-      tr.innerHTML =
-        `<td><input type="number" step="0.1" value="${s.width}" data-f="width"></td>` +
-        `<td><input type="number" step="0.1" value="${s.length}" data-f="length"></td>` +
-        `<td><input type="number" step="1" value="${s.qty}" data-f="qty"></td>` +
-        `<td><input value="${attr(s.material)}" data-f="material" placeholder="(qualquer)"></td>` +
-        `<td class="col-del" data-del="${i}"><span class="material-symbols-outlined">delete</span></td>`;
-      tr.querySelectorAll('[data-f]').forEach(inp => inp.addEventListener('change', () => {
-        const f = inp.dataset.f;
-        s[f] = (f === 'material') ? inp.value : (parseFloat(inp.value) || 0);
-        save();
-      }));
-      tr.querySelector('[data-del]').addEventListener('click', () => {
-        if (state.stock.length > 1) { state.stock.splice(i, 1); renderStock(); save(); }
-      });
+      const tr = makeStockRow(s);
+      if (i === state.stock.length - 1) tr.classList.add('row-new');
       body.appendChild(tr);
     });
+  }
+
+  // ---------- Comportamento das listas ----------
+  // Após editar uma linha: se a última deixou de ser vazia, acrescenta uma
+  // nova linha vazia na base (sem re-renderizar, para preservar o foco).
+  function afterRowEdit(which) {
+    save();
+    const arr = which === 'panels' ? state.panels : state.stock;
+    const isBlank = which === 'panels' ? isBlankPanel : isBlankStock;
+    const mk = which === 'panels' ? blankPanel : blankStock;
+    const body = which === 'panels' ? $('#panels-body') : $('#stock-body');
+    if (!isBlank(arr[arr.length - 1])) {
+      const blank = mk(); arr.push(blank);
+      const ntr = (which === 'panels' ? makePanelRow : makeStockRow)(blank);
+      const prev = body.querySelector('tr.row-new'); if (prev) prev.classList.remove('row-new');
+      ntr.classList.add('row-new');
+      body.appendChild(ntr);
+    }
+  }
+  function insertAbove(which, obj) {
+    const arr = which === 'panels' ? state.panels : state.stock;
+    const mk = which === 'panels' ? blankPanel : blankStock;
+    const idx = arr.indexOf(obj);
+    arr.splice(Math.max(0, idx), 0, mk());
+    (which === 'panels' ? renderPanels : renderStock)();
+    save();
+    // foca o primeiro campo da nova linha
+    const body = which === 'panels' ? $('#panels-body') : $('#stock-body');
+    const row = body.children[Math.max(0, idx)];
+    if (row) { const inp = row.querySelector('input'); if (inp) inp.focus(); }
+  }
+  function deleteRow(which, obj) {
+    const arr = which === 'panels' ? state.panels : state.stock;
+    const idx = arr.indexOf(obj); if (idx < 0) return;
+    arr.splice(idx, 1);
+    (which === 'panels' ? renderPanels : renderStock)();
+    save();
   }
 
   // ---------- Opções ----------
@@ -192,44 +247,98 @@
   }
 
   // ---------- Importação ----------
-  function importText(text, label) {
+  function importText(text) {
     const { panels, warnings } = CSV.parse(text);
-    if (warnings.length && !panels.length) { toast(warnings[0]); return; }
+    if (!panels.length) { toast(warnings[0] || 'CSV sem peças válidas.'); return; }
+    panels.forEach(p => { p.material = normalizeMaterial(p.material); });
+    panels.sort((a, b) => nameSortKey(a.name).localeCompare(nameSortKey(b.name), 'pt'));
     state.panels = panels;
-    renderPanels();
-    save();
-    const total = panels.reduce((a, p) => a + p.qty, 0);
-    $('#import-status').textContent = `${panels.length} linhas · ${total} peças importadas`;
-    toast(`Importado: ${label || 'CSV'}`);
+    renderPanels(); save();
+    $('#import-status').textContent = `${panels.length} peças · ${panels.reduce((a, p) => a + p.qty, 0)} un.`;
+    toast('CSV importado');
   }
-
   function initImport() {
     $('#csv-input').addEventListener('change', e => {
-      const file = e.target.files[0];
-      if (!file) return;
+      const file = e.target.files[0]; if (!file) return;
       const reader = new FileReader();
-      reader.onload = () => importText(reader.result, file.name);
+      reader.onload = () => importText(reader.result);
       reader.readAsText(file);
       e.target.value = '';
     });
-    $('#load-sample').addEventListener('click', () => importText(SAMPLE_CSV, 'lucas.csv (exemplo)'));
     $('#clear-panels').addEventListener('click', () => {
       state.panels = []; renderPanels(); save(); $('#import-status').textContent = '';
     });
-    $('#add-panel').addEventListener('click', () => {
-      state.panels.push({ length: 60, width: 40, qty: 1, material: state.stock[0].material || 'Padrão', name: 'Peça', grain: '', bands: {} });
-      renderPanels(); save();
+  }
+
+  // ---------- Modal: editor de fita + grão ----------
+  let editing = null;
+  function openBandModal(p, btn) {
+    editing = { p, btn, bands: Object.assign({ top: false, left: false, bottom: false, right: false }, p.bands), grain: p.grain || '' };
+    $('#bm-title').textContent = p.name ? p.name : 'Peça';
+    $('#bm-hint').textContent = `${fmtNum(p.length) || '?'} × ${fmtNum(p.width) || '?'} · toque num lado para aplicar/retirar a fita`;
+    drawBandEditor();
+    syncGrainSeg();
+    $('#band-modal').hidden = false;
+  }
+  function closeBandModal() { $('#band-modal').hidden = true; editing = null; }
+
+  function drawBandEditor() {
+    const p = editing.p;
+    const L = p.width > 0 ? p.width : 60;
+    const C = p.length > 0 ? p.length : 40;
+    const maxPx = 190, scale = maxPx / Math.max(L, C);
+    const w = Math.max(48, Math.round(L * scale)), h = Math.max(48, Math.round(C * scale));
+    const pad = 30, x0 = pad, y0 = pad, x1 = pad + w, y1 = pad + h;
+    const ON = '#2f6f4f', OFF = '#c2ccc6';
+    const b = editing.bands;
+    const edge = (side, x1_, y1_, x2_, y2_) => {
+      const has = b[side];
+      return `<line class="edge" x1="${x1_}" y1="${y1_}" x2="${x2_}" y2="${y2_}" stroke="${has ? ON : OFF}" stroke-width="${has ? 9 : 3}" stroke-dasharray="${has ? '' : '5 5'}"/>`;
+    };
+    const hit = (side, x, y, ww, hh) => `<rect class="edge-hit" data-side="${side}" x="${x}" y="${y}" width="${ww}" height="${hh}"/>`;
+    const svg =
+      `<svg viewBox="0 0 ${w + pad * 2} ${h + pad * 2}">` +
+      `<rect x="${x0}" y="${y0}" width="${w}" height="${h}" fill="#f3f1e7" stroke="#9aa39d" stroke-width="1"/>` +
+      `<rect x="${x0}" y="${y0}" width="${w}" height="${h}" fill="url(#g)" opacity="0.18"/>` +
+      edge('top', x0, y0, x1, y0) + edge('bottom', x0, y1, x1, y1) +
+      edge('left', x0, y0, x0, y1) + edge('right', x1, y0, x1, y1) +
+      hit('top', x0, y0 - 14, w, 28) + hit('bottom', x0, y1 - 14, w, 28) +
+      hit('left', x0 - 14, y0, 28, h) + hit('right', x1 - 14, y0, 28, h) +
+      `<text x="${x0 + w / 2}" y="${y0 - 16}" text-anchor="middle" font-size="13" fill="#555">${fmtNum(L)}</text>` +
+      `<text x="${x0 - 16}" y="${y0 + h / 2}" text-anchor="middle" font-size="13" fill="#555" transform="rotate(-90 ${x0 - 16} ${y0 + h / 2})">${fmtNum(C)}</text>` +
+      `<defs><pattern id="g" width="4" height="4" patternUnits="userSpaceOnUse"><path d="M0 0 L0 4" stroke="#000" stroke-width="0.4"/></pattern></defs>` +
+      `</svg>`;
+    const c = $('#bm-canvas');
+    c.innerHTML = svg;
+    c.querySelectorAll('[data-side]').forEach(el => el.addEventListener('click', () => {
+      const s = el.dataset.side; editing.bands[s] = !editing.bands[s]; drawBandEditor();
+    }));
+  }
+  function syncGrainSeg() {
+    $$('#bm-grain button').forEach(btn => btn.classList.toggle('active', btn.dataset.g === editing.grain));
+  }
+  function initBandModal() {
+    $('#bm-close').addEventListener('click', closeBandModal);
+    $('#bm-cancel').addEventListener('click', closeBandModal);
+    $('#band-modal').addEventListener('click', e => { if (e.target.id === 'band-modal') closeBandModal(); });
+    $('#bm-grain').addEventListener('click', e => {
+      const btn = e.target.closest('button'); if (!btn || !editing) return;
+      editing.grain = btn.dataset.g; syncGrainSeg();
     });
-    $('#add-stock').addEventListener('click', () => {
-      state.stock.push({ width: 184, length: 274, qty: 5, material: '' });
-      renderStock(); save();
+    $('#bm-ok').addEventListener('click', () => {
+      if (!editing) return;
+      editing.p.bands = Object.assign({}, editing.bands);
+      editing.p.grain = editing.grain;
+      refreshFitaButton(editing.btn, editing.p);
+      save(); closeBandModal();
     });
   }
 
   // ---------- Plano de corte ----------
   function runPlan() {
-    if (!state.panels.length) { toast('Importe ou adicione painéis primeiro.'); return; }
-    const result = Optimizer.optimize(state.panels, state.stock, {
+    const panels = validPanels();
+    if (!panels.length) { toast('Importe um CSV ou adicione peças.'); return; }
+    const result = Optimizer.optimize(panels, validStock(), {
       kerf: state.options.kerf,
       considerMaterial: state.options.material,
       considerGrain: state.options.grain,
@@ -237,7 +346,6 @@
     });
     state.plan = result;
 
-    // métricas globais
     const pieces = result.sheets.reduce((a, s) => a + s.placements.length, 0);
     const cuts = result.sheets.reduce((a, s) => a + s.cuts, 0);
     const totalArea = result.sheets.reduce((a, s) => a + s.W * s.H, 0);
@@ -254,33 +362,27 @@
       metric('Aproveit.', eff.toFixed(1) + '%') +
       metric('Não couberam', result.unplaced.length);
 
-    // resumo por material com mínimo teórico de chapas e eficiência
     const bm = result.byMaterial;
-    let rows = '', anyCeil = false;
+    let rows = '';
     Object.keys(bm).forEach(mat => {
       const d = bm[mat];
-      const sheetArea = d.area / d.sheets;          // área de 1 chapa
+      const sheetArea = d.area / d.sheets;
       const minSheets = Math.max(1, Math.ceil(d.usedArea / sheetArea));
       const effMat = d.area ? (d.usedArea / d.area * 100) : 0;
-      const optimal = d.sheets <= minSheets;        // já está no mínimo
-      if (optimal) anyCeil = true;
-      rows += `<tr>
-        <td>${esc(mat)}</td><td>${d.sheets}</td><td>${minSheets}</td>
-        <td>${d.pieces}</td><td>${effMat.toFixed(1)}%</td>
-        <td>${optimal ? '<span class="ok">no mínimo ✓</span>' : 'pode juntar materiais'}</td></tr>`;
+      const optimal = d.sheets <= minSheets;
+      rows += `<tr><td>${esc(mat)}</td><td>${d.sheets}</td><td>${minSheets}</td>` +
+        `<td>${d.pieces}</td><td>${effMat.toFixed(1)}%</td>` +
+        `<td>${optimal ? '<span class="ok">ótimo ✓</span>' : 'juntar'}</td></tr>`;
     });
-    const breakdown = $('#plan-breakdown');
-    breakdown.innerHTML =
-      `<table class="grid breakdown"><thead><tr>
-        <th>Material</th><th>Chapas</th><th>Mín. teórico</th><th>Peças</th><th>Aproveit.</th><th>Status</th>
-      </tr></thead><tbody>${rows}</tbody></table>` +
-      `<p class="muted small breakdown-note">O aproveitamento % = área das peças ÷ (chapas × área da chapa). ` +
-      `Com o nº mínimo de chapas, esse % é o teto possível — para subir, reduza chapas ` +
-      `(ex.: desligue <b>“Considerar material”</b> se as chapas forem do mesmo material).</p>`;
+    $('#plan-breakdown').innerHTML =
+      `<table class="grid compact breakdown"><thead><tr>` +
+      `<th>Material</th><th>Chapas</th><th>Mín</th><th>Peças</th><th>Aprov.</th><th>Status</th>` +
+      `</tr></thead><tbody>${rows}</tbody></table>` +
+      `<p class="muted small breakdown-note">Aproveit. = área das peças ÷ (chapas × área da chapa). ` +
+      `Com o nº mínimo de chapas esse % é o teto — para subir, reduza chapas (ex.: desligue ` +
+      `<b>“Considerar material”</b> se forem a mesma chapa).</p>`;
 
     Render.renderSheets($('#plan-sheets'), result, { showLabels: state.options.labels });
-
-    // atualiza orçamento com dados do plano
     Budget.applyMetrics(state.budgetItems, m);
     save();
     toast('Plano calculado!');
@@ -289,19 +391,16 @@
 
   // ---------- Orçamento ----------
   function renderBudget() {
-    // garante métricas atualizadas se houver plano
     if (state.plan) Budget.applyMetrics(state.budgetItems, Budget.metricsFromPlan(state.plan, state.options.unit));
-
     const pieces = state.plan ? state.plan.sheets.reduce((a, s) => a + s.placements.length, 0) : 0;
     const cuts = state.plan ? state.plan.sheets.reduce((a, s) => a + s.cuts, 0) : 0;
     const m = state.plan ? Budget.metricsFromPlan(state.plan, state.options.unit) : { bandMeters: 0 };
 
     $('#budget-badges').innerHTML =
-      `<div class="badge b1"><div class="v">${pieces}</div><div class="k">N⁠- peças</div></div>` +
+      `<div class="badge b1"><div class="v">${pieces}</div><div class="k">N- peças</div></div>` +
       `<div class="badge b2"><div class="v">${numFmt(m.bandMeters)}</div><div class="k">M - FITA</div></div>` +
       `<div class="badge b3"><div class="v">${cuts}</div><div class="k">C - CORTE</div></div>`;
 
-    // tabela
     const body = $('#budget-body');
     body.innerHTML = '';
     state.budgetItems.forEach((it, i) => {
@@ -309,50 +408,38 @@
       const auto = it.type === 'auto';
       const qtyCell = auto
         ? `<td class="auto" style="text-align:right">${numFmt(it.qty)}</td>`
-        : `<td><input type="number" step="${it.type === 'value' ? '0.01' : '1'}" value="${it.qty}" data-q="${i}"></td>`;
-      tr.innerHTML =
-        `<td>${it.label}</td>` +
-        qtyCell +
-        `<td><input type="number" step="0.01" value="${it.price}" data-p="${i}" style="text-align:right"></td>` +
+        : `<td><input inputmode="decimal" step="${it.type === 'value' ? '0.01' : '1'}" value="${it.qty}" data-q="${i}"></td>`;
+      tr.innerHTML = `<td>${it.label}</td>` + qtyCell +
+        `<td><input inputmode="decimal" step="0.01" value="${it.price}" data-p="${i}" style="text-align:right"></td>` +
         `<td class="subtotal">${brl(Budget.subtotal(it))}</td>`;
       body.appendChild(tr);
     });
     body.querySelectorAll('[data-q]').forEach(inp => inp.addEventListener('input', () => {
-      state.budgetItems[+inp.dataset.q].qty = parseFloat(inp.value) || 0;
-      updateBudgetTotals(); save();
+      state.budgetItems[+inp.dataset.q].qty = parseNum(inp.value); updateBudgetTotals(); save();
     }));
     body.querySelectorAll('[data-p]').forEach(inp => inp.addEventListener('input', () => {
-      state.budgetItems[+inp.dataset.p].price = parseFloat(inp.value) || 0;
-      updateBudgetTotals(); save();
+      state.budgetItems[+inp.dataset.p].price = parseNum(inp.value); updateBudgetTotals(); save();
     }));
 
-    // config condições
     const c = state.budgetCfg;
-    $('#cfg-labor').value = c.laborPct;
-    $('#cfg-markup').value = c.markupPct;
-    $('#cfg-pix').value = c.pixPct;
-    $('#cfg-days').value = c.daysPerPiece;
-
+    $('#cfg-labor').value = c.laborPct; $('#cfg-markup').value = c.markupPct;
+    $('#cfg-pix').value = c.pixPct; $('#cfg-days').value = c.daysPerPiece;
     updateBudgetTotals();
   }
 
   function updateBudgetTotals() {
-    // recalcula subtotais visíveis
     $$('#budget-body tr').forEach((tr, i) => {
       tr.querySelector('.subtotal').textContent = brl(Budget.subtotal(state.budgetItems[i]));
     });
-
     const t = Budget.totals(state.budgetItems, state.budgetCfg);
     const pieces = state.plan ? state.plan.sheets.reduce((a, s) => a + s.placements.length, 0) : 0;
     const days = pieces * state.budgetCfg.daysPerPiece;
-
     $('#conditions-table').innerHTML =
       row('Tempo de produção', (Math.round(days * 10) / 10).toLocaleString('pt-BR') + ' Dias') +
       row('Valor de Entrada', brl(t.entrada)) +
       row('Mão de obra', brl(t.labor)) +
       `<tr class="total">${cell('Valor total')}${cell(brl(t.total))}</tr>` +
       `<tr class="total">${cell('Valor Pix')}${cell(brl(t.pix))}</tr>`;
-
     renderChart();
   }
   function row(k, v) { return `<tr>${cell(k)}${cell(v)}</tr>`; }
@@ -360,50 +447,33 @@
 
   function initBudgetCfg() {
     const bind = (id, key) => $(id).addEventListener('input', e => {
-      state.budgetCfg[key] = parseFloat(e.target.value) || 0;
-      updateBudgetTotals(); save();
+      state.budgetCfg[key] = parseFloat(e.target.value) || 0; updateBudgetTotals(); save();
     });
-    bind('#cfg-labor', 'laborPct');
-    bind('#cfg-markup', 'markupPct');
-    bind('#cfg-pix', 'pixPct');
-    bind('#cfg-days', 'daysPerPiece');
+    bind('#cfg-labor', 'laborPct'); bind('#cfg-markup', 'markupPct');
+    bind('#cfg-pix', 'pixPct'); bind('#cfg-days', 'daysPerPiece');
   }
 
-  // ---------- Gráfico de pizza (custo por material) ----------
+  // ---------- Gráfico de pizza ----------
   function renderChart() {
-    const canvas = $('#chart');
-    if (!canvas) return;
+    const canvas = $('#chart'); if (!canvas) return;
     const ctx = canvas.getContext('2d');
     const W = canvas.width, H = canvas.height;
     ctx.clearRect(0, 0, W, H);
-
-    const data = state.budgetItems
-      .map(it => ({ label: it.label, val: Budget.subtotal(it) }))
-      .filter(d => d.val > 0)
-      .sort((a, b) => b.val - a.val);
+    const data = state.budgetItems.map(it => ({ label: it.label, val: Budget.subtotal(it) }))
+      .filter(d => d.val > 0).sort((a, b) => b.val - a.val);
     const total = data.reduce((a, d) => a + d.val, 0);
-    const legend = $('#chart-legend');
-    legend.innerHTML = '';
+    const legend = $('#chart-legend'); legend.innerHTML = '';
     if (!total) { ctx.fillStyle = '#999'; ctx.font = '16px sans-serif'; ctx.fillText('Sem dados de custo ainda.', 20, 40); return; }
-
     const colors = ['#4a90d9', '#e74c3c', '#f1c40f', '#2ecc71', '#9b59b6', '#e67e22', '#1abc9c', '#34495e', '#95a5a6', '#d35400', '#16a085', '#c0392b'];
     const cx = H / 2, cy = H / 2, r = H / 2 - 16;
     let start = -Math.PI / 2;
     data.forEach((d, i) => {
       const ang = (d.val / total) * Math.PI * 2;
-      ctx.beginPath();
-      ctx.moveTo(cx, cy);
-      ctx.arc(cx, cy, r, start, start + ang);
-      ctx.closePath();
-      ctx.fillStyle = colors[i % colors.length];
-      ctx.fill();
-      start += ang;
-
-      const pct = (d.val / total * 100).toFixed(1);
-      const item = document.createElement('div');
-      item.className = 'item';
+      ctx.beginPath(); ctx.moveTo(cx, cy); ctx.arc(cx, cy, r, start, start + ang); ctx.closePath();
+      ctx.fillStyle = colors[i % colors.length]; ctx.fill(); start += ang;
+      const item = document.createElement('div'); item.className = 'item';
       item.innerHTML = `<span class="sw" style="background:${colors[i % colors.length]}"></span>` +
-        `<span>${d.label} — ${pct}% (${brl(d.val)})</span>`;
+        `<span>${d.label} — ${(d.val / total * 100).toFixed(1)}% (${brl(d.val)})</span>`;
       legend.appendChild(item);
     });
   }
@@ -411,18 +481,9 @@
   // ---------- Init ----------
   function init() {
     load();
-    initTabs();
-    initOptions();
-    initImport();
-    initBudgetCfg();
-    renderPanels();
-    renderStock();
+    initTabs(); initOptions(); initImport(); initBudgetCfg(); initBandModal();
+    renderPanels(); renderStock();
     $('#run-plan').addEventListener('click', runPlan);
-    if (!state.panels.length) {
-      // primeira execução: deixa o exemplo pronto para o usuário
-      $('#import-status').textContent = 'Dica: use “Carregar exemplo” para testar.';
-    }
   }
-
   document.addEventListener('DOMContentLoaded', init);
 })();

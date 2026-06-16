@@ -1,5 +1,5 @@
 /* Service Worker — cache do app shell para uso offline. */
-const CACHE = 'projeto-corte-v3';
+const CACHE = 'projeto-corte-v4';
 const ASSETS = [
   './',
   './index.html',
