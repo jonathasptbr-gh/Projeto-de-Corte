@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#2f6f4f" />
+  <title>Projeto de Corte</title>
+  <link rel="manifest" href="manifest.json" />
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="icons/icon-192.png" />
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+  <header class="app-header">
+    <div class="brand">
+      <img src="icons/icon.svg" alt="" width="28" height="28" />
+      <span>Projeto de Corte</span>
+    </div>
+    <nav class="tabs" id="tabs">
+      <button class="tab active" data-tab="panels">Painéis &amp; Stock</button>
+      <button class="tab" data-tab="plan">Plano de Corte</button>
+      <button class="tab" data-tab="budget">Orçamento</button>
+    </nav>
+  </header>
+
+  <main>
+    <!-- ===================== ABA: PAINÉIS & STOCK ===================== -->
+    <section class="view active" id="view-panels">
+      <div class="card">
+        <div class="card-head">
+          <h2>Importar CSV</h2>
+        </div>
+        <div class="card-body">
+          <p class="muted">
+            Importe um arquivo CSV (formato CutList: <code>C, L, Q, Material, NOME…</code>).
+            As medidas e materiais abastecem os painéis automaticamente.
+          </p>
+          <div class="import-row">
+            <label class="btn primary file-btn">
+              Selecionar CSV
+              <input type="file" id="csv-input" accept=".csv,text/csv" hidden />
+            </label>
+            <button class="btn" id="load-sample">Carregar exemplo</button>
+            <button class="btn ghost" id="clear-panels">Limpar painéis</button>
+            <span class="import-status" id="import-status"></span>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head">
+          <h2>Painéis</h2>
+          <button class="btn small" id="add-panel">+ Adicionar peça</button>
+        </div>
+        <div class="card-body table-wrap">
+          <table class="grid" id="panels-table">
+            <thead>
+              <tr>
+                <th>Compr. (C)</th>
+                <th>Largura (L)</th>
+                <th>Qtd</th>
+                <th>Material</th>
+                <th>Nome</th>
+                <th title="Direção do grão">Grão</th>
+                <th title="Fita de borda: Topo / Esq / Base / Dir">Fitas (T·E·B·D)</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="panels-body"></tbody>
+          </table>
+          <p class="empty-hint" id="panels-empty">Nenhum painel. Importe um CSV ou adicione peças.</p>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><h2>Stock (Chapas)</h2>
+          <button class="btn small" id="add-stock">+ Adicionar chapa</button>
+        </div>
+        <div class="card-body table-wrap">
+          <table class="grid" id="stock-table">
+            <thead>
+              <tr><th>Largura</th><th>Comprimento</th><th>Qtd</th><th>Material</th><th></th></tr>
+            </thead>
+            <tbody id="stock-body"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><h2>Opções</h2></div>
+        <div class="card-body options-grid">
+          <label class="opt">Espessura de corte (kerf)
+            <input type="number" id="opt-kerf" step="0.1" min="0" value="0.8" />
+          </label>
+          <label class="opt switch">Nome nos painéis
+            <input type="checkbox" id="opt-labels" checked />
+          </label>
+          <label class="opt switch">Considerar material
+            <input type="checkbox" id="opt-material" checked />
+          </label>
+          <label class="opt switch">Considerar direção do grão
+            <input type="checkbox" id="opt-grain" checked />
+          </label>
+          <label class="opt switch">Permitir rotação das peças
+            <input type="checkbox" id="opt-rotate" checked />
+          </label>
+          <label class="opt">Unidade
+            <select id="opt-unit">
+              <option value="cm">cm</option>
+              <option value="mm">mm</option>
+            </select>
+          </label>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== ABA: PLANO DE CORTE ===================== -->
+    <section class="view" id="view-plan">
+      <div class="card">
+        <div class="card-head">
+          <h2>Plano de Corte (Aproveitamento)</h2>
+          <button class="btn primary" id="run-plan">▶ Calcular plano</button>
+        </div>
+        <div class="card-body">
+          <div class="metrics" id="plan-metrics"></div>
+          <p class="empty-hint" id="plan-empty">Clique em “Calcular plano” para gerar o aproveitamento das chapas.</p>
+        </div>
+      </div>
+      <div id="plan-sheets" class="sheets"></div>
+    </section>
+
+    <!-- ===================== ABA: ORÇAMENTO ===================== -->
+    <section class="view" id="view-budget">
+      <div class="card">
+        <div class="card-head"><h2>Resumo do corte</h2></div>
+        <div class="card-body">
+          <div class="badges" id="budget-badges"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><h2>Orçamento</h2>
+          <span class="muted small">Quantidades em <b>cinza</b> vêm do plano de corte.</span>
+        </div>
+        <div class="card-body table-wrap">
+          <table class="grid budget" id="budget-table">
+            <thead>
+              <tr><th>Material</th><th>Quant.</th><th>Valor Und.</th><th>Sub. Total</th></tr>
+            </thead>
+            <tbody id="budget-body"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><h2>Condições</h2></div>
+        <div class="card-body">
+          <div class="conditions-config">
+            <label>Mão de obra (% sobre materiais)
+              <input type="number" id="cfg-labor" step="1" value="80" />
+            </label>
+            <label>Margem / impostos (%)
+              <input type="number" id="cfg-markup" step="1" value="10" />
+            </label>
+            <label>Desconto Pix (%)
+              <input type="number" id="cfg-pix" step="1" value="10" />
+            </label>
+            <label>Dias por peça
+              <input type="number" id="cfg-days" step="0.001" value="0.105" />
+            </label>
+          </div>
+          <table class="conditions" id="conditions-table"></table>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><h2>Material (custo)</h2></div>
+        <div class="card-body chart-wrap">
+          <canvas id="chart" width="600" height="320"></canvas>
+          <div class="legend" id="chart-legend"></div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <div class="toast" id="toast"></div>
+
+  <script src="js/csv.js"></script>
+  <script src="js/optimizer.js"></script>
+  <script src="js/render.js"></script>
+  <script src="js/budget.js"></script>
+  <script src="js/app.js"></script>
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(()=>{}));
+    }
+  </script>
+</body>
+</html>
