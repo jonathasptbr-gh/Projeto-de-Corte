@@ -137,6 +137,10 @@ table.grid input:focus, table.grid select:focus { outline: 2px solid var(--green
 .metric .v { font-size: 1.4rem; font-weight: 800; color: var(--green); }
 .metric .k { font-size: .78rem; color: var(--muted); text-transform: uppercase; letter-spacing: .03em; }
 
+table.grid.breakdown { margin-top: 14px; font-size: .85rem; }
+table.grid.breakdown .ok { color: var(--green); font-weight: 700; }
+.breakdown-note { margin: 8px 2px 0; line-height: 1.4; }
+
 .sheets { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; }
 .sheet-card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); padding: 12px; }
 .sheet-card h3 { margin: 0 0 4px; font-size: .92rem; }

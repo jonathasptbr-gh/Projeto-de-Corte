@@ -144,6 +144,7 @@
     return `<label title="${side}"><input type="checkbox" data-band="${side}" ${p.bands && p.bands[side] ? 'checked' : ''}>${s}</label>`;
   }
   function attr(s) { return String(s == null ? '' : s).replace(/"/g, '&quot;'); }
+  function esc(s) { return String(s == null ? '' : s).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c])); }
 
   // ---------- Stock ----------
   function renderStock() {
@@ -252,6 +253,30 @@
       metric('Fita (m)', numFmt(m.bandMeters)) +
       metric('Aproveit.', eff.toFixed(1) + '%') +
       metric('Não couberam', result.unplaced.length);
+
+    // resumo por material com mínimo teórico de chapas e eficiência
+    const bm = result.byMaterial;
+    let rows = '', anyCeil = false;
+    Object.keys(bm).forEach(mat => {
+      const d = bm[mat];
+      const sheetArea = d.area / d.sheets;          // área de 1 chapa
+      const minSheets = Math.max(1, Math.ceil(d.usedArea / sheetArea));
+      const effMat = d.area ? (d.usedArea / d.area * 100) : 0;
+      const optimal = d.sheets <= minSheets;        // já está no mínimo
+      if (optimal) anyCeil = true;
+      rows += `<tr>
+        <td>${esc(mat)}</td><td>${d.sheets}</td><td>${minSheets}</td>
+        <td>${d.pieces}</td><td>${effMat.toFixed(1)}%</td>
+        <td>${optimal ? '<span class="ok">no mínimo ✓</span>' : 'pode juntar materiais'}</td></tr>`;
+    });
+    const breakdown = $('#plan-breakdown');
+    breakdown.innerHTML =
+      `<table class="grid breakdown"><thead><tr>
+        <th>Material</th><th>Chapas</th><th>Mín. teórico</th><th>Peças</th><th>Aproveit.</th><th>Status</th>
+      </tr></thead><tbody>${rows}</tbody></table>` +
+      `<p class="muted small breakdown-note">O aproveitamento % = área das peças ÷ (chapas × área da chapa). ` +
+      `Com o nº mínimo de chapas, esse % é o teto possível — para subir, reduza chapas ` +
+      `(ex.: desligue <b>“Considerar material”</b> se as chapas forem do mesmo material).</p>`;
 
     Render.renderSheets($('#plan-sheets'), result, { showLabels: state.options.labels });
 
