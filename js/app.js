@@ -120,7 +120,7 @@
             <option value="v" ${p.grain==='v'?'selected':''}>↕</option>
           </select></td>` +
         `<td class="band-cell">${bandBox(p,'top')}${bandBox(p,'left')}${bandBox(p,'bottom')}${bandBox(p,'right')}</td>` +
-        `<td class="col-del" data-del="${i}">✕</td>`;
+        `<td class="col-del" data-del="${i}"><span class="material-symbols-outlined">delete</span></td>`;
       tr.querySelectorAll('[data-f]').forEach(inp => {
         inp.addEventListener('change', () => {
           const f = inp.dataset.f;
@@ -156,7 +156,7 @@
         `<td><input type="number" step="0.1" value="${s.length}" data-f="length"></td>` +
         `<td><input type="number" step="1" value="${s.qty}" data-f="qty"></td>` +
         `<td><input value="${attr(s.material)}" data-f="material" placeholder="(qualquer)"></td>` +
-        `<td class="col-del" data-del="${i}">✕</td>`;
+        `<td class="col-del" data-del="${i}"><span class="material-symbols-outlined">delete</span></td>`;
       tr.querySelectorAll('[data-f]').forEach(inp => inp.addEventListener('change', () => {
         const f = inp.dataset.f;
         s[f] = (f === 'material') ? inp.value : (parseFloat(inp.value) || 0);

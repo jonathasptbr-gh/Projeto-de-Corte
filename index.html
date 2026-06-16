@@ -8,18 +8,22 @@
   <link rel="manifest" href="manifest.json" />
   <link rel="icon" href="icons/icon.svg" type="image/svg+xml" />
   <link rel="apple-touch-icon" href="icons/icon-192.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet"
+    href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=swap" />
   <link rel="stylesheet" href="css/styles.css" />
 </head>
 <body>
   <header class="app-header">
     <div class="brand">
-      <img src="icons/icon.svg" alt="" width="28" height="28" />
+      <span class="material-symbols-outlined">content_cut</span>
       <span>Projeto de Corte</span>
     </div>
     <nav class="tabs" id="tabs">
-      <button class="tab active" data-tab="panels">Painéis &amp; Stock</button>
-      <button class="tab" data-tab="plan">Plano de Corte</button>
-      <button class="tab" data-tab="budget">Orçamento</button>
+      <button class="tab active" data-tab="panels"><span class="material-symbols-outlined">table_chart</span>Painéis &amp; Stock</button>
+      <button class="tab" data-tab="plan"><span class="material-symbols-outlined">content_cut</span>Plano de Corte</button>
+      <button class="tab" data-tab="budget"><span class="material-symbols-outlined">request_quote</span>Orçamento</button>
     </nav>
   </header>
 
@@ -37,11 +41,11 @@
           </p>
           <div class="import-row">
             <label class="btn primary file-btn">
-              Selecionar CSV
+              <span class="material-symbols-outlined">upload_file</span>Selecionar CSV
               <input type="file" id="csv-input" accept=".csv,text/csv" hidden />
             </label>
-            <button class="btn" id="load-sample">Carregar exemplo</button>
-            <button class="btn ghost" id="clear-panels">Limpar painéis</button>
+            <button class="btn" id="load-sample"><span class="material-symbols-outlined">dataset</span>Carregar exemplo</button>
+            <button class="btn ghost" id="clear-panels"><span class="material-symbols-outlined">delete_sweep</span>Limpar painéis</button>
             <span class="import-status" id="import-status"></span>
           </div>
         </div>
@@ -50,7 +54,7 @@
       <div class="card">
         <div class="card-head">
           <h2>Painéis</h2>
-          <button class="btn small" id="add-panel">+ Adicionar peça</button>
+          <button class="btn small" id="add-panel"><span class="material-symbols-outlined">add</span>Adicionar peça</button>
         </div>
         <div class="card-body table-wrap">
           <table class="grid" id="panels-table">
@@ -74,7 +78,7 @@
 
       <div class="card">
         <div class="card-head"><h2>Stock (Chapas)</h2>
-          <button class="btn small" id="add-stock">+ Adicionar chapa</button>
+          <button class="btn small" id="add-stock"><span class="material-symbols-outlined">add</span>Adicionar chapa</button>
         </div>
         <div class="card-body table-wrap">
           <table class="grid" id="stock-table">
@@ -119,7 +123,7 @@
       <div class="card">
         <div class="card-head">
           <h2>Plano de Corte (Aproveitamento)</h2>
-          <button class="btn primary" id="run-plan">▶ Calcular plano</button>
+          <button class="btn primary" id="run-plan"><span class="material-symbols-outlined">play_arrow</span>Calcular plano</button>
         </div>
         <div class="card-body">
           <div class="metrics" id="plan-metrics"></div>

@@ -1,5 +1,5 @@
 /* Service Worker — cache do app shell para uso offline. */
-const CACHE = 'projeto-corte-v1';
+const CACHE = 'projeto-corte-v2';
 const ASSETS = [
   './',
   './index.html',
@@ -30,7 +30,8 @@ self.addEventListener('fetch', e => {
   e.respondWith(
     caches.match(req).then(cached => {
       const fetched = fetch(req).then(res => {
-        if (res && res.status === 200 && res.type === 'basic') {
+        // Cacheia respostas válidas, inclusive de fontes (Material Symbols).
+        if (res && (res.status === 200 || res.type === 'opaque')) {
           const copy = res.clone();
           caches.open(CACHE).then(c => c.put(req, copy));
         }
