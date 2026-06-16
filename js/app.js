@@ -52,11 +52,13 @@
   }
 
   // Material simplificado: Branco/Cor + espessura (ex.: "Branco 18mm").
-  function normalizeMaterial(raw) {
+  // A espessura vem da coluna do CSV (em mm); se faltar, tenta extrair do texto.
+  function normalizeMaterial(raw, thMm) {
     const s = String(raw || '');
-    const th = s.match(/(\d+(?:[.,]\d+)?)\s*mm/i);
     const base = /white|branc/i.test(s) ? 'Branco' : 'Cor';
-    return th ? `${base} ${th[1].replace(',', '.')}mm` : base;
+    let th = thMm > 0 ? Math.round(thMm) : 0;
+    if (!th) { const m = s.match(/(\d+(?:[.,]\d+)?)\s*mm/i); if (m) th = Math.round(parseFloat(m[1].replace(',', '.'))); }
+    return th ? `${base} ${th}mm` : base;
   }
 
   // Chave de ordenação: última letra (conjunto) primeiro, depois o resto.
@@ -250,7 +252,7 @@
   function importText(text) {
     const { panels, warnings } = CSV.parse(text);
     if (!panels.length) { toast(warnings[0] || 'CSV sem peças válidas.'); return; }
-    panels.forEach(p => { p.material = normalizeMaterial(p.material); });
+    panels.forEach(p => { p.material = normalizeMaterial(p.material, p.thickness); });
     panels.sort((a, b) => nameSortKey(a.name).localeCompare(nameSortKey(b.name), 'pt'));
     state.panels = panels;
     renderPanels(); save();

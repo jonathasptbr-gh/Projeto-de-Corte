@@ -28,9 +28,16 @@ Todos os percentuais e preços unitários são editáveis e salvos no navegador 
 
 ## Formato do CSV
 
-Colunas: `C` (comprimento), `L` (largura), `Q` (quantidade), `Material`, `NOME`,
-`Enabled`, `Grain direction`, `Top band`, `Left band`, `Bottom band`, `Right band`, `Ordem`.
-Linhas vazias e sem medidas são ignoradas. Aceita separador `,` ou `;` e decimal com `,` ou `.`.
+O leitor identifica as colunas pelos **nomes do cabeçalho** (não pela ordem),
+suportando dois modelos:
+
+- **Padrão atual:** `Grupo, Peça, Quantidade, Comprimento(cm), Largura(cm), Espessura(cm), Material`
+- **Legado (CutList):** `C, L, Q, Material, NOME, Enabled, Grain direction, Top/Left/Bottom/Right band, Ordem`
+
+Trata BOM, encoding duplo (`PeÃ§a` → `Peça`), aspas, decimal com `,` ou `.` e separador `,`/`;`.
+A **espessura** (cm) é convertida para mm e usada no nome do material:
+`white → Branco`, demais → `Cor`, sempre **+ espessura** (ex.: `Branco 18mm`, `Cor 15mm`).
+As peças são ordenadas pela **última letra** do nome (conjunto) e depois pela primeira.
 
 ## Rodar localmente
 
