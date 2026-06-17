@@ -125,7 +125,7 @@ details.opt-details .options-grid { padding: 6px 0 10px; }
 }
 .card-head h2 { margin: 0; font-size: 1rem; }
 .card-body { padding: 8px; }
-.card-body.table-wrap { padding: 4px; }
+.card-body.table-wrap { padding: 0; }
 
 .muted { color: var(--muted); }
 .small { font-size: .82rem; }
@@ -157,8 +157,9 @@ code { background: #eef1ef; padding: 1px 5px; border-radius: 5px; font-size: .85
 /* tabelas das peças/stock em superfície branca para contrastar com o fundo */
 .block .table-wrap {
   background: #fff; border: 1px solid var(--line); border-radius: 10px;
-  padding: 4px; box-shadow: var(--shadow);
+  padding: 0; box-shadow: var(--shadow); overflow: hidden;
 }
+.block .table-wrap { overflow-x: auto; }
 table.grid { width: 100%; border-collapse: collapse; font-size: .85rem; table-layout: auto; }
 table.grid th, table.grid td {
   border: 1px solid var(--line);
@@ -176,8 +177,9 @@ table.grid.compact { font-size: .8rem; }
 table.grid.compact th, table.grid.compact td { padding: 2px 3px; }
 .cell-num { width: 2.9rem; }
 .cell-num input { text-align: right; }
-.cell-qty { width: 2.1rem; }
-.cell-qty input { text-align: right; }
+.cell-qty { width: 2.1rem; text-align: center; }
+.cell-qty input { text-align: center; }
+.cell-mat, .cell-veio, .cell-fita { text-align: center; }
 .cell-mat { min-width: 3.6rem; }
 .cell-name { width: 3.4rem; }
 .cell-fita { width: 2.6rem; text-align: center; }
@@ -192,10 +194,9 @@ table.grid.compact th, table.grid.compact td { padding: 2px 3px; }
 .cell-act { width: 1.6rem; padding: 2px !important; text-align: center; }
 table.grid.compact select { font: inherit; border: none; background: transparent; width: 100%; min-width: 0; padding: 2px 0; }
 
-/* coluna de seleção rápida (oculta até ligar o modo) */
-.cell-sel { display: none; width: 1.7rem; text-align: center; }
-table.select-mode .cell-sel { display: table-cell; }
-.cell-sel input { width: 16px; height: 16px; }
+/* checkbox "selecionar todas" ocupa o espaço da coluna "+" só no modo seleção */
+.sel-all { display: none; }
+table.select-mode .sel-all { display: inline-block; }
 
 /* botão de seleção rápida ativo */
 .btn.active { background: var(--green); color: #fff; border-color: var(--green); }

@@ -331,12 +331,18 @@
 
   // Exclui um material e TODAS as peças (e estoques) que o utilizam.
   async function deleteMaterial(m) {
-    const units = state.panels.filter(p => p.material === m).reduce((a, p) => a + (p.qty || 1), 0);
-    const natives = matNatives(m); if (!natives.length) natives.push(m);
-    const th = matThickness(m);
+    const affected = state.panels.filter(p => p.material === m && (p.length > 0 || p.width > 0));
+    const units = affected.reduce((a, p) => a + (p.qty || 1), 0);
+    const groups = {};
+    affected.forEach(p => {
+      const k = (p.name || 'Peça') + '|' + p.width + 'x' + p.length;
+      if (!groups[k]) groups[k] = { name: p.name || 'Peça', w: p.width, l: p.length, qty: 0 };
+      groups[k].qty += (p.qty || 1);
+    });
+    const list = Object.values(groups).map(g => `${g.name} · ${fmtNum(g.w)}×${fmtNum(g.l)} · ${g.qty}×`);
     const ok = await ui.confirm(
-      `Excluir este material e as ${units} peça(s) que o utilizam? Nomes nativos incluídos:`,
-      { title: 'Excluir material', danger: true, okText: 'Excluir', list: natives.map(n => n + (th ? ` · ${th}mm` : '')) });
+      `Excluir este material e as ${units} peça(s) abaixo? Esta ação não pode ser desfeita.`,
+      { title: 'Excluir material', danger: true, okText: 'Excluir', list });
     if (!ok) return;
     state.panels = state.panels.filter(p => p.material !== m);
     state.stock = state.stock.filter(s => s.material !== m);
@@ -386,13 +392,16 @@
   // ---------- Painéis ----------
   function makePanelRow(p) {
     const tr = el('tr');
-    // seleção
-    const tdSel = el('td', 'cell-sel');
-    const cb = document.createElement('input'); cb.type = 'checkbox'; cb.checked = selected.has(p);
-    cb.addEventListener('change', () => { cb.checked ? selected.add(p) : selected.delete(p); updateSelAll(); });
-    tdSel.appendChild(cb); tr.appendChild(tdSel);
-    // +
-    const tdAdd = el('td', 'cell-act'); tdAdd.appendChild(iconBtn('add', 'add', 'Inserir acima', () => insertAbove('panels', p))); tr.appendChild(tdAdd);
+    // 1ª coluna: "+" para inserir acima OU checkbox de seleção (mesmo espaço)
+    const tdAct = el('td', 'cell-act');
+    if (selectMode) {
+      const cb = document.createElement('input'); cb.type = 'checkbox'; cb.checked = selected.has(p);
+      cb.addEventListener('change', () => { cb.checked ? selected.add(p) : selected.delete(p); updateSelAll(); });
+      tdAct.appendChild(cb);
+    } else {
+      tdAct.appendChild(iconBtn('add', 'add', 'Inserir acima', () => insertAbove('panels', p)));
+    }
+    tr.appendChild(tdAct);
     // largura, comprimento (largura primeiro!)
     const tdW = el('td', 'cell-num'); tdW.appendChild(numInput(p.width, 'L', 'decimal', v => onPanelField(p, 'width', v))); tr.appendChild(tdW);
     const tdL = el('td', 'cell-num'); tdL.appendChild(numInput(p.length, 'C', 'decimal', v => onPanelField(p, 'length', v))); tr.appendChild(tdL);
