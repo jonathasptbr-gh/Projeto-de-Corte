@@ -142,33 +142,40 @@
     return { sheets, unplaced };
   }
 
-  function largestFree(sheets) {
-    let max = 0;
-    sheets.forEach(s => s.free.forEach(r => { const a = r.w * r.h; if (a > max) max = a; }));
-    return max;
+  // Áreas das sobras reaproveitáveis (ignora fiapos de kerf), em ordem decrescente.
+  function offAreas(sheets) {
+    const a = [];
+    sheets.forEach(s => s.free.forEach(r => { if (r.w > 2 && r.h > 2) a.push(r.w * r.h); }));
+    a.sort((x, y) => y - x);
+    return a;
   }
-  function concentration(sheets) { // soma de áreas² das sobras (favorece poucas grandes)
-    let c = 0;
-    sheets.forEach(s => s.free.forEach(r => { const a = r.w * r.h; c += a * a; }));
-    return c;
+  // Compara duas listas de sobras (desc): >0 se 'a' é melhor (maior retalho,
+  // depois 2º maior, etc.). É a lógica "deixe o maior pedaço possível, e só
+  // então o próximo o maior possível".
+  function cmpLex(a, b) {
+    const n = Math.max(a.length, b.length);
+    for (let i = 0; i < n; i++) {
+      const x = a[i] || 0, y = b[i] || 0;
+      if (Math.abs(x - y) > 1e-3) return x - y;
+    }
+    return 0;
   }
   function score(res) {
     return {
       sheets: res.sheets.length,
       unplaced: res.unplaced.length,
-      leftover: largestFree(res.sheets),
-      conc: concentration(res.sheets),
+      off: offAreas(res.sheets),
       cuts: res.sheets.reduce((a, s) => a + s.cuts, 0),
     };
   }
-  // Prioriza: menos não-encaixadas → menos chapas → MAIOR retalho →
-  //           sobras concentradas → menos cortes.
+  // Prioriza: menos não-encaixadas → menos chapas → sobras maiores
+  // (lexicográfico: maior retalho, depois 2º maior, ...) → menos cortes.
   function better(a, b) {
     if (!b) return true;
     if (a.unplaced !== b.unplaced) return a.unplaced < b.unplaced;
     if (a.sheets !== b.sheets) return a.sheets < b.sheets;
-    if (Math.abs(a.leftover - b.leftover) > 1e-3) return a.leftover > b.leftover;
-    if (Math.abs(a.conc - b.conc) > 1e-3) return a.conc > b.conc;
+    const lex = cmpLex(a.off, b.off);
+    if (lex !== 0) return lex > 0;
     return a.cuts < b.cuts;
   }
 
