@@ -30,60 +30,9 @@
   <main>
     <!-- ===================== ABA: PAINÉIS & STOCK ===================== -->
     <section class="view active" id="view-panels">
-      <div class="card">
-        <div class="card-head">
-          <h2>Importar CSV</h2>
-        </div>
-        <div class="card-body">
-          <div class="import-row">
-            <label class="btn primary file-btn">
-              <span class="material-symbols-outlined">upload_file</span>Importar CSV
-              <input type="file" id="csv-input" accept=".csv,text/csv" hidden />
-            </label>
-            <button class="btn ghost" id="clear-panels"><span class="material-symbols-outlined">delete_sweep</span>Limpar</button>
-            <span class="import-status" id="import-status"></span>
-          </div>
-        </div>
-      </div>
-
-      <div class="card">
-        <div class="card-head">
-          <h2>Painéis</h2>
-        </div>
-        <div class="card-body table-wrap">
-          <table class="grid compact" id="panels-table">
-            <thead>
-              <tr>
-                <th class="cell-act"></th>
-                <th class="cell-num" title="Comprimento">C</th>
-                <th class="cell-num" title="Largura">L</th>
-                <th class="cell-qty">Qtd</th>
-                <th>Material</th>
-                <th class="cell-name">Nome</th>
-                <th class="cell-fita" title="Fita de borda">Fita</th>
-                <th class="cell-act"></th>
-              </tr>
-            </thead>
-            <tbody id="panels-body"></tbody>
-          </table>
-        </div>
-      </div>
-
-      <div class="card">
-        <div class="card-head"><h2>Stock (Chapas)</h2></div>
-        <div class="card-body table-wrap">
-          <table class="grid compact" id="stock-table">
-            <thead>
-              <tr><th class="cell-act"></th><th class="cell-num">Larg.</th><th class="cell-num">Compr.</th><th class="cell-qty">Qtd</th><th>Material</th><th class="cell-act"></th></tr>
-            </thead>
-            <tbody id="stock-body"></tbody>
-          </table>
-        </div>
-      </div>
-
-      <div class="card">
-        <div class="card-head"><h2>Opções</h2></div>
-        <div class="card-body options-grid">
+      <details class="opt-details" id="opt-details">
+        <summary><span class="material-symbols-outlined">tune</span> Opções</summary>
+        <div class="options-grid">
           <label class="opt">Espessura de corte (kerf)
             <input type="number" id="opt-kerf" step="0.1" min="0" value="0.8" />
           </label>
@@ -96,15 +45,51 @@
           <label class="opt switch">Considerar direção do grão
             <input type="checkbox" id="opt-grain" checked />
           </label>
-          <label class="opt switch">Permitir rotação das peças
-            <input type="checkbox" id="opt-rotate" checked />
-          </label>
-          <label class="opt">Unidade
-            <select id="opt-unit">
-              <option value="cm">cm</option>
-              <option value="mm">mm</option>
-            </select>
-          </label>
+        </div>
+      </details>
+
+      <div class="block">
+        <h2 class="block-title">Stock (Chapas)</h2>
+        <div class="table-wrap">
+          <table class="grid compact" id="stock-table">
+            <thead>
+              <tr><th class="cell-act"></th><th class="cell-num">Largura</th><th class="cell-num">Compr.</th><th class="cell-qty">Qtd</th><th>Material</th><th class="cell-act"></th></tr>
+            </thead>
+            <tbody id="stock-body"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="block">
+        <div class="block-head">
+          <h2 class="block-title">Painéis</h2>
+          <div class="block-actions">
+            <label class="btn small primary file-btn" title="Importar CSV">
+              <span class="material-symbols-outlined">upload_file</span>CSV
+              <input type="file" id="csv-input" accept=".csv,text/csv" hidden />
+            </label>
+            <button class="btn small ghost" id="clear-panels" title="Limpar"><span class="material-symbols-outlined">delete_sweep</span></button>
+            <button class="btn small" id="toggle-select" title="Seleção rápida"><span class="material-symbols-outlined">checklist</span></button>
+          </div>
+        </div>
+        <span class="import-status" id="import-status"></span>
+        <div class="table-wrap">
+          <table class="grid compact" id="panels-table">
+            <thead>
+              <tr id="panels-head">
+                <th class="cell-sel"><input type="checkbox" id="sel-all" title="Selecionar todas"></th>
+                <th class="cell-act"></th>
+                <th class="cell-num">Larg.</th>
+                <th class="cell-num">Compr.</th>
+                <th class="cell-qty">Qtd</th>
+                <th>Material</th>
+                <th class="cell-name">Nome</th>
+                <th class="cell-fita" title="Fita de borda">Fita</th>
+                <th class="cell-act"></th>
+              </tr>
+            </thead>
+            <tbody id="panels-body"></tbody>
+          </table>
         </div>
       </div>
     </section>
