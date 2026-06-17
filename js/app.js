@@ -512,12 +512,45 @@
     });
   }
 
+  // ---------- Recepção de CSV compartilhado / "abrir com" ----------
+  // Lê o CSV guardado pelo service worker (Web Share Target) e processa.
+  async function readSharedCSV() {
+    try {
+      const cache = await caches.open('projeto-corte-share');
+      const res = await cache.match('shared-csv');
+      if (!res) return false;
+      const text = await res.text();
+      await cache.delete('shared-csv');
+      if (text && text.trim()) { importText(text); runPlan(true); return true; }
+    } catch (e) {}
+    return false;
+  }
+  function initShareHandlers() {
+    // 1) Compartilhamento (Android/Chrome): SW redireciona com ?shared=1
+    readSharedCSV().then(ok => {
+      if (location.search) history.replaceState(null, '', location.pathname);
+    });
+    // 2) "Abrir com" (File Handling API, desktop): recebe o arquivo direto
+    if ('launchQueue' in window && window.launchQueue && 'setConsumer' in window.launchQueue) {
+      window.launchQueue.setConsumer(async params => {
+        if (params && params.files && params.files.length) {
+          try {
+            const file = await params.files[0].getFile();
+            const text = await file.text();
+            if (text && text.trim()) { importText(text); runPlan(true); }
+          } catch (e) {}
+        }
+      });
+    }
+  }
+
   // ---------- Init ----------
   function init() {
     load();
     initTabs(); initOptions(); initImport(); initSelect(); initBudgetCfg(); initBandModal();
     renderStock(); renderPanels();
     $('#run-plan').addEventListener('click', () => runPlan(false));
+    initShareHandlers();
   }
   document.addEventListener('DOMContentLoaded', init);
 })();

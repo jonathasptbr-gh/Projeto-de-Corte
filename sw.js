@@ -1,5 +1,7 @@
-/* Service Worker — cache do app shell para uso offline. */
-const CACHE = 'projeto-corte-v6';
+/* Service Worker — cache do app shell + recepção de CSV compartilhado. */
+const CACHE = 'projeto-corte-v7';
+const SHARE_CACHE = 'projeto-corte-share';
+const SHARE_KEY = 'shared-csv';
 const ASSETS = [
   './',
   './index.html',
@@ -19,18 +21,44 @@ self.addEventListener('install', e => {
 
 self.addEventListener('activate', e => {
   e.waitUntil(
-    caches.keys().then(keys => Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k))))
+    caches.keys()
+      .then(keys => Promise.all(keys.filter(k => k !== CACHE && k !== SHARE_CACHE).map(k => caches.delete(k))))
       .then(() => self.clients.claim())
   );
 });
 
+// Guarda o texto do CSV compartilhado para a página ler ao abrir.
+async function stashShared(text) {
+  const c = await caches.open(SHARE_CACHE);
+  await c.put(SHARE_KEY, new Response(text, { headers: { 'Content-Type': 'text/csv; charset=utf-8' } }));
+}
+
 self.addEventListener('fetch', e => {
   const req = e.request;
+  const url = new URL(req.url);
+
+  // Recepção de arquivo compartilhado (Web Share Target) — chega via POST.
+  if (req.method === 'POST' && url.pathname.endsWith('/share-target')) {
+    e.respondWith((async () => {
+      try {
+        const form = await req.formData();
+        const file = form.get('file') || form.get('files');
+        if (file && typeof file.text === 'function') {
+          const text = await file.text();
+          if (text && text.trim()) await stashShared(text);
+        }
+      } catch (err) { /* ignora */ }
+      // volta para o app, sinalizando que há um CSV pendente
+      return Response.redirect('./index.html?shared=1', 303);
+    })());
+    return;
+  }
+
   if (req.method !== 'GET') return;
+
   e.respondWith(
     caches.match(req).then(cached => {
       const fetched = fetch(req).then(res => {
-        // Cacheia respostas válidas, inclusive de fontes (Material Symbols).
         if (res && (res.status === 200 || res.type === 'opaque')) {
           const copy = res.clone();
           caches.open(CACHE).then(c => c.put(req, copy));

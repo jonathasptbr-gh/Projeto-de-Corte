@@ -39,6 +39,17 @@ A **espessura** (cm) é convertida para mm e usada no nome do material:
 `white → Branco`, demais → `Cor`, sempre **+ espessura** (ex.: `Branco 18mm`, `Cor 15mm`).
 As peças são ordenadas pela **última letra** do nome (conjunto) e depois pela primeira.
 
+## Compartilhar CSV direto para o app
+
+Com o PWA **instalado**, ele aparece na folha de compartilhamento do sistema
+(e como "abrir com" para `.csv`). Ao compartilhar/abrir um CSV, o app já abre
+processando o arquivo automaticamente — sem precisar clicar em "Importar".
+
+- **Android/Chrome:** Web Share Target (compartilhar → "Projeto de Corte").
+- **Desktop/Chrome:** File Handlers (abrir `.csv` com o app).
+
+Requer estar instalado e servido por HTTPS (ex.: GitHub Pages).
+
 ## Rodar localmente
 
 É estático — qualquer servidor HTTP serve (o Service Worker exige `http`, não `file://`):
