@@ -296,9 +296,12 @@
       sw.appendChild(num);
       const inp = document.createElement('input'); inp.type = 'color';
       inp.value = /^#[0-9a-f]{6}$/i.test(col) ? col : '#888888';
-      inp.addEventListener('input', () => {
-        state.materialColors[m] = inp.value; save();
+      const applyColor = () => { sw.style.background = inp.value; sw.classList.toggle('light', isLight(inp.value)); };
+      inp.addEventListener('input', applyColor); // prévia ao vivo
+      inp.addEventListener('change', () => {     // confirma: salva, re-renderiza e recalcula
+        state.materialColors[m] = inp.value.toLowerCase(); save();
         renderMatLegend(); renderPanels(); renderStock();
+        if (validPanels().length) runPlan(true); // cores iguais → mesmo material no cálculo
       });
       sw.appendChild(inp);
       const name = el('span', 'mat-name'); name.textContent = matLabel(m);
@@ -655,15 +658,32 @@
   }
 
   // ---------- Plano de corte ----------
+  // Identidade do material no corte = COR + espessura (o nome é ignorado):
+  // materiais de cor e espessura iguais são tratados como o mesmo material.
+  function materialGroupKey(name) {
+    if (!name) return '';
+    return String(matColor(name)).toLowerCase() + '|' + (matThickness(name) || '');
+  }
+
   function runPlan(silent) {
-    const panels = validPanels();
-    if (!panels.length) { if (!silent) toast('Importe um CSV ou adicione peças.'); return; }
-    const result = Optimizer.optimize(panels, validStock(), {
+    const raw = validPanels();
+    if (!raw.length) { if (!silent) toast('Importe um CSV ou adicione peças.'); return; }
+    // agrupa por cor+espessura; guarda um rótulo legível por grupo
+    const groupLabel = {};
+    raw.forEach(p => { const k = materialGroupKey(p.material); if (!(k in groupLabel)) groupLabel[k] = matLabel(p.material); });
+    const gpanels = raw.map(p => Object.assign({}, p, { material: materialGroupKey(p.material) }));
+    const gstock = validStock().map(s => Object.assign({}, s, { material: materialGroupKey(s.material) }));
+    const result = Optimizer.optimize(gpanels, gstock, {
       kerf: state.options.kerf,
       considerMaterial: state.options.material,
       considerGrain: state.options.grain,
       allowRotate: true, // rotação livre, limitada apenas pela direção do grão
     });
+    // re-rotula (chave de grupo → nome legível) para exibição
+    result.sheets.forEach(s => { s.material = groupLabel[s.material] || s.material; });
+    const bm2 = {};
+    Object.keys(result.byMaterial).forEach(k => { bm2[groupLabel[k] || k] = result.byMaterial[k]; });
+    result.byMaterial = bm2;
     state.plan = result;
 
     const pieces = result.sheets.reduce((a, s) => a + s.placements.length, 0);
