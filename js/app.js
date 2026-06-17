@@ -585,6 +585,50 @@
     gotoTab('plan');
     toast('Projeto: ' + proj.name);
   }
+  // Exporta as peças atuais (com edições de medida/veio/material/fita) num CSV
+  // re-importável. No celular abre o compartilhamento; no resto, baixa o arquivo.
+  function numOut(n) { return (Math.round((+n || 0) * 1000) / 1000).toString().replace('.', ','); }
+  function exportCSV() {
+    const ps = validPanels();
+    if (!ps.length) { toast('Nenhuma peça para exportar.'); return; }
+    const headers = [
+      { key: 'width', label: 'Largura' },
+      { key: 'length', label: 'Comprimento' },
+      { key: 'qty', label: 'Quantidade' },
+      { key: 'thickness', label: 'Espessura (mm)' },
+      { key: 'material', label: 'Material' },
+      { key: 'name', label: 'Nome' },
+      { key: 'grain', label: 'Veio' },
+      { key: 'top', label: 'Top band' },
+      { key: 'left', label: 'Left band' },
+      { key: 'bottom', label: 'Bottom band' },
+      { key: 'right', label: 'Right band' },
+    ];
+    const rows = ps.map(p => {
+      const b = p.bands || {};
+      return {
+        width: numOut(p.width), length: numOut(p.length), qty: p.qty || 1,
+        thickness: matThickness(p.material) || (p.thickness || ''),
+        material: matNatives(p.material)[0] || p.material || '',
+        name: p.name || '', grain: p.grain || '',
+        top: b.top ? '1' : '', left: b.left ? '1' : '', bottom: b.bottom ? '1' : '', right: b.right ? '1' : '',
+      };
+    });
+    const text = '﻿' + CSV.stringify(rows, headers); // BOM p/ acentos no Excel
+    const pname = (($('#project-name') && $('#project-name').textContent) || 'pecas').trim().replace(/[^\w.-]+/g, '_') || 'pecas';
+    const fname = `${pname}_${new Date().toISOString().slice(0, 10)}.csv`;
+    const file = new File([text], fname, { type: 'text/csv' });
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      navigator.share({ files: [file], title: fname }).catch(() => {});
+      return;
+    }
+    const url = URL.createObjectURL(file);
+    const a = document.createElement('a');
+    a.href = url; a.download = fname; document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1500);
+    toast('CSV exportado.');
+  }
+
   function initImport() {
     $('#csv-input').addEventListener('change', e => {
       const file = e.target.files[0]; if (!file) return;
@@ -593,6 +637,7 @@
       reader.readAsText(file);
       e.target.value = '';
     });
+    $('#export-csv').addEventListener('click', exportCSV);
     $('#clear-panels').addEventListener('click', async () => {
       if (validPanels().length) {
         const ok = await ui.confirm('Limpar todas as peças deste projeto?', { title: 'Limpar peças', danger: true, okText: 'Limpar' });

@@ -153,5 +153,18 @@
     return { panels, warnings };
   }
 
-  global.CSV = { parse };
+  // ---- Geração de CSV (round-trip: re-importável pelo parser acima) ----
+  // Usa ';' como separador e vírgula decimal (padrão pt-BR/Excel).
+  function csvCell(v, sep) {
+    const s = String(v == null ? '' : v);
+    return new RegExp('["\\n\\r' + sep + ']').test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+  }
+  function stringify(rows, headers, sep) {
+    sep = sep || ';';
+    const head = headers.map(h => csvCell(h.label, sep)).join(sep);
+    const body = rows.map(r => headers.map(h => csvCell(r[h.key], sep)).join(sep)).join('\r\n');
+    return head + '\r\n' + body + '\r\n';
+  }
+
+  global.CSV = { parse, stringify };
 })(window);
