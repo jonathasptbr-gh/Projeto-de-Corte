@@ -614,19 +614,30 @@
         top: b.top ? '1' : '', left: b.left ? '1' : '', bottom: b.bottom ? '1' : '', right: b.right ? '1' : '',
       };
     });
-    const text = '﻿' + CSV.stringify(rows, headers); // BOM p/ acentos no Excel
-    const pname = (($('#project-name') && $('#project-name').textContent) || 'pecas').trim().replace(/[^\w.-]+/g, '_') || 'pecas';
-    const fname = `${pname}_${new Date().toISOString().slice(0, 10)}.csv`;
-    const file = new File([text], fname, { type: 'text/csv' });
-    if (navigator.canShare && navigator.canShare({ files: [file] })) {
-      navigator.share({ files: [file], title: fname }).catch(() => {});
-      return;
+    try {
+      const text = '﻿' + CSV.stringify(rows, headers); // BOM p/ acentos no Excel
+      const pname = (($('#project-name') && $('#project-name').textContent) || 'pecas').trim().replace(/[^\w.-]+/g, '_') || 'pecas';
+      const fname = `${pname}_${new Date().toISOString().slice(0, 10)}.csv`;
+      const file = new File([text], fname, { type: 'text/csv' });
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        navigator.share({ files: [file], title: fname }).catch(err => {
+          if (err && err.name === 'AbortError') return; // usuário cancelou
+          downloadBlob(file, fname); // compartilhamento falhou → baixa
+        });
+        return;
+      }
+      downloadBlob(file, fname);
+    } catch (e) {
+      toast('Não consegui exportar: ' + ((e && e.message) || e));
     }
+  }
+  function downloadBlob(file, fname) {
     const url = URL.createObjectURL(file);
     const a = document.createElement('a');
-    a.href = url; a.download = fname; document.body.appendChild(a); a.click(); a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 1500);
-    toast('CSV exportado.');
+    a.href = url; a.download = fname; a.rel = 'noopener';
+    document.body.appendChild(a); a.click();
+    setTimeout(() => { a.remove(); URL.revokeObjectURL(url); }, 1500);
+    toast('CSV exportado (verifique seus Downloads).');
   }
 
   function initImport() {

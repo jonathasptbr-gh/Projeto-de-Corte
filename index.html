@@ -74,7 +74,7 @@
               <span class="material-symbols-outlined">upload_file</span>CSV
               <input type="file" id="csv-input" accept=".csv,text/csv" hidden />
             </label>
-            <button class="btn small" id="export-csv" title="Exportar/compartilhar CSV (com suas edições)"><span class="material-symbols-outlined">download</span></button>
+            <button type="button" class="btn small" id="export-csv" title="Exportar/compartilhar CSV (com suas edições)"><span class="material-symbols-outlined">download</span></button>
             <button class="btn small ghost" id="clear-panels" title="Limpar"><span class="material-symbols-outlined">delete_sweep</span></button>
             <button class="btn small" id="toggle-select" title="Seleção rápida"><span class="material-symbols-outlined">checklist</span></button>
           </div>
@@ -219,7 +219,16 @@
   <script src="js/app.js"></script>
   <script>
     if ('serviceWorker' in navigator) {
-      window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(()=>{}));
+      // Recarrega 1× quando uma versão NOVA do app assume (não na 1ª instalação),
+      // para não servir HTML novo com JS antigo em cache.
+      var __hadController = !!navigator.serviceWorker.controller, __refreshing = false;
+      navigator.serviceWorker.addEventListener('controllerchange', function () {
+        if (__refreshing) return; __refreshing = true;
+        if (__hadController) location.reload();
+      });
+      window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').then(reg => {
+        if (reg.update) setInterval(() => reg.update().catch(()=>{}), 60000); // checa atualização
+      }).catch(()=>{}));
     }
   </script>
 </body>
