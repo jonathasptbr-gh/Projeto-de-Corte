@@ -257,6 +257,78 @@
     return { sheets, unplaced };
   }
 
+  // Preenche UMA única chapa o máximo possível: coloca o que couber e devolve
+  // o resto para a próxima chapa (não abre chapa nova). Base do "encher antes
+  // de abrir outra".
+  function fillOneSheet(list, W, H, o, splitPref, fitMode, blockMode) {
+    const sheet = newSheet(list.length ? list[0].__mat : '', W, H, 1);
+    const done = new Array(list.length).fill(false);
+    for (let idx = 0; idx < list.length; idx++) {
+      if (done[idx]) continue;
+      const it = list[idx];
+      let pw = it.w, ph = it.h, allowRotate;
+      if (o.considerGrain && it.grain) { allowRotate = false; if (it.grain === 'h') { pw = it.h; ph = it.w; } }
+      else allowRotate = o.allowRotate;
+      const fit = findFit(sheet, pw, ph, allowRotate, fitMode);
+      if (!fit) continue; // não cabe nesta chapa → fica para a próxima
+      done[idx] = true;
+      const fw = fit.rotated ? ph : pw, fh = fit.rotated ? pw : ph;
+      const r = sheet.free[fit.rectIdx];
+      if (blockMode) {
+        const k = o.kerf;
+        const cols = Math.max(1, Math.floor((r.w + k) / (fw + k)));
+        const rows = Math.max(1, Math.floor((r.h + k) / (fh + k)));
+        const cap = cols * rows, mySig = sig(it), group = [];
+        for (let j = idx; j < list.length && group.length < cap - 1; j++) if (!done[j] && sig(list[j]) === mySig) group.push(j);
+        const ids = [idx].concat(group);
+        const total = Math.min(ids.length, cap);
+        let placed = 0;
+        for (let rr = 0; rr < rows && placed < total; rr++) for (let cc = 0; cc < cols && placed < total; cc++) {
+          sheet.placements.push({ x: r.x + cc * (fw + k), y: r.y + rr * (fh + k), w: fw, h: fh, name: it.name, rotated: fit.rotated, bands: it.bands });
+          if (placed > 0) done[ids[placed]] = true;
+          placed++;
+        }
+        const usedCols = Math.min(cols, total), usedRows = Math.ceil(total / cols);
+        splitRect(sheet, fit.rectIdx, usedCols * fw + (usedCols - 1) * k, usedRows * fh + (usedRows - 1) * k, k, splitPref);
+      } else {
+        sheet.placements.push({ x: r.x, y: r.y, w: fw, h: fh, name: it.name, rotated: fit.rotated, bands: it.bands });
+        splitRect(sheet, fit.rectIdx, fw, fh, o.kerf, splitPref);
+      }
+      mergeFree(sheet.free);
+    }
+    const placed = [], rest = [];
+    list.forEach((it, i) => (done[i] ? placed : rest).push(it));
+    return { sheet, placed, rest };
+  }
+
+  // Estratégia "encher ao máximo": para cada chapa, escolhe (entre várias
+  // ordens/cortes/encaixes) o preenchimento que ocupa MAIOR área; só então
+  // abre a próxima. Tende a concentrar a sobra numa única chapa (menos chapas).
+  function packMaxFill(items, W, H, o) {
+    let remaining = items.slice();
+    const sheets = [], unplaced = [];
+    let guard = 0;
+    while (remaining.length && guard++ < 300) {
+      let best = null;
+      for (const ok of Object.keys(ORDERS)) {
+        const sorted = remaining.slice().sort(ORDERS[ok]);
+        for (const pref of ['maxrect', 'wide', 'tall']) for (const mode of ['bssf', 'tl', 'baf']) for (const block of [false, true]) {
+          const r = fillOneSheet(sorted, W, H, o, pref, mode, block);
+          const area = r.placed.reduce((a, p) => a + p.w * p.h, 0);
+          if (!best || area > best.area + 1e-6) best = { area, sheet: r.sheet, rest: r.rest };
+        }
+      }
+      if (!best || !best.placed && !best.sheet.placements.length) { unplaced.push.apply(unplaced, remaining); break; }
+      if (!best.sheet.placements.length) { unplaced.push.apply(unplaced, remaining); break; }
+      best.sheet.index = sheets.length + 1;
+      best.sheet.free = guillotineOffcuts(best.sheet);
+      best.sheet.cuts = countGuillotineCuts(best.sheet.W, best.sheet.H, best.sheet.placements);
+      sheets.push(best.sheet);
+      remaining = best.rest;
+    }
+    return { sheets, unplaced };
+  }
+
   // Conta os cortes guilhotinados REAIS do layout (nº de linhas de corte de
   // lado a lado, recursivamente). Espalhar uma tira na borda oposta gera mais
   // cortes do que consolidá-la junto às demais — é isto que medimos aqui.
@@ -306,6 +378,8 @@
     return {
       sheets: res.sheets.length,
       unplaced: res.unplaced.length,
+      // fração ocupada por chapa, da mais cheia para a mais vazia
+      fills: res.sheets.map(s => s.placements.reduce((a, p) => a + p.w * p.h, 0) / (s.W * s.H)).sort((a, b) => b - a),
       off: offAreas(res.sheets),
       cuts: res.sheets.reduce((a, s) => a + s.cuts, 0),
     };
@@ -319,6 +393,10 @@
     if (!b) return true;
     if (a.unplaced !== b.unplaced) return a.unplaced < b.unplaced;
     if (a.sheets !== b.sheets) return a.sheets < b.sheets;
+    // ENCHER AO MÁXIMO: chapas mais cheias primeiro (concentra a sobra numa só,
+    // em vez de deixar duas chapas meio-cheias). Tolerância de 0,1%.
+    const fl = cmpLex(a.fills, b.fills);
+    if (Math.abs(fl) > 1e-3) return fl > 0;
     const a0 = a.off[0] || 0, b0 = b.off[0] || 0;
     const tol = Math.max(a0, b0) * 0.03; // 3% no maior retalho
     if (Math.abs(a0 - b0) > tol) return a0 > b0;
@@ -331,20 +409,18 @@
   function packGroup(items, W, H, o, matName) {
     items.forEach(it => it.__mat = matName);
     let best = null, bestScore = null;
+    const consider = res => { const sc = score(res); if (better(sc, bestScore)) { best = res; bestScore = sc; } };
     for (const key of Object.keys(ORDERS)) {
       const list = items.slice().sort(ORDERS[key]);
       for (const pref of ['maxrect', 'wide', 'tall']) {
         for (const mode of ['bssf', 'tl', 'baf']) {
           for (const place of ['first', 'best']) {
-            for (const block of [false, true]) {
-              const res = packOnce(list, W, H, o, pref, mode, place, block);
-              const sc = score(res);
-              if (better(sc, bestScore)) { best = res; bestScore = sc; }
-            }
+            for (const block of [false, true]) consider(packOnce(list, W, H, o, pref, mode, place, block));
           }
         }
       }
     }
+    consider(packMaxFill(items, W, H, o)); // "encher ao máximo antes de abrir outra"
     return best;
   }
 
@@ -410,7 +486,7 @@
     function shuffle(arr) { const a = arr.slice(); for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(rand() * (i + 1)); const t = a[i]; a[i] = a[j]; a[j] = t; } return a; }
     const pick = a => a[Math.floor(rand() * a.length)];
 
-    let detIdx = 0, stepCount = 0, sinceImprove = 0;
+    let detIdx = 0, stepCount = 0, sinceImprove = 0, maxFillDone = false;
 
     function tryOn(g, list, c) {
       const res = packOnce(list, g.W, g.H, o, c.pref, c.mode, c.place, c.block);
@@ -421,6 +497,18 @@
 
     function step() {
       let improved = false;
+      if (!maxFillDone) {
+        // 1º passo: "encher ao máximo antes de abrir outra chapa"
+        maxFillDone = true;
+        for (const g of groups) {
+          const res = packMaxFill(g.items, g.W, g.H, o);
+          const sc = score(res);
+          if (better(sc, g.bestScore)) { g.best = res; g.bestScore = sc; improved = true; }
+        }
+        stepCount++;
+        if (improved) sinceImprove = 0; else sinceImprove++;
+        return { improved, converged: false, det: detIdx, totalDet, step: stepCount };
+      }
       if (detIdx < combos.length) {
         const c = combos[detIdx++];
         for (const g of groups) {
