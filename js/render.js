@@ -118,7 +118,7 @@
     (sheet.free || []).forEach(r => {
       if (Math.min(r.w, r.h) < 3) return;
       const x = ox + r.x, y = oy + r.y;
-      parts.push(`<rect x="${x}" y="${y}" width="${r.w}" height="${r.h}" fill="none" stroke="#9aa39d" stroke-width="0.5" stroke-dasharray="2 2"/>`);
+      parts.push(`<rect x="${x}" y="${y}" width="${r.w}" height="${r.h}" fill="none" stroke="#9aa39d" stroke-width="0.6"/>`);
       const small = Math.min(r.w, r.h);
       if (small >= 8) {
         const fs = Math.max(2.4, Math.min(small * 0.18, 7));
@@ -129,11 +129,11 @@
       }
     });
 
-    // cortes guilhotinados
+    // cortes guilhotinados (cinza, sólido)
     const cuts = reconstructCuts(W, H, sheet.placements);
     cuts.forEach(c => {
-      if (c.orient === 'v') parts.push(`<line x1="${ox + c.pos}" y1="${oy + c.a}" x2="${ox + c.pos}" y2="${oy + c.b}" stroke="#d11" stroke-width="0.6"/>`);
-      else parts.push(`<line x1="${ox + c.a}" y1="${oy + c.pos}" x2="${ox + c.b}" y2="${oy + c.pos}" stroke="#d11" stroke-width="0.6"/>`);
+      if (c.orient === 'v') parts.push(`<line x1="${ox + c.pos}" y1="${oy + c.a}" x2="${ox + c.pos}" y2="${oy + c.b}" stroke="#8a8a8a" stroke-width="0.4"/>`);
+      else parts.push(`<line x1="${ox + c.a}" y1="${oy + c.pos}" x2="${ox + c.b}" y2="${oy + c.pos}" stroke="#8a8a8a" stroke-width="0.4"/>`);
     });
 
     // réguas externas: cortes que atravessam a chapa inteira (1º estágio)
@@ -146,7 +146,7 @@
     // topo (medidas paralelas dos cortes verticais)
     const ty = oy - 5.5;
     parts.push(`<line x1="${ox}" y1="${ty}" x2="${ox + W}" y2="${ty}" stroke="${ruler}" stroke-width="0.4"/>`);
-    colsX.forEach(X => parts.push(`<line x1="${ox + X}" y1="${ty}" x2="${ox + X}" y2="${oy}" stroke="${ruler}" stroke-width="0.4" stroke-dasharray="1 1"/>`));
+    colsX.forEach(X => parts.push(`<line x1="${ox + X}" y1="${ty}" x2="${ox + X}" y2="${oy}" stroke="${ruler}" stroke-width="0.4"/>`));
     for (let i = 0; i < colsX.length - 1; i++) {
       const mid = ox + (colsX[i] + colsX[i + 1]) / 2;
       parts.push(`<text x="${mid}" y="${ty - 1.5}" font-size="${rfs}" text-anchor="middle" fill="${ruler}">${fmt(colsX[i + 1] - colsX[i])}</text>`);
@@ -154,7 +154,7 @@
     // esquerda (medidas paralelas dos cortes horizontais)
     const tx = ox - 5.5;
     parts.push(`<line x1="${tx}" y1="${oy}" x2="${tx}" y2="${oy + H}" stroke="${ruler}" stroke-width="0.4"/>`);
-    rowsY.forEach(Y => parts.push(`<line x1="${tx}" y1="${oy + Y}" x2="${ox}" y2="${oy + Y}" stroke="${ruler}" stroke-width="0.4" stroke-dasharray="1 1"/>`));
+    rowsY.forEach(Y => parts.push(`<line x1="${tx}" y1="${oy + Y}" x2="${ox}" y2="${oy + Y}" stroke="${ruler}" stroke-width="0.4"/>`));
     for (let i = 0; i < rowsY.length - 1; i++) {
       const mid = oy + (rowsY[i] + rowsY[i + 1]) / 2;
       parts.push(`<text x="${tx - 1.5}" y="${mid}" font-size="${rfs}" text-anchor="middle" dominant-baseline="central" fill="${ruler}" transform="rotate(-90 ${tx - 1.5} ${mid})">${fmt(rowsY[i + 1] - rowsY[i])}</text>`);

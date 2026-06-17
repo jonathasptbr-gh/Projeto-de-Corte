@@ -252,9 +252,39 @@
       }
       mergeFree(target.free); // consolida a lista livre (estilo GuillotineBinPack)
     }
-    // sobras avaliadas por decomposição guilhotinada (apara a ponta primeiro)
-    sheets.forEach(s => { s.free = guillotineOffcuts(s); });
+    // sobras (apara a ponta primeiro) e nº real de cortes guilhotinados
+    sheets.forEach(s => { s.free = guillotineOffcuts(s); s.cuts = countGuillotineCuts(s.W, s.H, s.placements); });
     return { sheets, unplaced };
+  }
+
+  // Conta os cortes guilhotinados REAIS do layout (nº de linhas de corte de
+  // lado a lado, recursivamente). Espalhar uma tira na borda oposta gera mais
+  // cortes do que consolidá-la junto às demais — é isto que medimos aqui.
+  function countGuillotineCuts(W, H, placements) {
+    let n = 0;
+    function rec(x, y, w, h, items) {
+      if (items.length <= 1) return;
+      let chosen = null;
+      const xs = Array.from(new Set(items.map(p => p.x + p.w))).filter(X => X > x + EPS && X < x + w - EPS).sort((a, b) => a - b);
+      for (const X of xs) { if (items.every(p => p.x + p.w <= X + EPS || p.x >= X - EPS)) { chosen = { o: 'v', pos: X }; break; } }
+      if (!chosen) {
+        const ys = Array.from(new Set(items.map(p => p.y + p.h))).filter(Y => Y > y + EPS && Y < y + h - EPS).sort((a, b) => a - b);
+        for (const Y of ys) { if (items.every(p => p.y + p.h <= Y + EPS || p.y >= Y - EPS)) { chosen = { o: 'h', pos: Y }; break; } }
+      }
+      if (!chosen) return;
+      n++;
+      if (chosen.o === 'v') {
+        const X = chosen.pos;
+        rec(x, y, X - x, h, items.filter(p => p.x + p.w <= X + EPS));
+        rec(X, y, x + w - X, h, items.filter(p => p.x >= X - EPS));
+      } else {
+        const Y = chosen.pos;
+        rec(x, y, w, Y - y, items.filter(p => p.y + p.h <= Y + EPS));
+        rec(x, Y, w, h - (Y - y), items.filter(p => p.y >= Y - EPS));
+      }
+    }
+    rec(0, 0, W, H, placements.slice());
+    return n;
   }
 
   // Áreas das sobras reaproveitáveis (ignora fiapos), em ordem decrescente.
@@ -280,16 +310,22 @@
       cuts: res.sheets.reduce((a, s) => a + s.cuts, 0),
     };
   }
-  // Prioriza: menos não-encaixadas → menos chapas → sobras MAIORES
-  // (lexicográfico: maior retalho, depois 2º maior...) → menos retalhos → menos cortes.
+  // Prioriza: menos não-encaixadas → menos chapas → MAIOR retalho (com
+  // tolerância) → MENOS cortes → demais sobras (lex) → menos retalhos.
+  // A tolerância evita sacrificar o maior retalho por cortes, mas quando o
+  // maior retalho é praticamente o mesmo, escolhe o plano com menos cortes
+  // (ex.: consolidar tiras de um lado em vez de espalhar uma na borda oposta).
   function better(a, b) {
     if (!b) return true;
     if (a.unplaced !== b.unplaced) return a.unplaced < b.unplaced;
     if (a.sheets !== b.sheets) return a.sheets < b.sheets;
+    const a0 = a.off[0] || 0, b0 = b.off[0] || 0;
+    const tol = Math.max(a0, b0) * 0.03; // 3% no maior retalho
+    if (Math.abs(a0 - b0) > tol) return a0 > b0;
+    if (a.cuts !== b.cuts) return a.cuts < b.cuts;
     const lex = cmpLex(a.off, b.off);
     if (lex !== 0) return lex > 0;
-    if (a.off.length !== b.off.length) return a.off.length < b.off.length;
-    return a.cuts < b.cuts;
+    return a.off.length < b.off.length;
   }
 
   function packGroup(items, W, H, o, matName) {
