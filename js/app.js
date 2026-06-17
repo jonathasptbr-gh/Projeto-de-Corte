@@ -32,6 +32,14 @@
   function genId() { return 'p' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
   function activeProject() { return db.projects.find(p => p.id === db.activeId) || null; }
 
+  // Aceita formato antigo (string) e novo (array) de nomes nativos.
+  function coerceNames(obj) {
+    const out = {};
+    if (obj && typeof obj === 'object') Object.keys(obj).forEach(k => {
+      const v = obj[k]; out[k] = Array.isArray(v) ? v.slice() : (v ? [v] : []);
+    });
+    return out;
+  }
   // Garante todos os campos de um "data" de projeto.
   function normalizeData(d) {
     const e = emptyData(); d = d || {};
@@ -40,7 +48,7 @@
       stock: Array.isArray(d.stock) && d.stock.length ? d.stock : e.stock,
       options: Object.assign(e.options, d.options || {}),
       materialColors: (d.materialColors && typeof d.materialColors === 'object') ? d.materialColors : {},
-      materialNames: (d.materialNames && typeof d.materialNames === 'object') ? d.materialNames : {},
+      materialNames: coerceNames(d.materialNames),
       budgetCfg: Object.assign(e.budgetCfg, d.budgetCfg || {}),
       budgetItems: e.budgetItems,
       plan: null,
@@ -115,6 +123,11 @@
       const head = el('div', 'dialog-head'); head.textContent = opts.title || 'Confirmar';
       const body = el('div', 'dialog-body');
       if (opts.message) { const m = el('p', 'dialog-msg'); m.textContent = opts.message; body.appendChild(m); }
+      if (Array.isArray(opts.list) && opts.list.length) {
+        const ul = el('ul', 'dialog-list');
+        opts.list.forEach(t => { const li = document.createElement('li'); li.textContent = t; ul.appendChild(li); });
+        body.appendChild(ul);
+      }
       let inputEl = null;
       if (opts.input) {
         inputEl = document.createElement('input'); inputEl.className = 'dialog-input';
@@ -185,10 +198,11 @@
   // Número exibido no chip = espessura do material (ex.: 18, 15, 6), sem "mm".
   function matThickness(m) { const x = String(m || '').match(/(\d+(?:[.,]\d+)?)\s*mm/i); return x ? x[1].replace(',', '.') : ''; }
   // Rótulo da legenda: nome NATIVO importado + espessura.
+  function matNatives(m) { const v = state.materialNames && state.materialNames[m]; return Array.isArray(v) ? v : (v ? [v] : []); }
   function matLabel(m) {
-    const native = state.materialNames && state.materialNames[m];
+    const arr = matNatives(m);
     const th = matThickness(m);
-    if (native) return native + (th ? ` · ${th}mm` : '');
+    if (arr.length) return arr[0] + (arr.length > 1 ? ` (+${arr.length - 1})` : '') + (th ? ` · ${th}mm` : '');
     return m;
   }
 
@@ -318,9 +332,11 @@
   // Exclui um material e TODAS as peças (e estoques) que o utilizam.
   async function deleteMaterial(m) {
     const units = state.panels.filter(p => p.material === m).reduce((a, p) => a + (p.qty || 1), 0);
+    const natives = matNatives(m); if (!natives.length) natives.push(m);
+    const th = matThickness(m);
     const ok = await ui.confirm(
-      `Excluir o material “${matLabel(m)}” e as ${units} peça(s) que o utilizam? Esta ação não pode ser desfeita.`,
-      { title: 'Excluir material', danger: true, okText: 'Excluir' });
+      `Excluir este material e as ${units} peça(s) que o utilizam? Nomes nativos incluídos:`,
+      { title: 'Excluir material', danger: true, okText: 'Excluir', list: natives.map(n => n + (th ? ` · ${th}mm` : '')) });
     if (!ok) return;
     state.panels = state.panels.filter(p => p.material !== m);
     state.stock = state.stock.filter(s => s.material !== m);
@@ -347,6 +363,26 @@
     b.title = n ? `${n} lado(s) com fita` : 'Sem fita';
   }
 
+  // Botão de direção do grão (veio): retângulo listrado 2:1 que cicla
+  // sem direção → vertical (↕) → horizontal (↔).
+  function veioButton(p) {
+    const b = el('button', 'veio-btn'); b.type = 'button';
+    const paint = () => {
+      b.className = 'veio-btn ' + (p.grain === 'v' ? 'v' : p.grain === 'h' ? 'h' : 'none');
+      b.title = p.grain === 'v' ? 'Veio vertical' : p.grain === 'h' ? 'Veio horizontal' : 'Sem direção do veio';
+    };
+    paint();
+    b.addEventListener('click', () => {
+      const next = p.grain === '' ? 'v' : p.grain === 'v' ? 'h' : '';
+      p.grain = next;
+      if (selectMode && selected.has(p) && selected.size > 1) {
+        selected.forEach(q => { if (q !== p) q.grain = next; }); save(); renderPanels();
+      } else { paint(); save(); }
+      if (validPanels().length) runPlan(true);
+    });
+    return b;
+  }
+
   // ---------- Painéis ----------
   function makePanelRow(p) {
     const tr = el('tr');
@@ -369,6 +405,8 @@
     const nameInp = document.createElement('input'); nameInp.placeholder = 'nome'; nameInp.value = p.name || '';
     nameInp.addEventListener('change', () => { const cap = capFirst(nameInp.value.trim()); nameInp.value = cap; onPanelField(p, 'name', cap); });
     tdN.appendChild(nameInp); tr.appendChild(tdN);
+    // veio (direção do grão) — toque cicla — / ↕ / ↔
+    const tdV = el('td', 'cell-veio'); tdV.appendChild(veioButton(p)); tr.appendChild(tdV);
     // fita
     const tdF = el('td', 'cell-fita'); tdF.appendChild(makeFitaButton(p)); tr.appendChild(tdF);
     // del
@@ -525,7 +563,8 @@
       const raw = p.material;
       p.material = normalizeMaterial(raw, p.thickness);
       if (!state.materialColors[p.material]) state.materialColors[p.material] = colorFromName(raw) || fallbackColor(p.material);
-      if (!state.materialNames[p.material]) state.materialNames[p.material] = raw; // nome nativo do CSV
+      const arr = state.materialNames[p.material] || (state.materialNames[p.material] = []);
+      if (raw && arr.indexOf(raw) < 0) arr.push(raw); // guarda todos os nomes nativos do grupo
     });
     panels.sort((a, b) => nameSortKey(a.name).localeCompare(nameSortKey(b.name), 'pt'));
     state.panels = panels;

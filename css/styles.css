@@ -181,6 +181,14 @@ table.grid.compact th, table.grid.compact td { padding: 2px 3px; }
 .cell-mat { min-width: 3.6rem; }
 .cell-name { width: 3.4rem; }
 .cell-fita { width: 2.6rem; text-align: center; }
+.cell-veio { width: 1.8rem; text-align: center; }
+.veio-btn {
+  width: 13px; height: 26px; padding: 0; cursor: pointer; vertical-align: middle;
+  border: 1px solid #9aa39d; border-radius: 3px; background: #f3f3f3;
+}
+.veio-btn.v { background: repeating-linear-gradient(90deg, #9a7b50 0 1.5px, #e6d3ad 1.5px 3.5px); }
+.veio-btn.h { background: repeating-linear-gradient(0deg, #9a7b50 0 1.5px, #e6d3ad 1.5px 3.5px); }
+.veio-btn.none { background: #eee; border-style: dashed; }
 .cell-act { width: 1.6rem; padding: 2px !important; text-align: center; }
 table.grid.compact select { font: inherit; border: none; background: transparent; width: 100%; min-width: 0; padding: 2px 0; }
 
@@ -348,6 +356,8 @@ table.conditions tr.total td:last-child { background: #cfe0f0; }
 .dialog-body { padding: 14px 16px; }
 .dialog-msg { margin: 0; line-height: 1.4; }
 .dialog-input { width: 100%; padding: 9px; border: 1px solid var(--line); border-radius: 8px; font: inherit; margin-top: 10px; }
+.dialog-list { margin: 8px 0 0; padding-left: 20px; max-height: 30vh; overflow-y: auto; }
+.dialog-list li { margin: 2px 0; font-weight: 600; }
 .modal.dialog .modal-actions { padding: 0 16px 14px; }
 .btn.danger { background: #c0392b; color: #fff; border-color: #c0392b; }
 .btn.danger:hover { filter: brightness(1.06); }
