@@ -323,9 +323,9 @@
     const tol = Math.max(a0, b0) * 0.03; // 3% no maior retalho
     if (Math.abs(a0 - b0) > tol) return a0 > b0;
     if (a.cuts !== b.cuts) return a.cuts < b.cuts;
+    if (a.off.length !== b.off.length) return a.off.length < b.off.length; // menos retalhos = menos fragmentação
     const lex = cmpLex(a.off, b.off);
-    if (lex !== 0) return lex > 0;
-    return a.off.length < b.off.length;
+    return lex > 0;
   }
 
   function packGroup(items, W, H, o, matName) {
