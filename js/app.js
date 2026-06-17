@@ -13,6 +13,7 @@
     panels: [],
     stock: [{ width: 184, length: 274, qty: 5, material: '' }],
     options: { kerf: 0.8, labels: true, material: true, grain: true },
+    materialColors: {},
     budgetItems: Budget.defaultItems(),
     budgetCfg: { laborPct: 80, markupPct: 10, pixPct: 10, daysPerPiece: 0.105 },
     plan: null,
@@ -31,6 +32,7 @@
       Object.assign(state.options, s.options || {});
       delete state.options.unit; delete state.options.rotate; // removidos
       Object.assign(state.budgetCfg, s.budgetCfg || {});
+      if (s.materialColors && typeof s.materialColors === 'object') state.materialColors = s.materialColors;
       if (Array.isArray(s.panels)) state.panels = s.panels;
       if (Array.isArray(s.stock) && s.stock.length) state.stock = s.stock;
       if (Array.isArray(s.budgetItems)) {
@@ -83,12 +85,55 @@
     return v.length ? v : [{ width: 184, length: 274, qty: 999, material: '' }];
   };
 
-  // Lista de materiais (das peças + estoques) para os seletores.
-  function materialsList() {
-    const set = new Set();
-    state.panels.forEach(p => { if (p.material) set.add(p.material); });
-    state.stock.forEach(s => { if (s.material) set.add(s.material); });
-    return [...set].sort((a, b) => a.localeCompare(b, 'pt'));
+  // Lista de materiais em ordem de aparição (peças primeiro, depois estoques).
+  // O índice define o NÚMERO do material exibido no chip.
+  function materialsOrdered() {
+    const seen = [];
+    const add = m => { if (m && !seen.includes(m)) seen.push(m); };
+    state.panels.forEach(p => add(p.material));
+    state.stock.forEach(s => add(s.material));
+    return seen;
+  }
+  const matNumber = m => materialsOrdered().indexOf(m) + 1;
+
+  // --- Cores por material (tons amplos a partir do nome) ---
+  const COLOR_WORDS = [
+    [/branc|white/, '#ffffff'],
+    [/pret|black|negr/, '#1f1f1f'],
+    [/cinz|gray|grey|grafite|chumbo|concret|ciment/, '#9e9e9e'],
+    [/marrom|brown|nogueir|walnut|madeir|wood|maple|carvalh|oak|imbuia|freij|tabaco|amend/, '#8a5a2b'],
+    [/beg|cream|creme|areia|sand|fendi|aveia/, '#d8c39a'],
+    [/dourad|gold|ouro/, '#d4af37'],
+    [/amarel|yellow/, '#f2c200'],
+    [/prat|silver|alum|inox/, '#c2c7cc'],
+    [/azul|blue/, '#3b6fb0'],
+    [/verde|green/, '#3f8f4f'],
+    [/vermelh|red|rubi/, '#c0392b'],
+    [/ros[ae]|pink/, '#e58aa6'],
+    [/rox|lil[aá]|purpl|violet|uva/, '#7e57c2'],
+    [/laranj|orange/, '#e07b2a'],
+    [/vinh|bord[oô]|wine/, '#7a2230'],
+  ];
+  const FALLBACK_COLORS = ['#5b8def', '#e8743b', '#19a979', '#945ecf', '#13a4b4', '#e0566f', '#6c8893', '#ef7e32', '#7b9f35', '#c879b0'];
+  function colorFromName(s) {
+    const t = String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+    for (const [re, hex] of COLOR_WORDS) if (re.test(t)) return hex;
+    return null;
+  }
+  function hashStr(s) { let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0; return h; }
+  function fallbackColor(name) { return FALLBACK_COLORS[hashStr(String(name)) % FALLBACK_COLORS.length]; }
+  function assignColor(name) { return colorFromName(name) || fallbackColor(name); }
+  // Cor atual do material (cria/memoriza se faltar).
+  function matColor(m) {
+    if (!m) return 'transparent';
+    if (!state.materialColors[m]) state.materialColors[m] = assignColor(m);
+    return state.materialColors[m];
+  }
+  function isLight(hex) {
+    const c = String(hex || '').replace('#', '');
+    if (c.length < 6) return true;
+    const r = parseInt(c.slice(0, 2), 16), g = parseInt(c.slice(2, 4), 16), b = parseInt(c.slice(4, 6), 16);
+    return (0.299 * r + 0.587 * g + 0.114 * b) > 175;
   }
   // Cria/garante um estoque para cada material das peças.
   function syncStockToMaterials() {
@@ -113,22 +158,60 @@
     const i = document.createElement('input'); i.placeholder = ph || ''; i.value = val || '';
     i.addEventListener('change', () => onCh(i.value)); return i;
   }
-  // Seletor de material (lista dinâmica) ou input se ainda não há materiais.
+  // Controle de material compacto: chip colorido com o número + select
+  // transparente por cima (abre a lista nativa ao tocar).
   function materialControl(obj, onCh) {
-    const list = materialsList();
-    let c;
-    if (list.length) {
-      c = document.createElement('select');
-      const cur = obj.material || '';
-      const opts = list.includes(cur) || !cur ? list : list.concat([cur]);
-      c.innerHTML = `<option value=""></option>` +
-        opts.map(m => `<option value="${attr(m)}"${m === cur ? ' selected' : ''}>${esc(m)}</option>`).join('');
-      c.value = cur;
-    } else {
-      c = document.createElement('input'); c.placeholder = 'material'; c.value = obj.material || '';
+    const list = materialsOrdered();
+    if (!list.length) { // ainda sem materiais → input livre
+      const c = document.createElement('input'); c.placeholder = 'material'; c.value = obj.material || '';
+      c.addEventListener('change', () => onCh(c.value));
+      return c;
     }
-    c.addEventListener('change', () => onCh(c.value));
-    return c;
+    const cur = obj.material || '';
+    const wrap = el('span', 'mat-cell');
+    const chip = el('span', 'mat-chip');
+    const paint = () => {
+      const n = cur ? list.indexOf(cur) + 1 : 0;
+      if (cur) {
+        const col = matColor(cur);
+        chip.style.background = col;
+        chip.textContent = n || '';
+        chip.classList.toggle('light', isLight(col));
+        chip.classList.remove('empty');
+      } else { chip.textContent = ''; chip.classList.add('empty'); chip.style.background = 'transparent'; }
+    };
+    paint();
+    wrap.appendChild(chip);
+    const sel = document.createElement('select'); sel.className = 'mat-select';
+    sel.innerHTML = `<option value=""></option>` +
+      list.map(m => `<option value="${attr(m)}"${m === cur ? ' selected' : ''}>${list.indexOf(m) + 1} · ${esc(m)}</option>`).join('');
+    sel.value = cur;
+    sel.addEventListener('change', () => onCh(sel.value));
+    wrap.appendChild(sel);
+    return wrap;
+  }
+
+  // Legenda de materiais (acima do Stock): chip + número + nome, cor editável.
+  function renderMatLegend() {
+    const box = $('#mat-legend'); if (!box) return;
+    const list = materialsOrdered();
+    box.innerHTML = '';
+    list.forEach((m, i) => {
+      const col = matColor(m);
+      const item = el('div', 'mat-legend-item');
+      const sw = el('label', 'swatch'); sw.style.background = col;
+      const inp = document.createElement('input'); inp.type = 'color';
+      inp.value = /^#[0-9a-f]{6}$/i.test(col) ? col : '#888888';
+      inp.addEventListener('input', () => {
+        state.materialColors[m] = inp.value; save();
+        renderMatLegend(); renderPanels(); renderStock();
+      });
+      sw.appendChild(inp);
+      const num = el('span', 'mat-num'); num.textContent = (i + 1) + '.';
+      const name = el('span', 'mat-name'); name.textContent = m;
+      item.appendChild(sw); item.appendChild(num); item.appendChild(name);
+      box.appendChild(item);
+    });
   }
 
   // ---------- Fita (popup) ----------
@@ -194,6 +277,7 @@
       body.appendChild(tr);
     });
     updateSelAll();
+    renderMatLegend();
   }
 
   // ---------- Stock ----------
@@ -221,6 +305,7 @@
       if (i === state.stock.length - 1) tr.classList.add('row-new');
       body.appendChild(tr);
     });
+    renderMatLegend();
   }
 
   // ---------- Comportamento comum das listas ----------
@@ -298,7 +383,12 @@
   function importText(text) {
     const { panels, warnings } = CSV.parse(text);
     if (!panels.length) { toast(warnings[0] || 'CSV sem peças válidas.'); return; }
-    panels.forEach(p => { p.material = normalizeMaterial(p.material, p.thickness); });
+    panels.forEach(p => {
+      const raw = p.material;
+      p.material = normalizeMaterial(raw, p.thickness);
+      // cor a partir do nome ORIGINAL (Walnut→marrom, Gold→dourado, White→branco)
+      if (!state.materialColors[p.material]) state.materialColors[p.material] = colorFromName(raw) || fallbackColor(p.material);
+    });
     panels.sort((a, b) => nameSortKey(a.name).localeCompare(nameSortKey(b.name), 'pt'));
     state.panels = panels;
     selected.clear();

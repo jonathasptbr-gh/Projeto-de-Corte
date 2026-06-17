@@ -164,6 +164,35 @@ table.select-mode .cell-sel { display: table-cell; }
 
 /* botão de seleção rápida ativo */
 .btn.active { background: var(--green); color: #fff; border-color: var(--green); }
+
+/* material: chip colorido com número + select transparente por cima */
+.cell-mat { width: 2.4rem; }
+.mat-cell { position: relative; display: inline-block; width: 26px; height: 26px; }
+.mat-chip {
+  display: flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px; border-radius: 6px;
+  font-size: .74rem; font-weight: 800; color: #fff;
+  border: 1px solid rgba(0,0,0,.28); box-sizing: border-box;
+}
+.mat-chip.light { color: #333; border-color: #b7bfb9; }
+.mat-chip.empty { border-style: dashed; border-color: #c2ccc6; background: #fff; }
+.mat-select { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; border: none; cursor: pointer; }
+
+/* legenda de materiais */
+.mat-legend { display: flex; flex-wrap: wrap; gap: 8px; }
+.mat-legend:empty::after { content: 'Importe um CSV para ver os materiais e cores.'; color: var(--muted); font-size: .85rem; }
+.mat-legend-item {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: var(--card); border: 1px solid var(--line); border-radius: 9px;
+  padding: 4px 9px 4px 5px; font-size: .82rem;
+}
+.mat-legend .swatch {
+  position: relative; display: inline-block; width: 22px; height: 22px;
+  border-radius: 6px; border: 1px solid rgba(0,0,0,.28); cursor: pointer;
+}
+.mat-legend .swatch input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
+.mat-legend .mat-num { font-weight: 800; color: var(--muted); }
+.mat-legend .mat-name { font-weight: 600; }
 .icon-btn { width: 22px; height: 22px; }
 .icon-btn .material-symbols-outlined { font-size: 18px; }
 
