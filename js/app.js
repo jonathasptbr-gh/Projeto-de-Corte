@@ -6,44 +6,85 @@
 
   const $ = sel => document.querySelector(sel);
   const $$ = sel => Array.from(document.querySelectorAll(sel));
-  const STORE_KEY = 'projeto-corte-v1';
 
-  // ---------- Estado ----------
-  const state = {
-    panels: [],
-    stock: [{ width: 184, length: 274, qty: 5, material: '' }],
-    options: { kerf: 0.8, labels: true, material: true, grain: true },
-    materialColors: {},
-    budgetItems: Budget.defaultItems(),
-    budgetCfg: { laborPct: 80, markupPct: 10, pixPct: 10, daysPerPiece: 0.105 },
-    plan: null,
-  };
+  // ---------- Estado / Projetos ----------
+  function emptyData() {
+    return {
+      panels: [],
+      stock: [{ width: 184, length: 274, qty: 5, material: '' }],
+      options: { kerf: 0.8, labels: true, material: true, grain: true },
+      materialColors: {},
+      budgetItems: Budget.defaultItems(),
+      budgetCfg: { laborPct: 80, markupPct: 10, pixPct: 10, daysPerPiece: 0.105 },
+      plan: null,
+    };
+  }
+  let state = emptyData();                 // dados do projeto ativo (referência viva)
+  let db = { projects: [], activeId: null };
+  const DB_KEY = 'projeto-corte-db-v1';
+  const OLD_KEY = 'projeto-corte-v1';
 
   // seleção rápida
   let selectMode = false;
   const selected = new Set();
 
-  // ---------- Persistência ----------
-  function save() { try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch (e) {} }
+  function genId() { return 'p' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
+  function activeProject() { return db.projects.find(p => p.id === db.activeId) || null; }
+
+  // Garante todos os campos de um "data" de projeto.
+  function normalizeData(d) {
+    const e = emptyData(); d = d || {};
+    const out = {
+      panels: Array.isArray(d.panels) ? d.panels : e.panels,
+      stock: Array.isArray(d.stock) && d.stock.length ? d.stock : e.stock,
+      options: Object.assign(e.options, d.options || {}),
+      materialColors: (d.materialColors && typeof d.materialColors === 'object') ? d.materialColors : {},
+      budgetCfg: Object.assign(e.budgetCfg, d.budgetCfg || {}),
+      budgetItems: e.budgetItems,
+      plan: null,
+    };
+    delete out.options.unit; delete out.options.rotate;
+    if (Array.isArray(d.budgetItems)) {
+      out.budgetItems = Budget.defaultItems().map(def => {
+        const f = d.budgetItems.find(i => i.key === def.key);
+        return f ? Object.assign(def, { price: f.price, qty: f.qty }) : def;
+      });
+    }
+    return out;
+  }
+  function makeProject(name, data) {
+    return { id: genId(), name: name || 'Projeto', createdAt: Date.now(), updatedAt: Date.now(), data: normalizeData(data) };
+  }
+
   function load() {
+    let parsed = null;
+    try { parsed = JSON.parse(localStorage.getItem(DB_KEY) || 'null'); } catch (e) {}
+    if (parsed && Array.isArray(parsed.projects) && parsed.projects.length) {
+      db = parsed;
+      db.projects.forEach(p => { p.data = normalizeData(p.data); });
+    } else {
+      let old = null;
+      try { old = JSON.parse(localStorage.getItem(OLD_KEY) || 'null'); } catch (e) {}
+      const proj = makeProject('Projeto 1', old);
+      db = { projects: [proj], activeId: proj.id };
+    }
+    if (!db.projects.find(p => p.id === db.activeId)) db.activeId = db.projects[0].id;
+    state = activeProject().data;
+  }
+
+  function saveDb() {
     try {
-      const s = JSON.parse(localStorage.getItem(STORE_KEY) || 'null');
-      if (!s) return;
-      Object.assign(state.options, s.options || {});
-      delete state.options.unit; delete state.options.rotate; // removidos
-      Object.assign(state.budgetCfg, s.budgetCfg || {});
-      if (s.materialColors && typeof s.materialColors === 'object') state.materialColors = s.materialColors;
-      if (Array.isArray(s.panels)) state.panels = s.panels;
-      if (Array.isArray(s.stock) && s.stock.length) state.stock = s.stock;
-      if (Array.isArray(s.budgetItems)) {
-        const def = Budget.defaultItems();
-        state.budgetItems = def.map(d => {
-          const f = s.budgetItems.find(i => i.key === d.key);
-          return f ? Object.assign(d, { price: f.price, qty: f.qty }) : d;
-        });
-      }
+      const slim = {
+        activeId: db.activeId,
+        projects: db.projects.map(p => ({
+          id: p.id, name: p.name, createdAt: p.createdAt, updatedAt: p.updatedAt,
+          data: Object.assign({}, p.data, { plan: null }) // plano não é persistido (recalculado ao abrir)
+        })),
+      };
+      localStorage.setItem(DB_KEY, JSON.stringify(slim));
     } catch (e) {}
   }
+  function save() { const p = activeProject(); if (p) p.updatedAt = Date.now(); saveDb(); }
 
   // ---------- Utilidades ----------
   const brl = n => 'R$ ' + (n || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -362,16 +403,19 @@
   }
 
   // ---------- Opções ----------
-  function initOptions() {
+  function refreshOptionsUI() {
     const o = state.options;
     $('#opt-kerf').value = o.kerf;
     $('#opt-labels').checked = o.labels;
     $('#opt-material').checked = o.material;
     $('#opt-grain').checked = o.grain;
+  }
+  function initOptions() {
+    refreshOptionsUI();
     const bind = (id, key, isNum, isBool) => $(id).addEventListener('change', e => {
-      o[key] = isBool ? e.target.checked : (isNum ? parseFloat(e.target.value) || 0 : e.target.value);
+      state.options[key] = isBool ? e.target.checked : (isNum ? parseFloat(e.target.value) || 0 : e.target.value);
       save();
-      if (state.plan) runPlan(true); // reflete a opção no resultado imediatamente
+      if (validPanels().length) runPlan(true); // reflete a opção no resultado imediatamente
     });
     bind('#opt-kerf', 'kerf', true);
     bind('#opt-labels', 'labels', false, true);
@@ -379,35 +423,122 @@
     bind('#opt-grain', 'grain', false, true);
   }
 
-  // ---------- Importação ----------
-  function importText(text) {
+  // ---------- Importação (cada CSV vira um projeto no histórico) ----------
+  function projectNameFromFile(fileName) {
+    let base = String(fileName || 'Projeto').replace(/\.[^.]+$/, '').replace(/^.*[\\/]/, '').trim() || 'Projeto';
+    let name = base, i = 2;
+    while (db.projects.some(p => p.name === name)) name = `${base} (${i++})`;
+    return name;
+  }
+  function importAsProject(text, fileName) {
     const { panels, warnings } = CSV.parse(text);
     if (!panels.length) { toast(warnings[0] || 'CSV sem peças válidas.'); return; }
+    // novo projeto herdando opções/preços do projeto atual
+    const base = activeProject() ? activeProject().data : emptyData();
+    const proj = makeProject(projectNameFromFile(fileName),
+      { options: base.options, budgetItems: base.budgetItems, budgetCfg: base.budgetCfg });
+    db.projects.unshift(proj); db.activeId = proj.id; state = proj.data;
+    selected.clear();
+
     panels.forEach(p => {
       const raw = p.material;
       p.material = normalizeMaterial(raw, p.thickness);
-      // cor a partir do nome ORIGINAL (Walnut→marrom, Gold→dourado, White→branco)
       if (!state.materialColors[p.material]) state.materialColors[p.material] = colorFromName(raw) || fallbackColor(p.material);
     });
     panels.sort((a, b) => nameSortKey(a.name).localeCompare(nameSortKey(b.name), 'pt'));
     state.panels = panels;
-    selected.clear();
     syncStockToMaterials();
-    renderPanels(); renderStock(); save();
+    save();
+    refreshOptionsUI(); updateProjectName(); renderStock(); renderPanels();
     $('#import-status').textContent = `${panels.length} peças · ${panels.reduce((a, p) => a + p.qty, 0)} un.`;
-    toast('CSV importado');
+    runPlan(true);
+    gotoTab('plan');
+    toast('Projeto: ' + proj.name);
   }
   function initImport() {
     $('#csv-input').addEventListener('change', e => {
       const file = e.target.files[0]; if (!file) return;
       const reader = new FileReader();
-      reader.onload = () => importText(reader.result);
+      reader.onload = () => importAsProject(reader.result, file.name);
       reader.readAsText(file);
       e.target.value = '';
     });
     $('#clear-panels').addEventListener('click', () => {
-      state.panels = []; selected.clear(); renderPanels(); save(); $('#import-status').textContent = '';
+      state.panels = []; selected.clear(); renderPanels(); renderPlanEmpty(); save(); $('#import-status').textContent = '';
     });
+  }
+
+  // ---------- Projetos (menu / histórico) ----------
+  function gotoTab(tab) {
+    $$('.tab').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+    $$('.view').forEach(v => v.classList.toggle('active', v.id === 'view-' + tab));
+    if (tab === 'budget') renderBudget();
+  }
+  function updateProjectName() { const p = activeProject(); $('#project-name').textContent = p ? p.name : 'Projeto'; }
+  function renderPlanEmpty() {
+    state.plan = null;
+    $('#plan-metrics').innerHTML = ''; $('#plan-breakdown').innerHTML = ''; $('#plan-sheets').innerHTML = '';
+    $('#plan-empty').style.display = 'block';
+  }
+  function renderActive() {
+    refreshOptionsUI(); updateProjectName();
+    renderStock(); renderPanels();
+    const total = state.panels.reduce((a, p) => a + (p.length > 0 && p.width > 0 ? (p.qty || 1) : 0), 0);
+    $('#import-status').textContent = total ? `${total} un. em peças` : '';
+    if (validPanels().length) runPlan(true); else renderPlanEmpty();
+    if ($('#view-budget').classList.contains('active')) renderBudget();
+  }
+  function setActive(id) {
+    if (!db.projects.find(p => p.id === id)) return;
+    db.activeId = id; state = activeProject().data; saveDb(); selected.clear();
+    renderActive();
+  }
+  function fmtDate(ts) {
+    try { return new Date(ts).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' }); }
+    catch (e) { return ''; }
+  }
+  function renderProjectsList() {
+    const box = $('#proj-list'); box.innerHTML = '';
+    db.projects.slice().sort((a, b) => b.updatedAt - a.updatedAt).forEach(p => {
+      const pieces = (p.data.panels || []).reduce((a, x) => a + (x.length > 0 && x.width > 0 ? (x.qty || 1) : 0), 0);
+      const item = el('div', 'proj-item' + (p.id === db.activeId ? ' active' : ''));
+      const info = el('div', 'proj-info');
+      info.innerHTML = `<div class="proj-title">${esc(p.name)}</div><div class="proj-sub">${pieces} peças · ${fmtDate(p.updatedAt)}</div>`;
+      info.addEventListener('click', () => { setActive(p.id); closeProjects(); gotoTab('panels'); });
+      const ren = iconBtn('', 'edit', 'Renomear', () => renameProject(p));
+      const del = iconBtn('del', 'delete', 'Excluir', () => deleteProject(p));
+      item.appendChild(info); item.appendChild(ren); item.appendChild(del);
+      box.appendChild(item);
+    });
+  }
+  function renameProject(p) {
+    const name = prompt('Nome do projeto:', p.name);
+    if (name && name.trim()) { p.name = name.trim(); save(); updateProjectName(); renderProjectsList(); }
+  }
+  function deleteProject(p) {
+    if (!confirm(`Excluir o projeto “${p.name}”? Esta ação não pode ser desfeita.`)) return;
+    const i = db.projects.findIndex(x => x.id === p.id);
+    if (i >= 0) db.projects.splice(i, 1);
+    if (!db.projects.length) { const np = makeProject('Projeto 1', null); db.projects.push(np); db.activeId = np.id; }
+    if (p.id === db.activeId) db.activeId = db.projects[0].id;
+    state = activeProject().data; saveDb();
+    renderActive(); renderProjectsList();
+  }
+  function newProject() {
+    const base = activeProject() ? activeProject().data : emptyData();
+    const proj = makeProject(projectNameFromFile('Projeto'),
+      { options: base.options, budgetItems: base.budgetItems, budgetCfg: base.budgetCfg });
+    db.projects.unshift(proj); db.activeId = proj.id; state = proj.data; saveDb();
+    selected.clear(); closeProjects(); renderActive(); gotoTab('panels');
+  }
+  function openProjects() { renderProjectsList(); $('#proj-modal').hidden = false; }
+  function closeProjects() { $('#proj-modal').hidden = true; }
+  function initProjects() {
+    $('#open-projects').addEventListener('click', openProjects);
+    $('#project-name').addEventListener('click', openProjects);
+    $('#proj-close').addEventListener('click', closeProjects);
+    $('#proj-modal').addEventListener('click', e => { if (e.target.id === 'proj-modal') closeProjects(); });
+    $('#proj-new').addEventListener('click', newProject);
   }
 
   // ---------- Modal: editor de fita + grão ----------
@@ -610,16 +741,16 @@
       const res = await cache.match('shared-csv');
       if (!res) return false;
       const text = await res.text();
+      let name = 'Compartilhado';
+      try { name = decodeURIComponent(res.headers.get('X-File-Name') || '') || name; } catch (e) {}
       await cache.delete('shared-csv');
-      if (text && text.trim()) { importText(text); runPlan(true); return true; }
+      if (text && text.trim()) { importAsProject(text, name); return true; }
     } catch (e) {}
     return false;
   }
   function initShareHandlers() {
     // 1) Compartilhamento (Android/Chrome): SW redireciona com ?shared=1
-    readSharedCSV().then(ok => {
-      if (location.search) history.replaceState(null, '', location.pathname);
-    });
+    readSharedCSV().then(() => { if (location.search) history.replaceState(null, '', location.pathname); });
     // 2) "Abrir com" (File Handling API, desktop): recebe o arquivo direto
     if ('launchQueue' in window && window.launchQueue && 'setConsumer' in window.launchQueue) {
       window.launchQueue.setConsumer(async params => {
@@ -627,7 +758,7 @@
           try {
             const file = await params.files[0].getFile();
             const text = await file.text();
-            if (text && text.trim()) { importText(text); runPlan(true); }
+            if (text && text.trim()) importAsProject(text, file.name);
           } catch (e) {}
         }
       });
@@ -637,8 +768,9 @@
   // ---------- Init ----------
   function init() {
     load();
-    initTabs(); initOptions(); initImport(); initSelect(); initBudgetCfg(); initBandModal();
-    renderStock(); renderPanels();
+    initTabs(); initOptions(); initImport(); initSelect(); initBudgetCfg(); initBandModal(); initProjects();
+    updateProjectName(); renderStock(); renderPanels();
+    if (validPanels().length) runPlan(true); else renderPlanEmpty();
     $('#run-plan').addEventListener('click', () => runPlan(false));
     initShareHandlers();
   }

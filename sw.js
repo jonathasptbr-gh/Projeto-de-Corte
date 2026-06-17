@@ -1,5 +1,5 @@
 /* Service Worker — cache do app shell + recepção de CSV compartilhado. */
-const CACHE = 'projeto-corte-v8';
+const CACHE = 'projeto-corte-v9';
 const SHARE_CACHE = 'projeto-corte-share';
 const SHARE_KEY = 'shared-csv';
 const ASSETS = [
@@ -27,10 +27,12 @@ self.addEventListener('activate', e => {
   );
 });
 
-// Guarda o texto do CSV compartilhado para a página ler ao abrir.
-async function stashShared(text) {
+// Guarda o texto do CSV compartilhado (+ nome do arquivo) para a página ler.
+async function stashShared(text, name) {
   const c = await caches.open(SHARE_CACHE);
-  await c.put(SHARE_KEY, new Response(text, { headers: { 'Content-Type': 'text/csv; charset=utf-8' } }));
+  await c.put(SHARE_KEY, new Response(text, {
+    headers: { 'Content-Type': 'text/csv; charset=utf-8', 'X-File-Name': encodeURIComponent(name || '') }
+  }));
 }
 
 self.addEventListener('fetch', e => {
@@ -45,7 +47,7 @@ self.addEventListener('fetch', e => {
         const file = form.get('file') || form.get('files');
         if (file && typeof file.text === 'function') {
           const text = await file.text();
-          if (text && text.trim()) await stashShared(text);
+          if (text && text.trim()) await stashShared(text, file.name || '');
         }
       } catch (err) { /* ignora */ }
       // volta para o app, sinalizando que há um CSV pendente

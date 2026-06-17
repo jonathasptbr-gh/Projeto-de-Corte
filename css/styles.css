@@ -49,6 +49,28 @@ body {
   padding: 12px 16px 6px;
 }
 .brand .material-symbols-outlined { font-size: 26px; }
+.brand .proj-name {
+  flex: 1; min-width: 0; cursor: pointer;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.hdr-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  background: rgba(255,255,255,.15); color: #fff; border: none;
+  width: 36px; height: 36px; border-radius: 9px; cursor: pointer;
+}
+.hdr-btn:hover { background: rgba(255,255,255,.28); }
+.hdr-btn .material-symbols-outlined { font-size: 22px; }
+
+/* lista de projetos */
+.proj-list { display: flex; flex-direction: column; gap: 8px; max-height: 60vh; overflow-y: auto; }
+.proj-item {
+  display: flex; align-items: center; gap: 6px;
+  border: 1px solid var(--line); border-radius: 10px; padding: 8px 8px 8px 10px;
+}
+.proj-item.active { border-color: var(--green); background: #eef6ee; }
+.proj-info { flex: 1; min-width: 0; cursor: pointer; }
+.proj-title { font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.proj-sub { font-size: .78rem; color: var(--muted); }
 .tabs { display: flex; gap: 4px; padding: 0 8px; overflow-x: auto; }
 .tab {
   flex: 1 0 auto;

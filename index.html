@@ -18,7 +18,8 @@
   <header class="app-header">
     <div class="brand">
       <span class="material-symbols-outlined">content_cut</span>
-      <span>Projeto de Corte</span>
+      <span id="project-name" class="proj-name" title="Projetos">Projeto</span>
+      <button id="open-projects" class="hdr-btn" title="Projetos / histórico"><span class="material-symbols-outlined">folder_open</span></button>
     </div>
     <nav class="tabs" id="tabs">
       <button class="tab active" data-tab="panels"><span class="material-symbols-outlined">table_chart</span>Painéis &amp; Stock</button>
@@ -170,6 +171,20 @@
   </main>
 
   <div class="toast" id="toast"></div>
+
+  <!-- Modal: projetos / histórico -->
+  <div class="modal-overlay" id="proj-modal" hidden>
+    <div class="modal">
+      <div class="modal-head">
+        <b>Projetos</b>
+        <button class="icon-btn" id="proj-close"><span class="material-symbols-outlined">close</span></button>
+      </div>
+      <button class="btn primary" id="proj-new" style="width:100%;justify-content:center;margin-bottom:10px">
+        <span class="material-symbols-outlined">add</span>Novo projeto
+      </button>
+      <div id="proj-list" class="proj-list"></div>
+    </div>
+  </div>
 
   <!-- Modal: editor de fita de borda + direção do grão -->
   <div class="modal-overlay" id="band-modal" hidden>
