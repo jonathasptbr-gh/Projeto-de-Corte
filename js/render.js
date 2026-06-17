@@ -178,11 +178,6 @@
       html += `<div class="li"><span class="sw" style="background:${col}"></span>` +
         `<span class="lt">${esc(g.name)} · ${fmt(g.w)}×${fmt(g.h)} · ${g.qty}×</span></div>`;
     });
-    // sobras úteis
-    (sheet.free || []).filter(r => Math.min(r.w, r.h) >= 5).sort((a, b) => b.w * b.h - a.w * a.h).forEach(r => {
-      html += `<div class="li"><span class="sw" style="background:#cdeccd;border-color:#2f9e44"></span>` +
-        `<span class="lt"><b>Sobra</b> ${fmt(r.w)}×${fmt(r.h)} (${(r.w * r.h / 1e4).toFixed(2)} m²)</span></div>`;
-    });
     return html + '</div>';
   }
 
