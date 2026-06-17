@@ -610,6 +610,7 @@
   }
   function updateProjectName() { const p = activeProject(); $('#project-name').textContent = p ? p.name : 'Projeto'; }
   function renderPlanEmpty() {
+    stopLiveSearch();
     state.plan = null;
     $('#plan-metrics').innerHTML = ''; $('#plan-breakdown').innerHTML = ''; $('#plan-sheets').innerHTML = '';
     $('#plan-empty').style.display = 'block';
@@ -739,27 +740,47 @@
     return String(matColor(name)).toLowerCase() + '|' + (matThickness(name) || '');
   }
 
-  function runPlan(silent) {
+  // Monta os parâmetros do otimizador a partir das peças/estoque atuais.
+  // Retorna null se não houver peças válidas.
+  function buildPlanInputs() {
     const raw = validPanels();
-    if (!raw.length) { if (!silent) toast('Importe um CSV ou adicione peças.'); return; }
-    // agrupa por cor+espessura; guarda um rótulo legível por grupo
+    if (!raw.length) return null;
     const groupLabel = {};
     raw.forEach(p => { const k = materialGroupKey(p.material); if (!(k in groupLabel)) groupLabel[k] = matLabel(p.material); });
     const gpanels = raw.map(p => Object.assign({}, p, { material: materialGroupKey(p.material) }));
     const gstock = validStock().map(s => Object.assign({}, s, { material: materialGroupKey(s.material) }));
-    const result = Optimizer.optimize(gpanels, gstock, {
+    const opts = {
       kerf: state.options.kerf,
       considerMaterial: state.options.material,
       considerGrain: state.options.grain,
       allowRotate: true, // rotação livre, limitada apenas pela direção do grão
-    });
-    // re-rotula (chave de grupo → nome legível) para exibição
+    };
+    return { gpanels, gstock, groupLabel, opts };
+  }
+
+  // Re-rotula (chave de grupo → nome legível) para exibição.
+  function relabelResult(result, groupLabel) {
     result.sheets.forEach(s => { s.material = groupLabel[s.material] || s.material; });
     const bm2 = {};
     Object.keys(result.byMaterial).forEach(k => { bm2[groupLabel[k] || k] = result.byMaterial[k]; });
     result.byMaterial = bm2;
-    state.plan = result;
+    return result;
+  }
 
+  // Cálculo de uma só passada (usado nas atualizações automáticas/silenciosas).
+  function runPlan(silent) {
+    stopLiveSearch();
+    const inp = buildPlanInputs();
+    if (!inp) { if (!silent) toast('Importe um CSV ou adicione peças.'); return; }
+    const result = relabelResult(Optimizer.optimize(inp.gpanels, inp.gstock, inp.opts), inp.groupLabel);
+    state.plan = result;
+    showResult(result);
+    save();
+    if (!silent) toast('Plano calculado!');
+  }
+
+  // Atualiza métricas, tabela e desenho a partir de um resultado já rotulado.
+  function showResult(result) {
     const pieces = result.sheets.reduce((a, s) => a + s.placements.length, 0);
     const cuts = result.sheets.reduce((a, s) => a + s.cuts, 0);
     const totalArea = result.sheets.reduce((a, s) => a + s.W * s.H, 0);
@@ -788,10 +809,79 @@
 
     Render.renderSheets($('#plan-sheets'), result, { showLabels: state.options.labels });
     Budget.applyMetrics(state.budgetItems, m);
-    save();
-    if (!silent) toast('Plano calculado!');
   }
   function metric(k, v) { return `<div class="metric"><div class="v">${v}</div><div class="k">${k}</div></div>`; }
+
+  // ---------- Busca contínua (testa e melhora ao vivo) ----------
+  let live = null; // { search, groupLabel, raf }
+
+  function setRunButton(running) {
+    const b = $('#run-plan');
+    if (!b) return;
+    b.innerHTML = running
+      ? '<span class="material-symbols-outlined">pause</span>Pausar e usar este'
+      : '<span class="material-symbols-outlined">play_arrow</span>Calcular plano';
+    b.classList.toggle('searching', !!running);
+  }
+  function setPlanStatus(txt) { const e = $('#plan-status'); if (e) { e.textContent = txt || ''; e.style.display = txt ? 'block' : 'none'; } }
+
+  function startLiveSearch() {
+    const inp = buildPlanInputs();
+    if (!inp) { toast('Importe um CSV ou adicione peças.'); return; }
+    const search = Optimizer.createSearch(inp.gpanels, inp.gstock, inp.opts);
+    live = { search, groupLabel: inp.groupLabel, raf: 0 };
+    setRunButton(true);
+    $('#plan-empty').style.display = 'none';
+    setPlanStatus('Procurando o melhor aproveitamento…');
+    tickLive();
+  }
+
+  function stopLiveSearch() {
+    if (!live) return;
+    if (live.raf) cancelAnimationFrame(live.raf);
+    live = null;
+    setRunButton(false);
+    setPlanStatus('');
+  }
+
+  function tickLive() {
+    if (!live) return;
+    const search = live.search;
+    const t0 = performance.now();
+    let improved = false, info = null;
+    do {
+      info = search.step();
+      if (info.improved) improved = true;
+    } while (!info.converged && performance.now() - t0 < 14);
+
+    if (improved) {
+      const result = relabelResult(search.result(), live.groupLabel);
+      state.plan = result;
+      showResult(result);
+      save();
+    }
+    const pct = Math.min(100, Math.round(info.det / info.totalDet * 100));
+    const phase = info.det < info.totalDet ? `Testando combinações… ${pct}%` : 'Refinando (reinícios aleatórios)…';
+    const ns = state.plan ? state.plan.sheets.length : 0;
+    setPlanStatus(`${phase} · melhor: ${ns} chapa(s) · ${info.step} tentativas — toque em “Pausar e usar este” quando quiser.`);
+
+    if (info.converged) {
+      setPlanStatus('');
+      stopLiveSearch();
+      toast('Otimização estabilizou — usando o melhor plano.');
+      return;
+    }
+    live.raf = requestAnimationFrame(tickLive);
+  }
+
+  function toggleLiveSearch() {
+    if (live) {
+      stopLiveSearch();
+      toast('Usando o melhor plano encontrado.');
+    } else {
+      startLiveSearch();
+    }
+  }
 
   // ---------- Orçamento ----------
   function renderBudget() {
@@ -929,7 +1019,7 @@
     initTabs(); initOptions(); initImport(); initSelect(); initBudgetCfg(); initBandModal(); initProjects();
     updateProjectName(); renderStock(); renderPanels();
     if (validPanels().length) runPlan(true); else renderPlanEmpty();
-    $('#run-plan').addEventListener('click', () => runPlan(false));
+    $('#run-plan').addEventListener('click', toggleLiveSearch);
     initShareHandlers();
   }
   document.addEventListener('DOMContentLoaded', init);

@@ -162,11 +162,25 @@
     return out.filter(r => r.w > EPS && r.h > EPS);
   }
 
-  function packOnce(list, W, H, o, splitPref, fitMode, placeMode) {
+  // Ordenações de peças usadas pelas estratégias de empacotamento.
+  const ORDERS = {
+    area: (a, b) => (b.w * b.h) - (a.w * a.h),
+    maxside: (a, b) => Math.max(b.w, b.h) - Math.max(a.w, a.h),
+    height: (a, b) => b.h - a.h || b.w - a.w,
+    width: (a, b) => b.w - a.w || b.h - a.h,
+    perim: (a, b) => (b.w + b.h) - (a.w + a.h),
+  };
+  const sig = it => it.name + '|' + it.w + '|' + it.h + '|' + (it.grain || '');
+
+  function packOnce(list, W, H, o, splitPref, fitMode, placeMode, blockMode) {
     let sheetIndex = 0;
     const sheets = [];
     const unplaced = [];
-    list.forEach(it => {
+    const done = new Array(list.length).fill(false);
+    for (let idx = 0; idx < list.length; idx++) {
+      if (done[idx]) continue;
+      const it = list[idx];
+      done[idx] = true;
       // Direção do veio fixa a orientação da peça:
       //  '' (sem veio) → rotação livre
       //  'v' (↕) → mantém como exportada (largura × comprimento)
@@ -195,17 +209,49 @@
       }
       if (!target) {
         const cabe = (pw <= W + 1e-6 && ph <= H + 1e-6) || (allowRotate && ph <= W + 1e-6 && pw <= H + 1e-6);
-        if (!cabe) { unplaced.push(it); return; }
+        if (!cabe) { unplaced.push(it); continue; }
         target = newSheet(it.__mat, W, H, ++sheetIndex);
         fit = findFit(target, pw, ph, allowRotate, fitMode);
         sheets.push(target);
       }
       const fw = fit.rotated ? ph : pw, fh = fit.rotated ? pw : ph;
       const r = target.free[fit.rectIdx];
-      target.placements.push({ x: r.x, y: r.y, w: fw, h: fh, name: it.name, rotated: fit.rotated, bands: it.bands });
-      splitRect(target, fit.rectIdx, fw, fh, o.kerf, splitPref);
+      if (blockMode) {
+        // Bloco homogêneo: preenche o retângulo com o máximo de peças IGUAIS
+        // (mesmo nome+medida+veio) numa grade cols×linhas — padrão limpo de
+        // seccionadora, menos cortes/regulagens.
+        const k = o.kerf;
+        const cols = Math.max(1, Math.floor((r.w + k) / (fw + k)));
+        const rows = Math.max(1, Math.floor((r.h + k) / (fh + k)));
+        const cap = cols * rows;
+        const group = [];
+        const mySig = sig(it);
+        for (let j = idx; j < list.length && group.length < cap; j++) {
+          if (!done[j] && sig(list[j]) === mySig) group.push(j);
+        }
+        const n = group.length + 1; // +1 = a peça atual (idx, já marcada)
+        const ids = [idx].concat(group.slice(0, n - 1));
+        const total = Math.min(ids.length, cap);
+        let placed = 0;
+        for (let rr = 0; rr < rows && placed < total; rr++) {
+          for (let cc = 0; cc < cols && placed < total; cc++) {
+            target.placements.push({ x: r.x + cc * (fw + k), y: r.y + rr * (fh + k), w: fw, h: fh, name: it.name, rotated: fit.rotated, bands: it.bands });
+            if (placed > 0) done[ids[placed]] = true; // idx (placed 0) já marcado
+            placed++;
+          }
+        }
+        const usedCols = Math.min(cols, total);
+        const usedRows = Math.ceil(total / cols);
+        const blockW = usedCols * fw + (usedCols - 1) * k;
+        const blockH = usedRows * fh + (usedRows - 1) * k;
+        splitRect(target, fit.rectIdx, blockW, blockH, k, splitPref);
+        target.cuts += (usedRows - 1) + usedRows * (usedCols - 1); // cortes internos do bloco
+      } else {
+        target.placements.push({ x: r.x, y: r.y, w: fw, h: fh, name: it.name, rotated: fit.rotated, bands: it.bands });
+        splitRect(target, fit.rectIdx, fw, fh, o.kerf, splitPref);
+      }
       mergeFree(target.free); // consolida a lista livre (estilo GuillotineBinPack)
-    });
+    }
     // sobras avaliadas por decomposição guilhotinada (apara a ponta primeiro)
     sheets.forEach(s => { s.free = guillotineOffcuts(s); });
     return { sheets, unplaced };
@@ -248,22 +294,17 @@
 
   function packGroup(items, W, H, o, matName) {
     items.forEach(it => it.__mat = matName);
-    const orders = {
-      area: (a, b) => (b.w * b.h) - (a.w * a.h),
-      maxside: (a, b) => Math.max(b.w, b.h) - Math.max(a.w, a.h),
-      height: (a, b) => b.h - a.h || b.w - a.w,
-      width: (a, b) => b.w - a.w || b.h - a.h,
-      perim: (a, b) => (b.w + b.h) - (a.w + a.h),
-    };
     let best = null, bestScore = null;
-    for (const key of Object.keys(orders)) {
-      const list = items.slice().sort(orders[key]);
+    for (const key of Object.keys(ORDERS)) {
+      const list = items.slice().sort(ORDERS[key]);
       for (const pref of ['maxrect', 'wide', 'tall']) {
         for (const mode of ['bssf', 'tl', 'baf']) {
           for (const place of ['first', 'best']) {
-            const res = packOnce(list, W, H, o, pref, mode, place);
-            const sc = score(res);
-            if (better(sc, bestScore)) { best = res; bestScore = sc; }
+            for (const block of [false, true]) {
+              const res = packOnce(list, W, H, o, pref, mode, place, block);
+              const sc = score(res);
+              if (better(sc, bestScore)) { best = res; bestScore = sc; }
+            }
           }
         }
       }
@@ -302,5 +343,88 @@
     return { sheets, unplaced, byMaterial };
   }
 
-  global.Optimizer = { optimize };
+  // ---- Busca CONTÍNUA: testa estratégias em passos, guardando o melhor de
+  // cada material. O app chama step() em lotes e renderiza quando melhora;
+  // pode pausar a qualquer momento e usar o melhor plano até então. ----
+  function createSearch(panels, stockList, options) {
+    const o = Object.assign({ kerf: 0, considerMaterial: true, considerGrain: true, allowRotate: true }, options);
+    const items = expand(panels);
+    const groupsMap = {};
+    items.forEach(it => { const key = o.considerMaterial ? it.material : '__all__'; (groupsMap[key] = groupsMap[key] || []).push(it); });
+    function stockFor(material) {
+      let s = stockList.find(s => o.considerMaterial && s.material && s.material === material);
+      if (!s) s = stockList.find(s => !s.material) || stockList[0];
+      return s || { width: 184, length: 274, qty: 999 };
+    }
+    const groups = Object.keys(groupsMap).map(material => {
+      const stock = stockFor(material);
+      const matName = o.considerMaterial ? material : 'Geral';
+      groupsMap[material].forEach(it => it.__mat = matName);
+      return { items: groupsMap[material], W: stock.width, H: stock.length, best: null, bestScore: null };
+    });
+
+    const orderKeys = Object.keys(ORDERS);
+    const prefs = ['maxrect', 'wide', 'tall'], modes = ['bssf', 'tl', 'baf'], places = ['first', 'best'];
+    const combos = [];
+    for (const ok of orderKeys) for (const pref of prefs) for (const mode of modes) for (const place of places) for (const block of [false, true]) combos.push({ ok, pref, mode, place, block });
+    const totalDet = combos.length;
+
+    let rng = 2463534242;
+    function rand() { rng ^= rng << 13; rng ^= rng >>> 17; rng ^= rng << 5; rng >>>= 0; return rng / 4294967296; }
+    function shuffle(arr) { const a = arr.slice(); for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(rand() * (i + 1)); const t = a[i]; a[i] = a[j]; a[j] = t; } return a; }
+    const pick = a => a[Math.floor(rand() * a.length)];
+
+    let detIdx = 0, stepCount = 0, sinceImprove = 0;
+
+    function tryOn(g, list, c) {
+      const res = packOnce(list, g.W, g.H, o, c.pref, c.mode, c.place, c.block);
+      const sc = score(res);
+      if (better(sc, g.bestScore)) { g.best = res; g.bestScore = sc; return true; }
+      return false;
+    }
+
+    function step() {
+      let improved = false;
+      if (detIdx < combos.length) {
+        const c = combos[detIdx++];
+        for (const g of groups) {
+          const list = g.items.slice().sort(ORDERS[c.ok]);
+          if (tryOn(g, list, c)) improved = true;
+        }
+      } else {
+        // reinícios aleatórios: embaralha a ordem + combo aleatório
+        const c = { pref: pick(prefs), mode: pick(modes), place: pick(places), block: rand() < 0.5 };
+        const ok = pick(orderKeys);
+        for (const g of groups) {
+          const base = g.items.slice().sort(ORDERS[ok]);
+          const list = rand() < 0.75 ? shuffle(base) : base;
+          if (tryOn(g, list, c)) improved = true;
+        }
+      }
+      stepCount++;
+      if (improved) sinceImprove = 0; else sinceImprove++;
+      // convergiu: terminou a fase determinística e estagnou por muitos passos
+      const converged = detIdx >= combos.length && sinceImprove >= 800;
+      return { improved, converged, det: detIdx, totalDet, step: stepCount };
+    }
+
+    function result() {
+      const sheets = [], unplaced = [];
+      groups.forEach(g => { if (!g.best) return; g.best.sheets.forEach(s => sheets.push(s)); g.best.unplaced.forEach(u => unplaced.push(u)); });
+      const perMat = {};
+      sheets.forEach(s => { (perMat[s.material] = perMat[s.material] || []).push(s); });
+      Object.keys(perMat).forEach(k => perMat[k].forEach((s, i) => { s.index = i + 1; }));
+      const byMaterial = {};
+      sheets.forEach(s => {
+        const m = byMaterial[s.material] || (byMaterial[s.material] = { sheets: 0, pieces: 0, area: 0, usedArea: 0, cuts: 0 });
+        m.sheets++; m.cuts += s.cuts; m.area += s.W * s.H;
+        s.placements.forEach(p => { m.pieces++; m.usedArea += p.w * p.h; });
+      });
+      return { sheets, unplaced, byMaterial };
+    }
+
+    return { step, result, totalDet };
+  }
+
+  global.Optimizer = { optimize, createSearch };
 })(window);
