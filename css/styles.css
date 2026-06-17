@@ -177,10 +177,15 @@ table.grid.compact { font-size: .8rem; }
 table.grid.compact th, table.grid.compact td { padding: 2px 3px; }
 .cell-num { width: 2.9rem; }
 .cell-num input { text-align: right; }
-.cell-qty { width: 2.1rem; text-align: center; }
+.cell-qty { width: 2.1rem; }
 .cell-qty input { text-align: center; }
-.cell-mat, .cell-veio, .cell-fita { text-align: center; }
 .cell-mat { min-width: 3.6rem; }
+/* centralização (especificidade alta p/ vencer "table.grid td{text-align:left}") */
+table.grid th.cell-qty, table.grid td.cell-qty,
+table.grid th.cell-mat, table.grid td.cell-mat,
+table.grid th.cell-veio, table.grid td.cell-veio,
+table.grid th.cell-fita, table.grid td.cell-fita { text-align: center; }
+table.grid td.cell-mat .mat-cell { margin: 0 auto; }
 .cell-name { width: 3.4rem; }
 .cell-fita { width: 2.6rem; text-align: center; }
 .cell-veio { width: 1.8rem; text-align: center; }
