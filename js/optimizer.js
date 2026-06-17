@@ -1,13 +1,17 @@
 /* ============================================================
  * optimizer.js — Plano de corte por aproveitamento (seccionadora).
  *
- * Cortes 100% guilhotinados. O packer roda VÁRIAS estratégias
- * (ordens de peças × heurísticas de encaixe × divisão) e escolhe
- * a melhor por:
+ * Corte guilhotinado bidimensional com heurística estilo MaxRects/
+ * GuillotineBinPack + critério BSSF (Best Short Side Fit) e fusão de
+ * retângulos livres. As sobras usam um MODELO DE BLOCOS: a região
+ * ocupada é tratada como uma "chapa menor" (bloco no canto) e o que
+ * sobra fora dela vira 1–2 retalhos inteiros grandes.
+ *
+ * Escolha da melhor estratégia:
  *   1) menos peças sem encaixe
  *   2) menos chapas
- *   3) MAIOR sobra contígua individual (retalho reaproveitável)
- *   4) sobras mais concentradas (poucas grandes em vez de muitas pequenas)
+ *   3) sobras MAIORES (lexicográfico: maior retalho, depois 2º maior...)
+ *   4) menos retalhos
  *   5) menos cortes
  *
  * Eixos da chapa: x = Largura (W), y = Comprimento (H).
@@ -32,15 +36,18 @@
   }
 
   // Acha o retângulo livre para a peça.
-  //  mode 'baf' = Best Area Fit (encaixe mais justo)
-  //  mode 'tl'  = Top-Left (empurra a peça para o canto, concentrando a sobra)
+  //  mode 'bssf' = Best Short Side Fit (menor sobra do lado curto) — heurística principal
+  //  mode 'tl'   = Top-Left (empurra a peça para o canto, formando um bloco compacto)
   function findFit(sheet, pw, ph, allowRotate, mode) {
     let best = null;
     const consider = (i, rotated, fw, fh) => {
       const r = sheet.free[i];
       let key1, key2;
       if (mode === 'tl') { key1 = r.y; key2 = r.x; }
-      else { key1 = r.w * r.h - fw * fh; key2 = Math.min(r.w - fw, r.h - fh); }
+      else { // BSSF: menor lado-curto restante; desempate pelo lado-longo
+        key1 = Math.min(r.w - fw, r.h - fh);
+        key2 = Math.max(r.w - fw, r.h - fh);
+      }
       if (!best || key1 < best.key1 - 1e-6 || (Math.abs(key1 - best.key1) <= 1e-6 && key2 < best.key2)) {
         best = { rectIdx: i, rotated, key1, key2 };
       }
@@ -109,6 +116,24 @@
     }
   }
 
+  // Modelo de blocos: trata a região ocupada como uma "chapa menor" (bloco no
+  // canto) e calcula as sobras FORA dele como 1–2 retalhos inteiros grandes
+  // (decomposição guilhotinada). Escolhe a decomposição que maximiza o maior.
+  function blockOffcuts(sheet) {
+    const W = sheet.W, H = sheet.H;
+    let bw = 0, bh = 0;
+    sheet.placements.forEach(p => { bw = Math.max(bw, p.x + p.w); bh = Math.max(bh, p.y + p.h); });
+    if (!sheet.placements.length) return [{ x: 0, y: 0, w: W, h: H }];
+    const rightW = W - bw, bottomH = H - bh;
+    // A: retalho direito de altura cheia + base sob o bloco
+    const A = [{ x: bw, y: 0, w: rightW, h: H }, { x: 0, y: bh, w: bw, h: bottomH }];
+    // B: base de largura cheia + retalho direito até a base do bloco
+    const B = [{ x: 0, y: bh, w: W, h: bottomH }, { x: bw, y: 0, w: rightW, h: bh }];
+    const maxArea = rs => rs.reduce((m, r) => Math.max(m, r.w * r.h), 0);
+    const chosen = maxArea(A) >= maxArea(B) ? A : B;
+    return chosen.filter(r => r.w > EPS && r.h > EPS);
+  }
+
   function packOnce(list, W, H, o, splitPref, fitMode) {
     let sheetIndex = 0;
     const sheets = [];
@@ -141,8 +166,10 @@
       const r = target.free[fit.rectIdx];
       target.placements.push({ x: r.x, y: r.y, w: fw, h: fh, name: it.name, rotated: fit.rotated, bands: it.bands });
       splitRect(target, fit.rectIdx, fw, fh, o.kerf, splitPref);
+      mergeFree(target.free); // consolida a lista livre (estilo GuillotineBinPack)
     });
-    sheets.forEach(s => mergeFree(s.free));
+    // sobras avaliadas pelo modelo de blocos (retalhos inteiros fora do bloco)
+    sheets.forEach(s => { s.free = blockOffcuts(s); });
     return { sheets, unplaced };
   }
 
@@ -169,15 +196,15 @@
       cuts: res.sheets.reduce((a, s) => a + s.cuts, 0),
     };
   }
-  // Prioriza: menos não-encaixadas → menos chapas → MENOS sobras úteis
-  // (junta os restos) → sobras maiores (lexicográfico) → menos cortes.
+  // Prioriza: menos não-encaixadas → menos chapas → sobras MAIORES
+  // (lexicográfico: maior retalho, depois 2º maior...) → menos retalhos → menos cortes.
   function better(a, b) {
     if (!b) return true;
     if (a.unplaced !== b.unplaced) return a.unplaced < b.unplaced;
     if (a.sheets !== b.sheets) return a.sheets < b.sheets;
-    if (a.off.length !== b.off.length) return a.off.length < b.off.length;
     const lex = cmpLex(a.off, b.off);
     if (lex !== 0) return lex > 0;
+    if (a.off.length !== b.off.length) return a.off.length < b.off.length;
     return a.cuts < b.cuts;
   }
 
@@ -194,7 +221,7 @@
     for (const key of Object.keys(orders)) {
       const list = items.slice().sort(orders[key]);
       for (const pref of ['maxrect', 'wide', 'tall']) {
-        for (const mode of ['baf', 'tl']) {
+        for (const mode of ['bssf', 'tl']) {
           const res = packOnce(list, W, H, o, pref, mode);
           const sc = score(res);
           if (better(sc, bestScore)) { best = res; bestScore = sc; }
