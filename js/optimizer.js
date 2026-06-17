@@ -62,7 +62,11 @@
     if (remRight > EPS && remBottom > EPS) {
       const horizBig = Math.max(r.w * remBottom, remRight * usedH);
       const vertBig = Math.max(remRight * r.h, usedW * remBottom);
-      const cutVertical = splitPref === 'maxrect' ? (vertBig >= horizBig) : (remRight >= remBottom);
+      let cutVertical;
+      if (splitPref === 'tall') cutVertical = true;        // sempre corte vertical (tira de altura cheia)
+      else if (splitPref === 'wide') cutVertical = false;  // sempre corte horizontal (tira de largura cheia)
+      else if (splitPref === 'maxrect') cutVertical = vertBig >= horizBig;
+      else cutVertical = remRight >= remBottom;
       if (cutVertical) {
         rects.push({ x: r.x + usedW, y: r.y, w: remRight, h: r.h });
         rects.push({ x: r.x, y: r.y + usedH, w: usedW, h: remBottom });
@@ -142,16 +146,13 @@
     return { sheets, unplaced };
   }
 
-  // Áreas das sobras reaproveitáveis (ignora fiapos de kerf), em ordem decrescente.
+  // Áreas das sobras reaproveitáveis (ignora fiapos), em ordem decrescente.
   function offAreas(sheets) {
     const a = [];
-    sheets.forEach(s => s.free.forEach(r => { if (r.w > 2 && r.h > 2) a.push(r.w * r.h); }));
+    sheets.forEach(s => s.free.forEach(r => { if (Math.min(r.w, r.h) >= 5) a.push(r.w * r.h); }));
     a.sort((x, y) => y - x);
     return a;
   }
-  // Compara duas listas de sobras (desc): >0 se 'a' é melhor (maior retalho,
-  // depois 2º maior, etc.). É a lógica "deixe o maior pedaço possível, e só
-  // então o próximo o maior possível".
   function cmpLex(a, b) {
     const n = Math.max(a.length, b.length);
     for (let i = 0; i < n; i++) {
@@ -168,12 +169,13 @@
       cuts: res.sheets.reduce((a, s) => a + s.cuts, 0),
     };
   }
-  // Prioriza: menos não-encaixadas → menos chapas → sobras maiores
-  // (lexicográfico: maior retalho, depois 2º maior, ...) → menos cortes.
+  // Prioriza: menos não-encaixadas → menos chapas → MENOS sobras úteis
+  // (junta os restos) → sobras maiores (lexicográfico) → menos cortes.
   function better(a, b) {
     if (!b) return true;
     if (a.unplaced !== b.unplaced) return a.unplaced < b.unplaced;
     if (a.sheets !== b.sheets) return a.sheets < b.sheets;
+    if (a.off.length !== b.off.length) return a.off.length < b.off.length;
     const lex = cmpLex(a.off, b.off);
     if (lex !== 0) return lex > 0;
     return a.cuts < b.cuts;
@@ -191,7 +193,7 @@
     let best = null, bestScore = null;
     for (const key of Object.keys(orders)) {
       const list = items.slice().sort(orders[key]);
-      for (const pref of ['maxrect', 'minrect']) {
+      for (const pref of ['maxrect', 'wide', 'tall']) {
         for (const mode of ['baf', 'tl']) {
           const res = packOnce(list, W, H, o, pref, mode);
           const sc = score(res);
