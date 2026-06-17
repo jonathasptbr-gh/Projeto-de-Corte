@@ -309,9 +309,27 @@
       });
       sw.appendChild(inp);
       const name = el('span', 'mat-name'); name.textContent = matLabel(m);
-      item.appendChild(sw); item.appendChild(name);
+      const del = iconBtn('del', 'delete', 'Excluir material e suas peças', () => deleteMaterial(m));
+      item.appendChild(sw); item.appendChild(name); item.appendChild(del);
       box.appendChild(item);
     });
+  }
+
+  // Exclui um material e TODAS as peças (e estoques) que o utilizam.
+  async function deleteMaterial(m) {
+    const units = state.panels.filter(p => p.material === m).reduce((a, p) => a + (p.qty || 1), 0);
+    const ok = await ui.confirm(
+      `Excluir o material “${matLabel(m)}” e as ${units} peça(s) que o utilizam? Esta ação não pode ser desfeita.`,
+      { title: 'Excluir material', danger: true, okText: 'Excluir' });
+    if (!ok) return;
+    state.panels = state.panels.filter(p => p.material !== m);
+    state.stock = state.stock.filter(s => s.material !== m);
+    delete state.materialColors[m]; delete state.materialNames[m];
+    selected.clear();
+    save();
+    renderPanels(); renderStock();
+    if (validPanels().length) runPlan(true); else renderPlanEmpty();
+    toast('Material excluído');
   }
 
   // ---------- Fita (popup) ----------
