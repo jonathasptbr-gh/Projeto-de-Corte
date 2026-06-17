@@ -1,5 +1,5 @@
 /* Service Worker — cache do app shell + recepção de CSV compartilhado. */
-const CACHE = 'projeto-corte-v11';
+const CACHE = 'projeto-corte-v12';
 const SHARE_CACHE = 'projeto-corte-share';
 const SHARE_KEY = 'shared-csv';
 const ASSETS = [

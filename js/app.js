@@ -93,6 +93,9 @@
   const numFmt = n => (Math.round((n || 0) * 100) / 100).toLocaleString('pt-BR');
   const fmtNum = v => (v || v === 0) ? String(v).replace('.', ',') : '';
   const parseNum = s => { const n = parseFloat(String(s).replace(',', '.')); return isFinite(n) ? n : 0; };
+  const capFirst = s => { s = String(s == null ? '' : s); return s ? s.charAt(0).toUpperCase() + s.slice(1) : s; };
+  // Seleciona todo o conteúdo ao focar (útil para editar campos numéricos).
+  function selectAllOnFocus(inp) { inp.addEventListener('focus', () => { try { inp.select(); } catch (e) {} }); }
   function attr(s) { return String(s == null ? '' : s).replace(/"/g, '&quot;'); }
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c])); }
   function el(tag, cls) { const e = document.createElement(tag); if (cls) e.className = cls; return e; }
@@ -245,7 +248,8 @@
   }
   function numInput(val, ph, mode, onCh) {
     const i = document.createElement('input'); i.inputMode = mode || 'decimal'; i.placeholder = ph || '';
-    i.value = val > 0 ? fmtNum(val) : ''; i.addEventListener('change', () => onCh(i.value)); return i;
+    i.value = val > 0 ? fmtNum(val) : ''; i.addEventListener('change', () => onCh(i.value));
+    selectAllOnFocus(i); return i;
   }
   function txtInput(val, ph, onCh) {
     const i = document.createElement('input'); i.placeholder = ph || ''; i.value = val || '';
@@ -343,7 +347,10 @@
     // material
     const tdM = el('td', 'cell-mat'); tdM.appendChild(materialControl(p, v => onPanelField(p, 'material', v))); tr.appendChild(tdM);
     // nome
-    const tdN = el('td', 'cell-name'); tdN.appendChild(txtInput(p.name, 'nome', v => onPanelField(p, 'name', v))); tr.appendChild(tdN);
+    const tdN = el('td', 'cell-name');
+    const nameInp = document.createElement('input'); nameInp.placeholder = 'nome'; nameInp.value = p.name || '';
+    nameInp.addEventListener('change', () => { const cap = capFirst(nameInp.value.trim()); nameInp.value = cap; onPanelField(p, 'name', cap); });
+    tdN.appendChild(nameInp); tr.appendChild(tdN);
     // fita
     const tdF = el('td', 'cell-fita'); tdF.appendChild(makeFitaButton(p)); tr.appendChild(tdF);
     // del
@@ -496,6 +503,7 @@
     selected.clear();
 
     panels.forEach(p => {
+      p.name = capFirst((p.name || '').trim()); // primeira letra maiúscula
       const raw = p.material;
       p.material = normalizeMaterial(raw, p.thickness);
       if (!state.materialColors[p.material]) state.materialColors[p.material] = colorFromName(raw) || fallbackColor(p.material);
@@ -710,9 +718,7 @@
     });
     $('#plan-breakdown').innerHTML =
       `<table class="grid compact breakdown"><thead><tr><th>Material</th><th>Chapas</th><th>Mín</th>` +
-      `<th>Peças</th><th>Aprov.</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table>` +
-      `<p class="muted small breakdown-note">Aproveit. = área das peças ÷ (chapas × área da chapa). ` +
-      `Com o nº mínimo de chapas esse % é o teto.</p>`;
+      `<th>Peças</th><th>Aprov.</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table>`;
 
     Render.renderSheets($('#plan-sheets'), result, { showLabels: state.options.labels });
     Budget.applyMetrics(state.budgetItems, m);
@@ -847,6 +853,13 @@
   // ---------- Init ----------
   function init() {
     load();
+    // seleciona todo o conteúdo de campos numéricos ao focar
+    document.addEventListener('focusin', e => {
+      const t = e.target;
+      if (t && t.tagName === 'INPUT' && (t.inputMode === 'decimal' || t.inputMode === 'numeric' || t.type === 'number')) {
+        setTimeout(() => { try { t.select(); } catch (err) {} }, 0);
+      }
+    });
     initTabs(); initOptions(); initImport(); initSelect(); initBudgetCfg(); initBandModal(); initProjects();
     updateProjectName(); renderStock(); renderPanels();
     if (validPanels().length) runPlan(true); else renderPlanEmpty();
