@@ -2,7 +2,7 @@
   --green: #2f6f4f;
   --green-light: #8bc34a;
   --green-soft: #a7c957;
-  --bg: #f4f6f5;
+  --bg: #cdd5d0;
   --card: #ffffff;
   --line: #e2e6e4;
   --text: #1c2421;
@@ -154,6 +154,11 @@ code { background: #eef1ef; padding: 1px 5px; border-radius: 5px; font-size: .85
 
 /* ---------- Tables (mobile-first, larguras mínimas) ---------- */
 .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+/* tabelas das peças/stock em superfície branca para contrastar com o fundo */
+.block .table-wrap {
+  background: #fff; border: 1px solid var(--line); border-radius: 10px;
+  padding: 4px; box-shadow: var(--shadow);
+}
 table.grid { width: 100%; border-collapse: collapse; font-size: .85rem; table-layout: auto; }
 table.grid th, table.grid td {
   border: 1px solid var(--line);
