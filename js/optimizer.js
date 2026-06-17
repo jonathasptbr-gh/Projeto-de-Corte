@@ -44,6 +44,7 @@
       const r = sheet.free[i];
       let key1, key2;
       if (mode === 'tl') { key1 = r.y; key2 = r.x; }
+      else if (mode === 'baf') { key1 = r.w * r.h - fw * fh; key2 = Math.min(r.w - fw, r.h - fh); }
       else { // BSSF: menor lado-curto restante; desempate pelo lado-longo
         key1 = Math.min(r.w - fw, r.h - fh);
         key2 = Math.max(r.w - fw, r.h - fh);
@@ -134,7 +135,7 @@
     return chosen.filter(r => r.w > EPS && r.h > EPS);
   }
 
-  function packOnce(list, W, H, o, splitPref, fitMode) {
+  function packOnce(list, W, H, o, splitPref, fitMode, placeMode) {
     let sheetIndex = 0;
     const sheets = [];
     const unplaced = [];
@@ -151,9 +152,19 @@
         allowRotate = o.allowRotate;
       }
       let target = null, fit = null;
-      for (const sheet of sheets) {
-        const f = findFit(sheet, pw, ph, allowRotate, fitMode);
-        if (f) { target = sheet; fit = f; break; }
+      if (placeMode === 'best') {
+        // best-fit global: melhor encaixe entre TODAS as chapas abertas
+        for (const sheet of sheets) {
+          const f = findFit(sheet, pw, ph, allowRotate, fitMode);
+          if (!f) continue;
+          if (!fit || f.key1 < fit.key1 - 1e-6 || (Math.abs(f.key1 - fit.key1) <= 1e-6 && f.key2 < fit.key2)) { target = sheet; fit = f; }
+        }
+      } else {
+        // first-fit: primeira chapa que couber
+        for (const sheet of sheets) {
+          const f = findFit(sheet, pw, ph, allowRotate, fitMode);
+          if (f) { target = sheet; fit = f; break; }
+        }
       }
       if (!target) {
         const cabe = (pw <= W + 1e-6 && ph <= H + 1e-6) || (allowRotate && ph <= W + 1e-6 && pw <= H + 1e-6);
@@ -221,10 +232,12 @@
     for (const key of Object.keys(orders)) {
       const list = items.slice().sort(orders[key]);
       for (const pref of ['maxrect', 'wide', 'tall']) {
-        for (const mode of ['bssf', 'tl']) {
-          const res = packOnce(list, W, H, o, pref, mode);
-          const sc = score(res);
-          if (better(sc, bestScore)) { best = res; bestScore = sc; }
+        for (const mode of ['bssf', 'tl', 'baf']) {
+          for (const place of ['first', 'best']) {
+            const res = packOnce(list, W, H, o, pref, mode, place);
+            const sc = score(res);
+            if (better(sc, bestScore)) { best = res; bestScore = sc; }
+          }
         }
       }
     }
