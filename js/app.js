@@ -14,6 +14,7 @@
       stock: [{ width: 184, length: 274, qty: 5, material: '' }],
       options: { kerf: 0.8, labels: true, material: true, grain: true },
       materialColors: {},
+      materialNames: {},
       budgetItems: Budget.defaultItems(),
       budgetCfg: { laborPct: 80, markupPct: 10, pixPct: 10, daysPerPiece: 0.105 },
       plan: null,
@@ -39,6 +40,7 @@
       stock: Array.isArray(d.stock) && d.stock.length ? d.stock : e.stock,
       options: Object.assign(e.options, d.options || {}),
       materialColors: (d.materialColors && typeof d.materialColors === 'object') ? d.materialColors : {},
+      materialNames: (d.materialNames && typeof d.materialNames === 'object') ? d.materialNames : {},
       budgetCfg: Object.assign(e.budgetCfg, d.budgetCfg || {}),
       budgetItems: e.budgetItems,
       plan: null,
@@ -101,6 +103,48 @@
     clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('show'), 2200);
   }
 
+  // ---------- Diálogos temáticos reutilizáveis (alert/confirm/prompt) ----------
+  function dialog(opts) {
+    opts = opts || {};
+    return new Promise(resolve => {
+      const ov = el('div', 'modal-overlay dialog-overlay');
+      const card = el('div', 'modal dialog' + (opts.danger ? ' danger' : ''));
+      const head = el('div', 'dialog-head'); head.textContent = opts.title || 'Confirmar';
+      const body = el('div', 'dialog-body');
+      if (opts.message) { const m = el('p', 'dialog-msg'); m.textContent = opts.message; body.appendChild(m); }
+      let inputEl = null;
+      if (opts.input) {
+        inputEl = document.createElement('input'); inputEl.className = 'dialog-input';
+        inputEl.value = opts.value || ''; body.appendChild(inputEl);
+      }
+      const actions = el('div', 'modal-actions');
+      let cancelBtn = null;
+      if (!opts.alert) { cancelBtn = el('button', 'btn'); cancelBtn.textContent = opts.cancelText || 'Cancelar'; actions.appendChild(cancelBtn); }
+      const okBtn = el('button', 'btn ' + (opts.danger ? 'danger' : 'primary')); okBtn.textContent = opts.okText || 'OK';
+      actions.appendChild(okBtn);
+      card.appendChild(head); card.appendChild(body); card.appendChild(actions); ov.appendChild(card);
+      document.body.appendChild(ov);
+
+      const close = val => { ov.remove(); document.removeEventListener('keydown', onKey); resolve(val); };
+      const onOk = () => close(opts.input ? (inputEl ? inputEl.value : '') : true);
+      const onCancel = () => close(opts.input ? null : false);
+      okBtn.addEventListener('click', onOk);
+      if (cancelBtn) cancelBtn.addEventListener('click', onCancel);
+      ov.addEventListener('click', e => { if (e.target === ov) onCancel(); });
+      function onKey(e) {
+        if (e.key === 'Escape') { e.preventDefault(); onCancel(); }
+        else if (e.key === 'Enter') { e.preventDefault(); onOk(); }
+      }
+      document.addEventListener('keydown', onKey);
+      setTimeout(() => { (inputEl || okBtn).focus(); if (inputEl) inputEl.select(); }, 30);
+    });
+  }
+  const ui = {
+    confirm: (message, o) => dialog(Object.assign({ title: 'Confirmar', message }, o)),
+    prompt: (title, message, value, o) => dialog(Object.assign({ title, message, input: true, value }, o)),
+    alert: (message, o) => dialog(Object.assign({ title: 'Aviso', message, alert: true }, o)),
+  };
+
   function normalizeMaterial(raw, thMm) {
     const s = String(raw || '');
     const base = /white|branc/i.test(s) ? 'Branco' : 'Cor';
@@ -135,7 +179,15 @@
     state.stock.forEach(s => add(s.material));
     return seen;
   }
-  const matNumber = m => materialsOrdered().indexOf(m) + 1;
+  // Número exibido no chip = espessura do material (ex.: 18, 15, 6), sem "mm".
+  function matThickness(m) { const x = String(m || '').match(/(\d+(?:[.,]\d+)?)\s*mm/i); return x ? x[1].replace(',', '.') : ''; }
+  // Rótulo da legenda: nome NATIVO importado + espessura.
+  function matLabel(m) {
+    const native = state.materialNames && state.materialNames[m];
+    const th = matThickness(m);
+    if (native) return native + (th ? ` · ${th}mm` : '');
+    return m;
+  }
 
   // --- Cores por material (tons amplos a partir do nome) ---
   const COLOR_WORDS = [
@@ -212,11 +264,10 @@
     const wrap = el('span', 'mat-cell');
     const chip = el('span', 'mat-chip');
     const paint = () => {
-      const n = cur ? list.indexOf(cur) + 1 : 0;
       if (cur) {
         const col = matColor(cur);
         chip.style.background = col;
-        chip.textContent = n || '';
+        chip.textContent = matThickness(cur) || '';
         chip.classList.toggle('light', isLight(col));
         chip.classList.remove('empty');
       } else { chip.textContent = ''; chip.classList.add('empty'); chip.style.background = 'transparent'; }
@@ -225,7 +276,7 @@
     wrap.appendChild(chip);
     const sel = document.createElement('select'); sel.className = 'mat-select';
     sel.innerHTML = `<option value=""></option>` +
-      list.map(m => `<option value="${attr(m)}"${m === cur ? ' selected' : ''}>${list.indexOf(m) + 1} · ${esc(m)}</option>`).join('');
+      list.map(m => `<option value="${attr(m)}"${m === cur ? ' selected' : ''}>${esc(matLabel(m))}</option>`).join('');
     sel.value = cur;
     sel.addEventListener('change', () => onCh(sel.value));
     wrap.appendChild(sel);
@@ -237,10 +288,12 @@
     const box = $('#mat-legend'); if (!box) return;
     const list = materialsOrdered();
     box.innerHTML = '';
-    list.forEach((m, i) => {
+    list.forEach(m => {
       const col = matColor(m);
       const item = el('div', 'mat-legend-item');
-      const sw = el('label', 'swatch'); sw.style.background = col;
+      const sw = el('label', 'swatch'); sw.style.background = col; sw.classList.toggle('light', isLight(col));
+      const num = el('span', 'sw-num'); num.textContent = matThickness(m) || '';
+      sw.appendChild(num);
       const inp = document.createElement('input'); inp.type = 'color';
       inp.value = /^#[0-9a-f]{6}$/i.test(col) ? col : '#888888';
       inp.addEventListener('input', () => {
@@ -248,9 +301,8 @@
         renderMatLegend(); renderPanels(); renderStock();
       });
       sw.appendChild(inp);
-      const num = el('span', 'mat-num'); num.textContent = (i + 1) + '.';
-      const name = el('span', 'mat-name'); name.textContent = m;
-      item.appendChild(sw); item.appendChild(num); item.appendChild(name);
+      const name = el('span', 'mat-name'); name.textContent = matLabel(m);
+      item.appendChild(sw); item.appendChild(name);
       box.appendChild(item);
     });
   }
@@ -444,6 +496,7 @@
       const raw = p.material;
       p.material = normalizeMaterial(raw, p.thickness);
       if (!state.materialColors[p.material]) state.materialColors[p.material] = colorFromName(raw) || fallbackColor(p.material);
+      if (!state.materialNames[p.material]) state.materialNames[p.material] = raw; // nome nativo do CSV
     });
     panels.sort((a, b) => nameSortKey(a.name).localeCompare(nameSortKey(b.name), 'pt'));
     state.panels = panels;
@@ -463,7 +516,11 @@
       reader.readAsText(file);
       e.target.value = '';
     });
-    $('#clear-panels').addEventListener('click', () => {
+    $('#clear-panels').addEventListener('click', async () => {
+      if (validPanels().length) {
+        const ok = await ui.confirm('Limpar todas as peças deste projeto?', { title: 'Limpar peças', danger: true, okText: 'Limpar' });
+        if (!ok) return;
+      }
       state.panels = []; selected.clear(); renderPanels(); renderPlanEmpty(); save(); $('#import-status').textContent = '';
     });
   }
@@ -511,12 +568,14 @@
       box.appendChild(item);
     });
   }
-  function renameProject(p) {
-    const name = prompt('Nome do projeto:', p.name);
+  async function renameProject(p) {
+    const name = await ui.prompt('Renomear projeto', 'Novo nome:', p.name, { okText: 'Salvar' });
     if (name && name.trim()) { p.name = name.trim(); save(); updateProjectName(); renderProjectsList(); }
   }
-  function deleteProject(p) {
-    if (!confirm(`Excluir o projeto “${p.name}”? Esta ação não pode ser desfeita.`)) return;
+  async function deleteProject(p) {
+    const ok = await ui.confirm(`Excluir o projeto “${p.name}”? Esta ação não pode ser desfeita.`,
+      { title: 'Excluir projeto', danger: true, okText: 'Excluir' });
+    if (!ok) return;
     const i = db.projects.findIndex(x => x.id === p.id);
     if (i >= 0) db.projects.splice(i, 1);
     if (!db.projects.length) { const np = makeProject('Projeto 1', null); db.projects.push(np); db.activeId = np.id; }
