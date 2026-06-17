@@ -117,22 +117,49 @@
     }
   }
 
-  // Modelo de blocos: trata a região ocupada como uma "chapa menor" (bloco no
-  // canto) e calcula as sobras FORA dele como 1–2 retalhos inteiros grandes
-  // (decomposição guilhotinada). Escolhe a decomposição que maximiza o maior.
-  function blockOffcuts(sheet) {
-    const W = sheet.W, H = sheet.H;
-    let bw = 0, bh = 0;
-    sheet.placements.forEach(p => { bw = Math.max(bw, p.x + p.w); bh = Math.max(bh, p.y + p.h); });
-    if (!sheet.placements.length) return [{ x: 0, y: 0, w: W, h: H }];
-    const rightW = W - bw, bottomH = H - bh;
-    // A: retalho direito de altura cheia + base sob o bloco
-    const A = [{ x: bw, y: 0, w: rightW, h: H }, { x: 0, y: bh, w: bw, h: bottomH }];
-    // B: base de largura cheia + retalho direito até a base do bloco
-    const B = [{ x: 0, y: bh, w: W, h: bottomH }, { x: bw, y: 0, w: rightW, h: bh }];
-    const maxArea = rs => rs.reduce((m, r) => Math.max(m, r.w * r.h), 0);
-    const chosen = maxArea(A) >= maxArea(B) ? A : B;
-    return chosen.filter(r => r.w > EPS && r.h > EPS);
+  // Decomposição guilhotinada das SOBRAS (estilo "apara a ponta primeiro").
+  // Em cada região, procura o corte de lado-a-lado (vão livre, sem peça
+  // atravessando) que destaca a MAIOR área vazia — isto é, prefere arrancar
+  // uma tira inteira da ponta/lateral da chapa antes de fatiar entre peças.
+  // Resultado: quando as peças têm comprimentos parecidos, a ponta vira UM
+  // retalho único de largura cheia, em vez de várias pontinhas por tira.
+  function guillotineOffcuts(sheet) {
+    const out = [];
+    function decompose(x, y, w, h, items) {
+      if (w <= EPS || h <= EPS) return;
+      if (!items.length) { out.push({ x, y, w, h }); return; }
+      const cands = [];
+      // cortes verticais possíveis (nenhuma peça atravessa a linha X)
+      const xs = Array.from(new Set([].concat(...items.map(p => [p.x, p.x + p.w])))).filter(X => X > x + EPS && X < x + w - EPS);
+      xs.forEach(X => {
+        if (items.every(p => p.x + p.w <= X + EPS || p.x >= X - EPS)) {
+          const left = items.filter(p => p.x + p.w <= X + EPS);
+          const right = items.filter(p => p.x >= X - EPS);
+          cands.push({ a: { x, y, w: X - x, h, items: left }, b: { x: X, y, w: x + w - X, h, items: right } });
+        }
+      });
+      // cortes horizontais possíveis (nenhuma peça atravessa a linha Y)
+      const ys = Array.from(new Set([].concat(...items.map(p => [p.y, p.y + p.h])))).filter(Y => Y > y + EPS && Y < y + h - EPS);
+      ys.forEach(Y => {
+        if (items.every(p => p.y + p.h <= Y + EPS || p.y >= Y - EPS)) {
+          const top = items.filter(p => p.y + p.h <= Y + EPS);
+          const bot = items.filter(p => p.y >= Y - EPS);
+          cands.push({ a: { x, y, w, h: Y - y, items: top }, b: { x, y: Y, w, h: y + h - Y, items: bot } });
+        }
+      });
+      if (!cands.length) return; // peça preenche a região (sem retalho limpo)
+      // prioriza o corte que destaca a maior ÁREA VAZIA (tira da ponta/lateral)
+      const emptyArea = c => [c.a, c.b].reduce((s, r) => s + (r.items.length ? 0 : r.w * r.h), 0);
+      const biggestEmpty = c => [c.a, c.b].reduce((m, r) => Math.max(m, r.items.length ? 0 : r.w * r.h), 0);
+      cands.sort((c1, c2) => (emptyArea(c2) - emptyArea(c1)) || (biggestEmpty(c2) - biggestEmpty(c1)));
+      const c = cands[0];
+      decompose(c.a.x, c.a.y, c.a.w, c.a.h, c.a.items);
+      decompose(c.b.x, c.b.y, c.b.w, c.b.h, c.b.items);
+    }
+    if (!sheet.placements.length) return [{ x: 0, y: 0, w: sheet.W, h: sheet.H }];
+    decompose(0, 0, sheet.W, sheet.H, sheet.placements.slice());
+    mergeFree(out); // funde retalhos colineares adjacentes em peças maiores
+    return out.filter(r => r.w > EPS && r.h > EPS);
   }
 
   function packOnce(list, W, H, o, splitPref, fitMode, placeMode) {
@@ -179,8 +206,8 @@
       splitRect(target, fit.rectIdx, fw, fh, o.kerf, splitPref);
       mergeFree(target.free); // consolida a lista livre (estilo GuillotineBinPack)
     });
-    // sobras avaliadas pelo modelo de blocos (retalhos inteiros fora do bloco)
-    sheets.forEach(s => { s.free = blockOffcuts(s); });
+    // sobras avaliadas por decomposição guilhotinada (apara a ponta primeiro)
+    sheets.forEach(s => { s.free = guillotineOffcuts(s); });
     return { sheets, unplaced };
   }
 

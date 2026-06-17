@@ -92,8 +92,7 @@
     const mT = 16, mL = 16, mR = 5, mB = 5;        // margens para as réguas
     const ox = mL, oy = mT;                          // origem da chapa
     const parts = [`<svg viewBox="0 0 ${W + mL + mR} ${H + mT + mB}" preserveAspectRatio="xMidYMid meet" role="img">`];
-    parts.push(`<defs><pattern id="grain" width="3" height="3" patternUnits="userSpaceOnUse"><path d="M0,0 L0,3" stroke="#000" stroke-width="0.15"/></pattern>` +
-      `<pattern id="off" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="6" stroke="#2f9e44" stroke-width="1.1"/></pattern></defs>`);
+    parts.push(`<defs><pattern id="grain" width="3" height="3" patternUnits="userSpaceOnUse"><path d="M0,0 L0,3" stroke="#000" stroke-width="0.15"/></pattern></defs>`);
     parts.push(`<rect x="${ox}" y="${oy}" width="${W}" height="${H}" fill="#fbfbf8" stroke="#888" stroke-width="0.7"/>`);
 
     // peças + medidas
@@ -115,19 +114,18 @@
       parts.push(`<text x="${cx}" y="${cy}" font-size="${fsName}" text-anchor="middle" dominant-baseline="central" fill="#2a2a2a" font-weight="600">${esc(p.name)}</text>`);
     });
 
-    // sobras reaproveitáveis (modelo de blocos) — hachura verde + medida
+    // sobras reaproveitáveis — sem preenchimento, apenas a medida do retalho
     (sheet.free || []).forEach(r => {
       if (Math.min(r.w, r.h) < 3) return;
       const x = ox + r.x, y = oy + r.y;
-      parts.push(`<rect x="${x}" y="${y}" width="${r.w}" height="${r.h}" fill="url(#off)" opacity="0.55"/>`);
-      parts.push(`<rect x="${x}" y="${y}" width="${r.w}" height="${r.h}" fill="none" stroke="#2f9e44" stroke-width="0.6" stroke-dasharray="3 2"/>`);
+      parts.push(`<rect x="${x}" y="${y}" width="${r.w}" height="${r.h}" fill="none" stroke="#9aa39d" stroke-width="0.5" stroke-dasharray="2 2"/>`);
       const small = Math.min(r.w, r.h);
       if (small >= 8) {
-        const fs = Math.max(2.4, Math.min(small * 0.16, 7));
+        const fs = Math.max(2.4, Math.min(small * 0.18, 7));
         const cx = x + r.w / 2, cy = y + r.h / 2;
         const vert = r.h > r.w;
         const tr = vert ? `transform="rotate(-90 ${cx} ${cy})"` : '';
-        parts.push(`<text x="${cx}" y="${cy}" ${tr} font-size="${fs}" text-anchor="middle" dominant-baseline="central" fill="#1e6b2e" font-weight="700">sobra ${fmt(r.w)}×${fmt(r.h)}</text>`);
+        parts.push(`<text x="${cx}" y="${cy}" ${tr} font-size="${fs}" text-anchor="middle" dominant-baseline="central" fill="#555" font-weight="600">${fmt(r.w)} × ${fmt(r.h)}</text>`);
       }
     });
 
