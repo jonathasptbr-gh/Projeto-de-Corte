@@ -110,8 +110,17 @@
     const sheets = [];
     const unplaced = [];
     list.forEach(it => {
-      const pw = it.w, ph = it.h;
-      const allowRotate = o.allowRotate && !(o.considerGrain && it.grain);
+      // Direção do veio fixa a orientação da peça:
+      //  '' (sem veio) → rotação livre
+      //  'v' (↕) → mantém como exportada (largura × comprimento)
+      //  'h' (↔) → gira 90° (comprimento × largura)
+      let pw = it.w, ph = it.h, allowRotate;
+      if (o.considerGrain && it.grain) {
+        allowRotate = false;
+        if (it.grain === 'h') { pw = it.h; ph = it.w; }
+      } else {
+        allowRotate = o.allowRotate;
+      }
       let target = null, fit = null;
       for (const sheet of sheets) {
         const f = findFit(sheet, pw, ph, allowRotate, fitMode);
