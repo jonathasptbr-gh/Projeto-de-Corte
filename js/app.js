@@ -612,9 +612,9 @@
     save();
     refreshOptionsUI(); updateProjectName(); renderStock(); renderPanels();
     $('#import-status').textContent = `${panels.length} peças · ${panels.reduce((a, p) => a + p.qty, 0)} un.`;
-    renderPlanEmpty(); // cálculo é manual: usuário toca em "Calcular plano"
     gotoTab('plan');
     toast('Projeto: ' + proj.name);
+    startLiveSearch();
   }
   // Exporta as peças atuais (com edições de medida/veio/material/fita) num CSV
   // re-importável. No celular abre o compartilhamento; no resto, baixa o arquivo.
@@ -860,9 +860,8 @@
   let planStale = false;
   function markPlanStale() {
     planStale = true;
-    if (live) return; // já está calculando
-    if (state.plan && state.plan.sheets && state.plan.sheets.length)
-      setPlanStatus('Peças/opções alteradas — toque em “Calcular plano” para atualizar.');
+    if (live) stopLiveSearch(); // para busca com dados velhos antes de reiniciar
+    startLiveSearch();
   }
   // Mostra o plano já salvo (sem recalcular) ou o aviso vazio.
   function showSavedPlan() {
