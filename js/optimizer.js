@@ -395,6 +395,190 @@
     return { sheets, unplaced };
   }
 
+  // ---- BUSCA EM ÁRVORE (beam search) estilo PackingSolver ----------------
+  // Em vez de colocar cada peça de forma gulosa (1 escolha), explora MUITAS
+  // sequências de colocação em paralelo: a cada peça, ramifica sobre
+  // (retângulo livre × rotação × orientação do corte) e mantém as melhores
+  // `beamWidth` soluções parciais. Isso encontra os "empilhamentos" alinhados
+  // que a heurística gulosa não enxerga. É anytime: quanto maior beamWidth /
+  // mais ordens testadas, melhor — sem teto de tempo.
+  function packBeam(items, W, H, o, opts) {
+    opts = opts || {};
+    const beamWidth = opts.beamWidth || 200;
+    const maxCandRects = opts.maxCandRects || 6;
+    const splitPrefs = opts.splitPrefs || ['maxrect', 'wide', 'tall'];
+    const order = opts.order || items;
+    const k = o.kerf;
+
+    const dimsOf = it => {
+      let pw = it.w, ph = it.h, allowRotate;
+      if (o.considerGrain && it.grain) { allowRotate = false; if (it.grain === 'h') { pw = it.h; ph = it.w; } }
+      else allowRotate = o.allowRotate;
+      return { pw, ph, allowRotate };
+    };
+    // clone barato: placements são imutáveis (compartilha), só free muda
+    const cloneSheet = s => ({ material: s.material, index: s.index, W: s.W, H: s.H, placements: s.placements.slice(), free: s.free.map(r => ({ x: r.x, y: r.y, w: r.w, h: r.h })), cuts: s.cuts });
+    const cloneState = st => ({ sheets: st.sheets.map(cloneSheet), unplaced: st.unplaced.slice() });
+
+    // guia parcial: na mesma profundidade a área colocada é igual; discrimina
+    // por menos chapas → maior retalho livre → menos fragmentação.
+    const freeStats = st => {
+      let maxR = 0, sumSq = 0, frag = 0;
+      st.sheets.forEach(s => s.free.forEach(r => { const a = r.w * r.h; if (a > maxR) maxR = a; sumSq += a * a; if (Math.min(r.w, r.h) >= 5) frag++; }));
+      return { maxR, sumSq, frag };
+    };
+    const cmp = (a, b) => {
+      if (a.unplaced.length !== b.unplaced.length) return a.unplaced.length - b.unplaced.length;
+      if (a.sheets.length !== b.sheets.length) return a.sheets.length - b.sheets.length;
+      if (Math.abs(a._fs.maxR - b._fs.maxR) > 1e-6) return b._fs.maxR - a._fs.maxR;
+      if (Math.abs(a._fs.sumSq - b._fs.sumSq) > 1) return b._fs.sumSq - a._fs.sumSq;
+      return a._fs.frag - b._fs.frag;
+    };
+
+    function expand(st, d) {
+      const it = order[d];
+      const { pw, ph, allowRotate } = dimsOf(it);
+      const children = [];
+      st.sheets.forEach((s, si) => {
+        const cands = [];
+        s.free.forEach((r, ri) => {
+          if (pw <= r.w + 1e-6 && ph <= r.h + 1e-6) cands.push({ ri, fw: pw, fh: ph, rot: false, waste: Math.min(r.w - pw, r.h - ph) });
+          if (allowRotate && ph <= r.w + 1e-6 && pw <= r.h + 1e-6) cands.push({ ri, fw: ph, fh: pw, rot: true, waste: Math.min(r.w - ph, r.h - pw) });
+        });
+        cands.sort((a, b) => a.waste - b.waste);
+        for (let ci = 0; ci < cands.length && ci < maxCandRects; ci++) {
+          const c = cands[ci];
+          for (const pref of splitPrefs) {
+            const ns = cloneState(st);
+            const sheet = ns.sheets[si];
+            const r = sheet.free[c.ri];
+            sheet.placements.push({ x: r.x, y: r.y, w: c.fw, h: c.fh, realW: c.fw, realH: c.fh, name: it.name, rotated: c.rot, bands: it.bands });
+            splitRect(sheet, c.ri, c.fw, c.fh, k, pref);
+            mergeFree(sheet.free);
+            children.push(ns);
+          }
+        }
+      });
+      // abrir uma chapa nova (o guia penaliza +1 chapa, então só "vence" quando preciso)
+      const fitsNew = (pw <= W + 1e-6 && ph <= H + 1e-6) || (allowRotate && ph <= W + 1e-6 && pw <= H + 1e-6);
+      if (fitsNew) {
+        const ns = cloneState(st);
+        const sheet = newSheet(it.__mat, W, H, ns.sheets.length + 1);
+        const rot = !(pw <= W + 1e-6 && ph <= H + 1e-6);
+        const fw = rot ? ph : pw, fh = rot ? pw : ph;
+        sheet.placements.push({ x: 0, y: 0, w: fw, h: fh, realW: fw, realH: fh, name: it.name, rotated: rot, bands: it.bands });
+        splitRect(sheet, 0, fw, fh, k, splitPrefs[0]);
+        mergeFree(sheet.free);
+        ns.sheets.push(sheet);
+        children.push(ns);
+      } else if (children.length === 0) {
+        const ns = cloneState(st); ns.unplaced.push(it); children.push(ns);
+      }
+      return children;
+    }
+
+    let beam = [{ sheets: [], unplaced: [] }];
+    beam[0]._fs = freeStats(beam[0]);
+    for (let d = 0; d < order.length; d++) {
+      let next = [];
+      for (const st of beam) { const ch = expand(st, d); for (const c of ch) next.push(c); }
+      if (!next.length) break;
+      next.forEach(s => { s._fs = freeStats(s); });
+      next.sort(cmp);
+      beam = next.slice(0, beamWidth);
+    }
+    // seleção final pela métrica REAL (score/better), finalizando as sobras
+    let best = null, bestScore = null;
+    for (const st of beam) {
+      st.sheets.forEach(s => { s.free = guillotineOffcutsGreedy(s); s.cuts = countGuillotineCuts(s.W, s.H, s.placements); });
+      const res = { sheets: st.sheets, unplaced: st.unplaced };
+      const sc = score(res);
+      if (better(sc, bestScore)) { best = res; bestScore = sc; }
+    }
+    return best || { sheets: [], unplaced: items.slice() };
+  }
+
+  // Beam search que ENCHE UMA chapa ao máximo (maior área colocada). Para cada
+  // peça (em ordem fixa) ramifica em {pular} ou {colocar em retângulo r × corte},
+  // mantendo as melhores `beamWidth` soluções por área ocupada. Crama a chapa
+  // bem mais que a gulosa → menos transbordo → menos chapas no total.
+  function fillOneSheetBeam(list, W, H, o, opts) {
+    opts = opts || {};
+    const beamWidth = opts.beamWidth || 300;
+    const maxCandRects = opts.maxCandRects || 6;
+    const splitPrefs = opts.splitPrefs || ['maxrect', 'wide', 'tall'];
+    const k = o.kerf;
+    const dimsOf = it => {
+      let pw = it.w, ph = it.h, allowRotate;
+      if (o.considerGrain && it.grain) { allowRotate = false; if (it.grain === 'h') { pw = it.h; ph = it.w; } }
+      else allowRotate = o.allowRotate;
+      return { pw, ph, allowRotate };
+    };
+    const cloneSheet = s => ({ material: s.material, index: s.index, W: s.W, H: s.H, placements: s.placements.slice(), free: s.free.map(r => ({ x: r.x, y: r.y, w: r.w, h: r.h })), cuts: s.cuts });
+    const stats = sh => { let maxR = 0, sumSq = 0; sh.free.forEach(r => { const a = r.w * r.h; if (a > maxR) maxR = a; sumSq += a * a; }); return { maxR, sumSq }; };
+    const cmp = (a, b) => {
+      if (Math.abs(a.area - b.area) > 1e-6) return b.area - a.area;            // mais área colocada
+      if (Math.abs(a._s.maxR - b._s.maxR) > 1e-6) return b._s.maxR - a._s.maxR; // sobra mais inteira
+      return b._s.sumSq - a._s.sumSq;
+    };
+    const base = newSheet(list.length ? list[0].__mat : '', W, H, 1);
+    let beam = [{ sheet: base, area: 0, ids: [] }];
+    beam[0]._s = stats(base);
+    for (let d = 0; d < list.length; d++) {
+      const it = list[d];
+      const { pw, ph, allowRotate } = dimsOf(it);
+      const next = [];
+      for (const st of beam) {
+        // PULAR (deixa a peça para a próxima chapa) — compartilha a chapa (não muta)
+        next.push({ sheet: st.sheet, area: st.area, ids: st.ids, _s: st._s });
+        // COLOCAR
+        const cands = [];
+        st.sheet.free.forEach((r, ri) => {
+          if (pw <= r.w + 1e-6 && ph <= r.h + 1e-6) cands.push({ ri, fw: pw, fh: ph, rot: false, waste: Math.min(r.w - pw, r.h - ph) });
+          if (allowRotate && ph <= r.w + 1e-6 && pw <= r.h + 1e-6) cands.push({ ri, fw: ph, fh: pw, rot: true, waste: Math.min(r.w - ph, r.h - pw) });
+        });
+        cands.sort((a, b) => a.waste - b.waste);
+        for (let ci = 0; ci < cands.length && ci < maxCandRects; ci++) {
+          const c = cands[ci];
+          for (const pref of splitPrefs) {
+            const sh = cloneSheet(st.sheet);
+            const r = sh.free[c.ri];
+            sh.placements.push({ x: r.x, y: r.y, w: c.fw, h: c.fh, realW: c.fw, realH: c.fh, name: it.name, rotated: c.rot, bands: it.bands });
+            splitRect(sh, c.ri, c.fw, c.fh, k, pref);
+            mergeFree(sh.free);
+            const ch = { sheet: sh, area: st.area + c.fw * c.fh, ids: st.ids.concat(d) };
+            ch._s = stats(sh);
+            next.push(ch);
+          }
+        }
+      }
+      next.sort(cmp);
+      beam = next.slice(0, beamWidth);
+    }
+    const win = beam[0];
+    const placedSet = new Set(win.ids);
+    const placed = [], rest = [];
+    list.forEach((it, i) => (placedSet.has(i) ? placed : rest).push(it));
+    return { sheet: win.sheet, placed, rest };
+  }
+
+  // "Encher ao máximo" via beam: enche cada chapa com fillOneSheetBeam e segue.
+  function packMaxFillBeam(items, W, H, o, opts) {
+    let remaining = items.slice();
+    const sheets = [], unplaced = [];
+    let guard = 0;
+    while (remaining.length && guard++ < 300) {
+      const r = fillOneSheetBeam(remaining, W, H, o, opts);
+      if (!r.sheet.placements.length) { unplaced.push.apply(unplaced, remaining); break; }
+      r.sheet.index = sheets.length + 1;
+      r.sheet.free = guillotineOffcutsGreedy(r.sheet);
+      r.sheet.cuts = countGuillotineCuts(r.sheet.W, r.sheet.H, r.sheet.placements);
+      sheets.push(r.sheet);
+      remaining = r.rest;
+    }
+    return { sheets, unplaced };
+  }
+
   // Conta os cortes guilhotinados REAIS do layout (nº de linhas de corte de
   // lado a lado, recursivamente). Espalhar uma tira na borda oposta gera mais
   // cortes do que consolidá-la junto às demais — é isto que medimos aqui.
@@ -494,6 +678,15 @@
       }
     }
     consider(packMaxFill(items, W, H, o)); // "encher ao máximo antes de abrir outra"
+    // busca em árvore (beam) — só quando pedida (o.beamWidth); o one-shot
+    // padrão fica instantâneo. Acha combinações que a gulosa não vê.
+    if (o.beamWidth) {
+      for (const key of Object.keys(ORDERS)) {
+        const list = items.slice().sort(ORDERS[key]);
+        consider(packBeam(items, W, H, o, { order: list, beamWidth: o.beamWidth }));
+        consider(packMaxFillBeam(list, W, H, o, { beamWidth: o.beamWidth }));
+      }
+    }
     return best;
   }
 
@@ -555,6 +748,12 @@
     const combos = [];
     for (const ok of orderKeys) for (const pref of prefs) for (const mode of modes) for (const place of places) for (const block of [false, true]) for (const gr of [false, true]) combos.push({ ok, pref, mode, place, block, gr });
     const totalDet = combos.length;
+    // fase BEAM (busca profunda anytime, estilo PackingSolver): largura cresce
+    // a cada passada. Roda DEPOIS das combinações rápidas → o plano bom aparece
+    // já; o beam só refina. Cada passada é um step() (a tela atualiza entre elas).
+    const beamSchedule = [];
+    for (const wgt of [48, 128, 320, 700]) for (const ok of orderKeys) beamSchedule.push({ wgt, ok });
+    let beamIdx = 0;
 
     let rng = 2463534242;
     function rand() { rng ^= rng << 13; rng ^= rng >>> 17; rng ^= rng << 5; rng >>>= 0; return rng / 4294967296; }
@@ -590,6 +789,18 @@
           const list = g.items.slice().sort(ORDERS[c.ok]);
           if (tryOn(g, list, c)) improved = true;
         }
+      } else if (beamIdx < beamSchedule.length) {
+        // fase BEAM: busca em árvore (uma passada por step)
+        const job = beamSchedule[beamIdx++];
+        for (const g of groups) {
+          const list = g.items.slice().sort(ORDERS[job.ok]);
+          let r = packBeam(g.items, g.W, g.H, o, { order: list, beamWidth: job.wgt });
+          let sc = score(r);
+          if (better(sc, g.bestScore)) { g.best = r; g.bestScore = sc; improved = true; }
+          r = packMaxFillBeam(list, g.W, g.H, o, { beamWidth: job.wgt });
+          sc = score(r);
+          if (better(sc, g.bestScore)) { g.best = r; g.bestScore = sc; improved = true; }
+        }
       } else {
         // reinícios aleatórios: embaralha a ordem + combo aleatório
         const c = { pref: pick(prefs), mode: pick(modes), place: pick(places), block: rand() < 0.5, gr: rand() < 0.5 };
@@ -602,10 +813,10 @@
       }
       stepCount++;
       if (improved) sinceImprove = 0; else sinceImprove++;
-      // convergiu: terminou a fase determinística e estagnou por MUITOS passos
-      // (busca mais longa/minuciosa; o usuário pode pausar a qualquer momento).
-      const converged = detIdx >= combos.length && sinceImprove >= 3000;
-      return { improved, converged, det: detIdx, totalDet, step: stepCount };
+      // convergiu: terminou as fases determinística + beam e estagnou por MUITOS
+      // passos (busca longa; o usuário pode pausar a qualquer momento).
+      const converged = detIdx >= combos.length && beamIdx >= beamSchedule.length && sinceImprove >= 3000;
+      return { improved, converged, det: detIdx, totalDet, step: stepCount, beam: { idx: beamIdx, total: beamSchedule.length } };
     }
 
     function result() {

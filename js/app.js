@@ -933,7 +933,9 @@
       save();
     }
     const pct = Math.min(100, Math.round(info.det / info.totalDet * 100));
-    const phase = info.det < info.totalDet ? `Testando combinações… ${pct}%` : 'Refinando (reinícios aleatórios)…';
+    const phase = info.det < info.totalDet ? `Testando combinações… ${pct}%`
+      : (info.beam && info.beam.idx < info.beam.total) ? `Busca profunda (beam)… ${info.beam.idx}/${info.beam.total}`
+      : 'Refinando (reinícios aleatórios)…';
     const ns = state.plan ? state.plan.sheets.length : 0;
     setPlanStatus(`${phase} · melhor: ${ns} chapa(s) · ${info.step} tentativas — toque em “Pausar e usar este” quando quiser.`);
 
