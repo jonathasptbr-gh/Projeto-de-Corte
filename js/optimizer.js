@@ -209,6 +209,12 @@
     height: (a, b) => b.h - a.h || b.w - a.w,
     width: (a, b) => b.w - a.w || b.h - a.h,
     perim: (a, b) => (b.w + b.h) - (a.w + a.h),
+    // largura efetiva após giro pelo veio: grain='h' numa chapa vertical → w e h trocam
+    effwidth: (a, b) => {
+      const aw = a.grain === 'h' ? a.h : a.w;
+      const bw = b.grain === 'h' ? b.h : b.w;
+      return bw - aw || (b.w + b.h) - (a.w + a.h);
+    },
   };
   const sig = it => it.name + '|' + it.w + '|' + it.h + '|' + (it.grain || '');
 
