@@ -235,6 +235,18 @@
     items.forEach(it => { it.gw = wm[it.w]; it.gh = hm[it.h]; it.gKey = (it.grain || '') + '|' + it.gw + '|' + it.gh; });
   }
 
+  // Veio EFETIVO = combina o veio da PEÇA (it.grain) com o veio da CHAPA (it.__sg):
+  //  chapa '' (sem veio)  → gira livre (ignora o veio da peça)
+  //  chapa 'v' (padrão, ao longo do comprimento) → veio da peça como está
+  //  chapa 'h' (ao longo da largura)             → inverte o veio da peça
+  // Retorna { swap, allowRotate }: swap troca largura↔comprimento; allowRotate libera giro.
+  function grainOrient(it, o) {
+    const sg = it.__sg == null ? 'v' : it.__sg;
+    if (sg === '' || !o.considerGrain || !it.grain) return { swap: false, allowRotate: o.allowRotate };
+    const eff = sg === 'v' ? it.grain : (it.grain === 'v' ? 'h' : 'v');
+    return { swap: eff === 'h', allowRotate: false };
+  }
+
   function packOnce(list, W, H, o, splitPref, fitMode, placeMode, blockMode, gr) {
     let sheetIndex = 0;
     const sheets = [];
@@ -242,10 +254,10 @@
     const done = new Array(list.length).fill(false);
     // dims: footprint do "slot" (arredondado se gr) + medida real p/ rótulo
     const dimsOf = it => {
-      let sw = gr ? (it.gw || it.w) : it.w, sh = gr ? (it.gh || it.h) : it.h, aw = it.w, ah = it.h, allowRotate;
-      if (o.considerGrain && it.grain) { allowRotate = false; if (it.grain === 'h') { const t = sw; sw = sh; sh = t; const u = aw; aw = ah; ah = u; } }
-      else allowRotate = o.allowRotate;
-      return { sw, sh, aw, ah, allowRotate };
+      let sw = gr ? (it.gw || it.w) : it.w, sh = gr ? (it.gh || it.h) : it.h, aw = it.w, ah = it.h;
+      const g = grainOrient(it, o);
+      if (g.swap) { const t = sw; sw = sh; sh = t; const u = aw; aw = ah; ah = u; }
+      return { sw, sh, aw, ah, allowRotate: g.allowRotate };
     };
     for (let idx = 0; idx < list.length; idx++) {
       if (done[idx]) continue;
@@ -324,10 +336,10 @@
     const sheet = newSheet(list.length ? list[0].__mat : '', W, H, 1);
     const done = new Array(list.length).fill(false);
     const dimsOf = it => {
-      let sw = gr ? (it.gw || it.w) : it.w, sh = gr ? (it.gh || it.h) : it.h, aw = it.w, ah = it.h, allowRotate;
-      if (o.considerGrain && it.grain) { allowRotate = false; if (it.grain === 'h') { const t = sw; sw = sh; sh = t; const u = aw; aw = ah; ah = u; } }
-      else allowRotate = o.allowRotate;
-      return { sw, sh, aw, ah, allowRotate };
+      let sw = gr ? (it.gw || it.w) : it.w, sh = gr ? (it.gh || it.h) : it.h, aw = it.w, ah = it.h;
+      const g = grainOrient(it, o);
+      if (g.swap) { const t = sw; sw = sh; sh = t; const u = aw; aw = ah; ah = u; }
+      return { sw, sh, aw, ah, allowRotate: g.allowRotate };
     };
     for (let idx = 0; idx < list.length; idx++) {
       if (done[idx]) continue;
@@ -411,10 +423,10 @@
     const k = o.kerf;
 
     const dimsOf = it => {
-      let pw = it.w, ph = it.h, allowRotate;
-      if (o.considerGrain && it.grain) { allowRotate = false; if (it.grain === 'h') { pw = it.h; ph = it.w; } }
-      else allowRotate = o.allowRotate;
-      return { pw, ph, allowRotate };
+      let pw = it.w, ph = it.h;
+      const g = grainOrient(it, o);
+      if (g.swap) { const t = pw; pw = ph; ph = t; }
+      return { pw, ph, allowRotate: g.allowRotate };
     };
     // clone barato: placements são imutáveis (compartilha), só free muda
     const cloneSheet = s => ({ material: s.material, index: s.index, W: s.W, H: s.H, placements: s.placements.slice(), free: s.free.map(r => ({ x: r.x, y: r.y, w: r.w, h: r.h })), cuts: s.cuts });
@@ -509,10 +521,10 @@
     const splitPrefs = opts.splitPrefs || ['maxrect', 'wide', 'tall'];
     const k = o.kerf;
     const dimsOf = it => {
-      let pw = it.w, ph = it.h, allowRotate;
-      if (o.considerGrain && it.grain) { allowRotate = false; if (it.grain === 'h') { pw = it.h; ph = it.w; } }
-      else allowRotate = o.allowRotate;
-      return { pw, ph, allowRotate };
+      let pw = it.w, ph = it.h;
+      const g = grainOrient(it, o);
+      if (g.swap) { const t = pw; pw = ph; ph = t; }
+      return { pw, ph, allowRotate: g.allowRotate };
     };
     const cloneSheet = s => ({ material: s.material, index: s.index, W: s.W, H: s.H, placements: s.placements.slice(), free: s.free.map(r => ({ x: r.x, y: r.y, w: r.w, h: r.h })), cuts: s.cuts });
     const stats = sh => { let maxR = 0, sumSq = 0; sh.free.forEach(r => { const a = r.w * r.h; if (a > maxR) maxR = a; sumSq += a * a; }); return { maxR, sumSq }; };
@@ -592,7 +604,7 @@
     const axis = opts.axis || 'v';
     const tol = opts.groupTol || 0;
     const k = o.kerf;
-    const dimsOf = it => { let pw = it.w, ph = it.h, allow; if (o.considerGrain && it.grain) { allow = false; if (it.grain === 'h') { pw = it.h; ph = it.w; } } else allow = o.allowRotate; return { pw, ph, allow }; };
+    const dimsOf = it => { let pw = it.w, ph = it.h; const g = grainOrient(it, o); if (g.swap) { const t = pw; pw = ph; ph = t; } return { pw, ph, allow: g.allowRotate }; };
     // cross = espessura da faixa; along = comprimento ao longo da faixa
     const crossOf = it => { const d = dimsOf(it); return axis === 'h' ? d.ph : d.pw; };
     const alongOf = it => { const d = dimsOf(it); return axis === 'h' ? d.pw : d.ph; };
@@ -764,6 +776,7 @@
     Object.keys(groups).forEach(material => {
       const stock = stockFor(material);
       const matName = o.considerMaterial ? material : 'Geral';
+      groups[material].forEach(it => { it.__sg = stock.grain; }); // veio da chapa
       const res = packGroup(groups[material], stock.width, stock.length, o, matName);
       res.sheets.forEach((s, i) => { s.index = i + 1; sheets.push(s); });
       res.unplaced.forEach(u => unplaced.push(u));
@@ -796,7 +809,7 @@
     const groups = Object.keys(groupsMap).map(material => {
       const stock = stockFor(material);
       const matName = o.considerMaterial ? material : 'Geral';
-      groupsMap[material].forEach(it => it.__mat = matName);
+      groupsMap[material].forEach(it => { it.__mat = matName; it.__sg = stock.grain; });
       annotateGroups(groupsMap[material], GROUP_TOL);
       return { items: groupsMap[material], W: stock.width, H: stock.length, best: null, bestScore: null };
     });

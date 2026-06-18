@@ -130,12 +130,9 @@
       }
     });
 
-    // cortes guilhotinados (cinza, sólido)
+    // (As linhas de corte internas foram removidas a pedido — o desenho mostra
+    // só as peças, as sobras e as réguas externas, sem riscar os retalhos.)
     const cuts = reconstructCuts(W, H, sheet.placements);
-    cuts.forEach(c => {
-      if (c.orient === 'v') parts.push(`<line x1="${ox + c.pos}" y1="${oy + c.a}" x2="${ox + c.pos}" y2="${oy + c.b}" stroke="#8a8a8a" stroke-width="0.4"/>`);
-      else parts.push(`<line x1="${ox + c.a}" y1="${oy + c.pos}" x2="${ox + c.b}" y2="${oy + c.pos}" stroke="#8a8a8a" stroke-width="0.4"/>`);
-    });
 
     // réguas externas: cortes que atravessam a chapa inteira (1º estágio)
     const rfs = Math.max(4, Math.min(W, H) * 0.024);

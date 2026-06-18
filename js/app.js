@@ -15,6 +15,7 @@
       options: { kerf: 0.8, labels: true, material: true, grain: true },
       materialColors: {},
       materialNames: {},
+      materials: [],
       budgetItems: Budget.defaultItems(),
       budgetCfg: { laborPct: 80, markupPct: 10, pixPct: 10, daysPerPiece: 0.105 },
       plan: null,
@@ -49,6 +50,7 @@
       options: Object.assign(e.options, d.options || {}),
       materialColors: (d.materialColors && typeof d.materialColors === 'object') ? d.materialColors : {},
       materialNames: coerceNames(d.materialNames),
+      materials: Array.isArray(d.materials) ? d.materials.slice() : [],
       budgetCfg: Object.assign(e.budgetCfg, d.budgetCfg || {}),
       budgetItems: e.budgetItems,
       plan: null,
@@ -193,6 +195,7 @@
     const add = m => { if (m && !seen.includes(m)) seen.push(m); };
     state.panels.forEach(p => add(p.material));
     state.stock.forEach(s => add(s.material));
+    (state.materials || []).forEach(add); // materiais criados manualmente
     return seen;
   }
   // Número exibido no chip = espessura do material (ex.: 18, 15, 6), sem "mm".
@@ -329,6 +332,24 @@
     });
   }
 
+  // Cria um material manualmente (aparece na legenda e nos seletores das
+  // peças/estoque, mesmo sem nenhuma peça ainda usá-lo).
+  async function addMaterialManual() {
+    const name = await ui.prompt('Novo material', 'Nome (inclua a espessura, ex.: "Carvalho 18mm"):', '', { okText: 'Criar' });
+    if (name == null) return;
+    const key = String(name).trim();
+    if (!key) return;
+    if (materialsOrdered().includes(key)) { toast('Esse material já existe.'); return; }
+    if (!Array.isArray(state.materials)) state.materials = [];
+    state.materials.push(key);
+    state.materialColors[key] = colorFromName(key) || fallbackColor(key);
+    const native = key.replace(/\s*\d+(?:[.,]\d+)?\s*mm$/i, '').trim();
+    if (native && native !== key) state.materialNames[key] = [native];
+    save();
+    renderMatLegend(); renderPanels(); renderStock();
+    toast('Material criado');
+  }
+
   // Exclui um material e TODAS as peças (e estoques) que o utilizam.
   async function deleteMaterial(m) {
     const affected = state.panels.filter(p => p.material === m && (p.length > 0 || p.width > 0));
@@ -346,6 +367,7 @@
     if (!ok) return;
     state.panels = state.panels.filter(p => p.material !== m);
     state.stock = state.stock.filter(s => s.material !== m);
+    state.materials = (state.materials || []).filter(x => x !== m);
     delete state.materialColors[m]; delete state.materialNames[m];
     selected.clear();
     save();
@@ -371,17 +393,24 @@
 
   // Botão de direção do grão (veio): retângulo listrado 2:1 que cicla
   // sem direção → vertical (↕) → horizontal (↔).
-  function veioButton(p) {
+  function veioButton(p, opts) {
+    opts = opts || {};
+    const titles = opts.stock
+      ? { v: 'Veio ao longo do comprimento', h: 'Veio ao longo da largura', '': 'Chapa sem veio (gira livre)' }
+      : { v: 'Veio vertical', h: 'Veio horizontal', '': 'Sem direção do veio' };
     const b = el('button', 'veio-btn'); b.type = 'button';
     const paint = () => {
-      b.className = 'veio-btn ' + (p.grain === 'v' ? 'v' : p.grain === 'h' ? 'h' : 'none');
-      b.title = p.grain === 'v' ? 'Veio vertical' : p.grain === 'h' ? 'Veio horizontal' : 'Sem direção do veio';
+      const g = p.grain || '';
+      b.className = 'veio-btn ' + (g === 'v' ? 'v' : g === 'h' ? 'h' : 'none');
+      b.title = titles[g];
     };
     paint();
     b.addEventListener('click', () => {
-      const next = p.grain === '' ? 'v' : p.grain === 'v' ? 'h' : '';
+      const cur = p.grain || '';
+      const next = cur === '' ? 'v' : cur === 'v' ? 'h' : '';
       p.grain = next;
-      if (selectMode && selected.has(p) && selected.size > 1) {
+      if (opts.onCycle) { opts.onCycle(next); paint(); }
+      else if (selectMode && selected.has(p) && selected.size > 1) {
         selected.forEach(q => { if (q !== p) q.grain = next; }); save(); renderPanels();
       } else { paint(); save(); }
       if (validPanels().length) markPlanStale();
@@ -456,6 +485,8 @@
     const tdL = el('td', 'cell-num'); tdL.appendChild(numInput(s.length, 'Compr.', 'decimal', v => onStockField(s, 'length', v))); tr.appendChild(tdL);
     const tdQ = el('td', 'cell-qty'); tdQ.appendChild(numInput(s.qty, '1', 'numeric', v => onStockField(s, 'qty', v))); tr.appendChild(tdQ);
     const tdM = el('td', 'cell-mat'); tdM.appendChild(materialControl(s, v => onStockField(s, 'material', v))); tr.appendChild(tdM);
+    if (s.grain == null) s.grain = 'v'; // padrão: veio ao longo do comprimento
+    const tdV = el('td', 'cell-veio'); tdV.appendChild(veioButton(s, { stock: true, onCycle: () => { save(); markPlanStale(); } })); tr.appendChild(tdV);
     const tdD = el('td', 'cell-act'); tdD.appendChild(iconBtn('del', 'delete', 'Excluir', () => deleteRow('stock', s))); tr.appendChild(tdD);
     return tr;
   }
@@ -649,6 +680,7 @@
       e.target.value = '';
     });
     $('#export-csv').addEventListener('click', exportCSV);
+    const addMatBtn = $('#add-material'); if (addMatBtn) addMatBtn.addEventListener('click', addMaterialManual);
     $('#clear-panels').addEventListener('click', async () => {
       if (validPanels().length) {
         const ok = await ui.confirm('Limpar todas as peças deste projeto?', { title: 'Limpar peças', danger: true, okText: 'Limpar' });
