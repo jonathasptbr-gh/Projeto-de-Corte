@@ -729,7 +729,7 @@
     };
   }
   // Prioriza: menos não-encaixadas → menos chapas → FILLS (0,01%) →
-  // MAIOR retalho (3% tol) → cortes (20% tol, mín 3) → menos retalhos → lex sobras.
+  // MAIOR retalho (3% tol) → menos retalhos → lex sobras.
   function better(a, b) {
     if (!b) return true;
     if (a.unplaced !== b.unplaced) return a.unplaced < b.unplaced;
@@ -742,10 +742,6 @@
     const a0 = a.off[0] || 0, b0 = b.off[0] || 0;
     const tol = Math.max(a0, b0) * 0.03; // 3% no maior retalho
     if (Math.abs(a0 - b0) > tol) return a0 > b0;
-    // Cortes: tolerância de 20% (mínimo 3 cortes) — diferenças pequenas não
-    // descartam soluções com melhor preenchimento ou sobras maiores.
-    const cutDiff = Math.abs(a.cuts - b.cuts);
-    if (cutDiff > Math.max(3, Math.max(a.cuts, b.cuts) * 0.20)) return a.cuts < b.cuts;
     if (a.off.length !== b.off.length) return a.off.length < b.off.length;
     const lex = cmpLex(a.off, b.off);
     return lex > 0;
