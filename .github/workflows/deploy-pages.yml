@@ -2,7 +2,7 @@ name: Deploy GitHub Pages
 
 on:
   push:
-    branches: [ "claude/pwa-csv-cutting-plan-4oqkm7" ]
+    branches: [ "main", "claude/pwa-csv-cutting-plan-4oqkm7" ]
   workflow_dispatch:
 
 permissions:
