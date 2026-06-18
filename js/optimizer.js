@@ -528,21 +528,32 @@
     };
     const cloneSheet = s => ({ material: s.material, index: s.index, W: s.W, H: s.H, placements: s.placements.slice(), free: s.free.map(r => ({ x: r.x, y: r.y, w: r.w, h: r.h })), cuts: s.cuts });
     const stats = sh => { let maxR = 0, sumSq = 0; sh.free.forEach(r => { const a = r.w * r.h; if (a > maxR) maxR = a; sumSq += a * a; }); return { maxR, sumSq }; };
+    // Incrementalmente: quantas peças já posicionadas compartilham linha ou coluna
+    // com a nova peça E têm o mesmo nome — recompensamos alinhamento de tipo.
+    const alignDelta = (sh, name, x, y, fw, fh) => {
+      let s = 0;
+      sh.placements.forEach(p => {
+        if (p.name !== name) return;
+        if (Math.abs(p.y - y) < EPS && Math.abs(p.h - fh) < EPS) s++; // mesma faixa H
+        if (Math.abs(p.x - x) < EPS && Math.abs(p.w - fw) < EPS) s++; // mesma coluna V
+      });
+      return s;
+    };
     const cmp = (a, b) => {
-      if (Math.abs(a.area - b.area) > 1e-6) return b.area - a.area;            // mais área colocada
-      if (Math.abs(a._s.maxR - b._s.maxR) > 1e-6) return b._s.maxR - a._s.maxR; // sobra mais inteira
+      if (Math.abs(a.area - b.area) > 1e-6) return b.area - a.area;
+      if (Math.abs(a._s.maxR - b._s.maxR) > 1e-6) return b._s.maxR - a._s.maxR;
+      if ((a.align || 0) !== (b.align || 0)) return (b.align || 0) - (a.align || 0);
       return b._s.sumSq - a._s.sumSq;
     };
     const base = newSheet(list.length ? list[0].__mat : '', W, H, 1);
-    let beam = [{ sheet: base, area: 0, ids: [] }];
+    let beam = [{ sheet: base, area: 0, ids: [], align: 0 }];
     beam[0]._s = stats(base);
     for (let d = 0; d < list.length; d++) {
       const it = list[d];
       const { pw, ph, allowRotate } = dimsOf(it);
       const next = [];
       for (const st of beam) {
-        // PULAR (deixa a peça para a próxima chapa) — compartilha a chapa (não muta)
-        next.push({ sheet: st.sheet, area: st.area, ids: st.ids, _s: st._s });
+        next.push({ sheet: st.sheet, area: st.area, ids: st.ids, align: st.align, _s: st._s });
         // COLOCAR
         const cands = [];
         st.sheet.free.forEach((r, ri) => {
@@ -558,7 +569,8 @@
             sh.placements.push({ x: r.x, y: r.y, w: c.fw, h: c.fh, realW: c.fw, realH: c.fh, name: it.name, rotated: c.rot, bands: it.bands });
             splitRect(sh, c.ri, c.fw, c.fh, k, pref);
             mergeFree(sh.free);
-            const ch = { sheet: sh, area: st.area + c.fw * c.fh, ids: st.ids.concat(d) };
+            const al = alignDelta(st.sheet, it.name, r.x, r.y, c.fw, c.fh);
+            const ch = { sheet: sh, area: st.area + c.fw * c.fh, ids: st.ids.concat(d), align: st.align + al };
             ch._s = stats(sh);
             next.push(ch);
           }
@@ -610,7 +622,13 @@
     const alongOf = it => { const d = dimsOf(it); return axis === 'h' ? d.pw : d.ph; };
     const ALONG = axis === 'h' ? W : H, CROSS = axis === 'h' ? H : W;
     // ordena por espessura desc (peça mais alta primeiro define a faixa), depois comprimento desc
-    let remaining = (opts.order || items.slice()).slice().sort((a, b) => crossOf(b) - crossOf(a) || alongOf(b) - alongOf(a));
+    let remaining = (opts.order || items.slice()).slice().sort((a, b) => {
+      const dc = crossOf(b) - crossOf(a);
+      if (Math.abs(dc) > EPS) return dc;
+      // Dentro da mesma altura de faixa, agrupa peças do mesmo tipo juntas
+      if (a.name !== b.name) return a.name.localeCompare(b.name);
+      return alongOf(b) - alongOf(a);
+    });
     const sheets = [], unplaced = [];
     let sheet = null, crossCursor = 0, guard = 0;
     const openSheet = () => { sheet = newSheet(remaining[0].__mat, W, H, sheets.length + 1); sheets.push(sheet); crossCursor = 0; };

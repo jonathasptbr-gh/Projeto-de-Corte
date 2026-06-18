@@ -100,8 +100,30 @@
             cands.push({ orient: 'h', pos: Y, sA: T, sB: B });
         });
       if (!cands.length) return;
-      // Desempate: H antes de V (faixas agrupam peças antes de separar individualmente)
-      cands.sort((a, b) => (a.orient === 'h' ? 0 : 1) - (b.orient === 'h' ? 0 : 1));
+      // Tiebreaker: (1) peças do mesmo tipo agrupadas no mesmo lado; (2) faixa pura
+      // (todas com mesma altura/largura); (3) H antes de V; (4) posição menor.
+      const candScore = c => {
+        const grp = side => {
+          const m = {};
+          side.forEach(p => { const k = p.name + '|' + Math.round(p.w * 10) + '|' + Math.round(p.h * 10); m[k] = (m[k] || 0) + 1; });
+          return Object.values(m).reduce((s, v) => s + (v >= 2 ? v : 0), 0);
+        };
+        const pur = (side, dim) => {
+          if (side.length < 2) return 0;
+          const v0 = side[0][dim];
+          return side.every(p => Math.abs(p[dim] - v0) < EPS) ? side.length : 0;
+        };
+        return [
+          grp(c.sA) + grp(c.sB),
+          c.orient === 'h' ? pur(c.sA, 'h') + pur(c.sB, 'h') : pur(c.sA, 'w') + pur(c.sB, 'w'),
+          c.orient === 'h' ? 1 : 0,
+        ];
+      };
+      cands.sort((a, b) => {
+        const sa = candScore(a), sb = candScore(b);
+        for (let i = 0; i < sa.length; i++) if (sa[i] !== sb[i]) return sb[i] - sa[i];
+        return a.pos - b.pos;
+      });
       const c = cands[0];
       if (c.orient === 'v') {
         cuts.push({ orient: 'v', pos: c.pos, a: y, b: y + h });
