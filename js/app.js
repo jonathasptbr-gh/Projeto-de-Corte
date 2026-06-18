@@ -855,7 +855,7 @@
     const pieces = result.sheets.reduce((a, s) => a + s.placements.length, 0);
     const cuts = result.sheets.reduce((a, s) => a + s.cuts, 0);
     const totalArea = result.sheets.reduce((a, s) => a + s.W * s.H, 0);
-    const usedArea = result.sheets.reduce((a, s) => a + s.placements.reduce((b, p) => b + p.w * p.h, 0), 0);
+    const usedArea = result.sheets.reduce((a, s) => a + s.placements.reduce((b, p) => b + (p.realW || p.w) * (p.realH || p.h), 0), 0);
     const eff = totalArea ? (usedArea / totalArea * 100) : 0;
     const m = Budget.metricsFromPlan(result, 'cm');
 

@@ -102,13 +102,14 @@
       parts.push(`<rect x="${x}" y="${y}" width="${p.w}" height="${p.h}" fill="${fill}" stroke="#3a3a3a" stroke-width="0.5"/>`);
       parts.push(`<rect x="${x}" y="${y}" width="${p.w}" height="${p.h}" fill="url(#grain)" opacity="0.20"/>`);
       if (!showLabels) return;
+      const dw = p.realW || p.w, dh = p.realH || p.h; // medida REAL no rótulo (slot pode ser maior)
       const small = Math.min(p.w, p.h);
       const cx = x + p.w / 2, cy = y + p.h / 2;
       // fonte proporcional à MENOR medida da peça, com piso (mín) consistente
       const fsDim = Math.max(2.2, Math.min(small * 0.22, 7));
       // largura na lateral superior; comprimento na lateral esquerda
-      parts.push(`<text x="${cx}" y="${y + fsDim * 1.05}" font-size="${fsDim}" text-anchor="middle" fill="#555">${fmt(p.w)}</text>`);
-      parts.push(`<text x="${x + fsDim * 1.05}" y="${cy}" font-size="${fsDim}" text-anchor="middle" dominant-baseline="central" fill="#555" transform="rotate(-90 ${x + fsDim * 1.05} ${cy})">${fmt(p.h)}</text>`);
+      parts.push(`<text x="${cx}" y="${y + fsDim * 1.05}" font-size="${fsDim}" text-anchor="middle" fill="#555">${fmt(dw)}</text>`);
+      parts.push(`<text x="${x + fsDim * 1.05}" y="${cy}" font-size="${fsDim}" text-anchor="middle" dominant-baseline="central" fill="#555" transform="rotate(-90 ${x + fsDim * 1.05} ${cy})">${fmt(dh)}</text>`);
       // nome no centro
       const fsName = Math.max(2.6, Math.min(small * 0.26, 8));
       parts.push(`<text x="${cx}" y="${cy}" font-size="${fsName}" text-anchor="middle" dominant-baseline="central" fill="#2a2a2a" font-weight="600">${esc(p.name)}</text>`);
@@ -167,8 +168,9 @@
   function sheetLegend(sheet, colorMap) {
     const groups = {};
     sheet.placements.forEach(p => {
-      const k = p.name + '|' + fmt(p.w) + 'x' + fmt(p.h);
-      if (!groups[k]) groups[k] = { name: p.name, w: p.w, h: p.h, qty: 0 };
+      const dw = p.realW || p.w, dh = p.realH || p.h;
+      const k = p.name + '|' + fmt(dw) + 'x' + fmt(dh);
+      if (!groups[k]) groups[k] = { name: p.name, w: dw, h: dh, qty: 0 };
       groups[k].qty++;
     });
     const items = Object.values(groups).sort((a, b) => a.name.localeCompare(b.name, 'pt') || (b.w * b.h - a.w * a.h));
@@ -185,7 +187,7 @@
     container.innerHTML = '';
     const colorMap = buildColorMap(result);
     result.sheets.forEach(sheet => {
-      const used = sheet.placements.reduce((a, p) => a + p.w * p.h, 0);
+      const used = sheet.placements.reduce((a, p) => a + (p.realW || p.w) * (p.realH || p.h), 0);
       const eff = sheet.W * sheet.H ? (used / (sheet.W * sheet.H) * 100) : 0;
       const card = document.createElement('div');
       card.className = 'sheet-card';

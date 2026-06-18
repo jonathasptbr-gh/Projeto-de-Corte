@@ -51,11 +51,12 @@
       s.placements.forEach(p => {
         pieces++;
         const b = p.bands || {};
+        const pw = p.realW || p.w, ph = p.realH || p.h; // medida real da peça
         // top/bottom acompanham a largura (w); left/right o comprimento (h)
-        if (b.top) bandLen += p.w;
-        if (b.bottom) bandLen += p.w;
-        if (b.left) bandLen += p.h;
-        if (b.right) bandLen += p.h;
+        if (b.top) bandLen += pw;
+        if (b.bottom) bandLen += pw;
+        if (b.left) bandLen += ph;
+        if (b.right) bandLen += ph;
       });
     });
 

@@ -212,26 +212,47 @@
   };
   const sig = it => it.name + '|' + it.w + '|' + it.h + '|' + (it.grain || '');
 
-  function packOnce(list, W, H, o, splitPref, fitMode, placeMode, blockMode) {
+  // Agrupamento por tamanho aproximado (tolerância em cm). Peças cujo
+  // comprimento E largura diferem por <= tol (mesmo veio) entram no mesmo
+  // grupo e passam a usar a MAIOR medida do grupo (o excedente vira trim).
+  // Isso nivela faixas/blocos → sobras inteiras maiores.
+  const GROUP_TOL = 5;
+  // Arredonda CADA dimensão independentemente para o topo do seu "cluster"
+  // (valores a <= tol viram o maior). Assim peças de comprimento parecido
+  // nivelam (mesma altura de faixa) mesmo tendo larguras diferentes.
+  function annotateGroups(items, tol) {
+    const clusterMax = vals => {
+      const sorted = Array.from(new Set(vals)).sort((a, b) => a - b);
+      const map = {}; let i = 0;
+      while (i < sorted.length) {
+        let j = i; while (j + 1 < sorted.length && sorted[j + 1] - sorted[i] <= tol) j++;
+        const mx = sorted[j]; for (let k = i; k <= j; k++) map[sorted[k]] = mx; i = j + 1;
+      }
+      return map;
+    };
+    const wm = clusterMax(items.map(it => it.w));
+    const hm = clusterMax(items.map(it => it.h));
+    items.forEach(it => { it.gw = wm[it.w]; it.gh = hm[it.h]; it.gKey = (it.grain || '') + '|' + it.gw + '|' + it.gh; });
+  }
+
+  function packOnce(list, W, H, o, splitPref, fitMode, placeMode, blockMode, gr) {
     let sheetIndex = 0;
     const sheets = [];
     const unplaced = [];
     const done = new Array(list.length).fill(false);
+    // dims: footprint do "slot" (arredondado se gr) + medida real p/ rótulo
+    const dimsOf = it => {
+      let sw = gr ? (it.gw || it.w) : it.w, sh = gr ? (it.gh || it.h) : it.h, aw = it.w, ah = it.h, allowRotate;
+      if (o.considerGrain && it.grain) { allowRotate = false; if (it.grain === 'h') { const t = sw; sw = sh; sh = t; const u = aw; aw = ah; ah = u; } }
+      else allowRotate = o.allowRotate;
+      return { sw, sh, aw, ah, allowRotate };
+    };
     for (let idx = 0; idx < list.length; idx++) {
       if (done[idx]) continue;
       const it = list[idx];
       done[idx] = true;
-      // Direção do veio fixa a orientação da peça:
-      //  '' (sem veio) → rotação livre
-      //  'v' (↕) → mantém como exportada (largura × comprimento)
-      //  'h' (↔) → gira 90° (comprimento × largura)
-      let pw = it.w, ph = it.h, allowRotate;
-      if (o.considerGrain && it.grain) {
-        allowRotate = false;
-        if (it.grain === 'h') { pw = it.h; ph = it.w; }
-      } else {
-        allowRotate = o.allowRotate;
-      }
+      const d = dimsOf(it);
+      const pw = d.sw, ph = d.sh, allowRotate = d.allowRotate;
       let target = null, fit = null;
       if (placeMode === 'best') {
         // best-fit global: melhor encaixe entre TODAS as chapas abertas
@@ -254,40 +275,38 @@
         fit = findFit(target, pw, ph, allowRotate, fitMode);
         sheets.push(target);
       }
-      const fw = fit.rotated ? ph : pw, fh = fit.rotated ? pw : ph;
+      const fw = fit.rotated ? ph : pw, fh = fit.rotated ? pw : ph; // slot (footprint)
+      const realW = fit.rotated ? d.ah : d.aw, realH = fit.rotated ? d.aw : d.ah;
       const r = target.free[fit.rectIdx];
       if (blockMode) {
-        // Bloco homogêneo: preenche o retângulo com o máximo de peças IGUAIS
-        // (mesmo nome+medida+veio) numa grade cols×linhas — padrão limpo de
-        // seccionadora, menos cortes/regulagens.
+        // Bloco: preenche o retângulo com a grade de peças do mesmo grupo
+        // (idênticas, ou similares quando gr) usando a célula = maior medida.
         const k = o.kerf;
         const cols = Math.max(1, Math.floor((r.w + k) / (fw + k)));
         const rows = Math.max(1, Math.floor((r.h + k) / (fh + k)));
         const cap = cols * rows;
-        const group = [];
-        const mySig = sig(it);
-        for (let j = idx; j < list.length && group.length < cap; j++) {
-          if (!done[j] && sig(list[j]) === mySig) group.push(j);
+        const myKey = gr ? it.gKey : sig(it);
+        const ids = [idx];
+        for (let j = idx + 1; j < list.length && ids.length < cap; j++) {
+          if (!done[j] && (gr ? list[j].gKey === myKey : sig(list[j]) === myKey)) ids.push(j);
         }
-        const n = group.length + 1; // +1 = a peça atual (idx, já marcada)
-        const ids = [idx].concat(group.slice(0, n - 1));
         const total = Math.min(ids.length, cap);
         let placed = 0;
         for (let rr = 0; rr < rows && placed < total; rr++) {
           for (let cc = 0; cc < cols && placed < total; cc++) {
-            target.placements.push({ x: r.x + cc * (fw + k), y: r.y + rr * (fh + k), w: fw, h: fh, name: it.name, rotated: fit.rotated, bands: it.bands });
-            if (placed > 0) done[ids[placed]] = true; // idx (placed 0) já marcado
+            const jt = list[ids[placed]];
+            const dj = dimsOf(jt);
+            const rW = fit.rotated ? dj.ah : dj.aw, rH = fit.rotated ? dj.aw : dj.ah;
+            target.placements.push({ x: r.x + cc * (fw + k), y: r.y + rr * (fh + k), w: fw, h: fh, realW: rW, realH: rH, name: jt.name, rotated: fit.rotated, bands: jt.bands });
+            if (placed > 0) done[ids[placed]] = true;
             placed++;
           }
         }
-        const usedCols = Math.min(cols, total);
-        const usedRows = Math.ceil(total / cols);
-        const blockW = usedCols * fw + (usedCols - 1) * k;
-        const blockH = usedRows * fh + (usedRows - 1) * k;
-        splitRect(target, fit.rectIdx, blockW, blockH, k, splitPref);
-        target.cuts += (usedRows - 1) + usedRows * (usedCols - 1); // cortes internos do bloco
+        const usedCols = Math.min(cols, total), usedRows = Math.ceil(total / cols);
+        splitRect(target, fit.rectIdx, usedCols * fw + (usedCols - 1) * k, usedRows * fh + (usedRows - 1) * k, k, splitPref);
+        target.cuts += (usedRows - 1) + usedRows * (usedCols - 1);
       } else {
-        target.placements.push({ x: r.x, y: r.y, w: fw, h: fh, name: it.name, rotated: fit.rotated, bands: it.bands });
+        target.placements.push({ x: r.x, y: r.y, w: fw, h: fh, realW, realH, name: it.name, rotated: fit.rotated, bands: it.bands });
         splitRect(target, fit.rectIdx, fw, fh, o.kerf, splitPref);
       }
       mergeFree(target.free); // consolida a lista livre (estilo GuillotineBinPack)
@@ -301,38 +320,44 @@
   // Preenche UMA única chapa o máximo possível: coloca o que couber e devolve
   // o resto para a próxima chapa (não abre chapa nova). Base do "encher antes
   // de abrir outra".
-  function fillOneSheet(list, W, H, o, splitPref, fitMode, blockMode) {
+  function fillOneSheet(list, W, H, o, splitPref, fitMode, blockMode, gr) {
     const sheet = newSheet(list.length ? list[0].__mat : '', W, H, 1);
     const done = new Array(list.length).fill(false);
+    const dimsOf = it => {
+      let sw = gr ? (it.gw || it.w) : it.w, sh = gr ? (it.gh || it.h) : it.h, aw = it.w, ah = it.h, allowRotate;
+      if (o.considerGrain && it.grain) { allowRotate = false; if (it.grain === 'h') { const t = sw; sw = sh; sh = t; const u = aw; aw = ah; ah = u; } }
+      else allowRotate = o.allowRotate;
+      return { sw, sh, aw, ah, allowRotate };
+    };
     for (let idx = 0; idx < list.length; idx++) {
       if (done[idx]) continue;
       const it = list[idx];
-      let pw = it.w, ph = it.h, allowRotate;
-      if (o.considerGrain && it.grain) { allowRotate = false; if (it.grain === 'h') { pw = it.h; ph = it.w; } }
-      else allowRotate = o.allowRotate;
-      const fit = findFit(sheet, pw, ph, allowRotate, fitMode);
+      const d = dimsOf(it);
+      const fit = findFit(sheet, d.sw, d.sh, d.allowRotate, fitMode);
       if (!fit) continue; // não cabe nesta chapa → fica para a próxima
       done[idx] = true;
-      const fw = fit.rotated ? ph : pw, fh = fit.rotated ? pw : ph;
+      const fw = fit.rotated ? d.sh : d.sw, fh = fit.rotated ? d.sw : d.sh;
+      const realW = fit.rotated ? d.ah : d.aw, realH = fit.rotated ? d.aw : d.ah;
       const r = sheet.free[fit.rectIdx];
       if (blockMode) {
         const k = o.kerf;
         const cols = Math.max(1, Math.floor((r.w + k) / (fw + k)));
         const rows = Math.max(1, Math.floor((r.h + k) / (fh + k)));
-        const cap = cols * rows, mySig = sig(it), group = [];
-        for (let j = idx; j < list.length && group.length < cap - 1; j++) if (!done[j] && sig(list[j]) === mySig) group.push(j);
-        const ids = [idx].concat(group);
+        const cap = cols * rows, myKey = gr ? it.gKey : sig(it), ids = [idx];
+        for (let j = idx + 1; j < list.length && ids.length < cap; j++) if (!done[j] && (gr ? list[j].gKey === myKey : sig(list[j]) === myKey)) ids.push(j);
         const total = Math.min(ids.length, cap);
         let placed = 0;
         for (let rr = 0; rr < rows && placed < total; rr++) for (let cc = 0; cc < cols && placed < total; cc++) {
-          sheet.placements.push({ x: r.x + cc * (fw + k), y: r.y + rr * (fh + k), w: fw, h: fh, name: it.name, rotated: fit.rotated, bands: it.bands });
+          const dj = dimsOf(list[ids[placed]]);
+          const rW = fit.rotated ? dj.ah : dj.aw, rH = fit.rotated ? dj.aw : dj.ah;
+          sheet.placements.push({ x: r.x + cc * (fw + k), y: r.y + rr * (fh + k), w: fw, h: fh, realW: rW, realH: rH, name: list[ids[placed]].name, rotated: fit.rotated, bands: list[ids[placed]].bands });
           if (placed > 0) done[ids[placed]] = true;
           placed++;
         }
         const usedCols = Math.min(cols, total), usedRows = Math.ceil(total / cols);
         splitRect(sheet, fit.rectIdx, usedCols * fw + (usedCols - 1) * k, usedRows * fh + (usedRows - 1) * k, k, splitPref);
       } else {
-        sheet.placements.push({ x: r.x, y: r.y, w: fw, h: fh, name: it.name, rotated: fit.rotated, bands: it.bands });
+        sheet.placements.push({ x: r.x, y: r.y, w: fw, h: fh, realW, realH, name: it.name, rotated: fit.rotated, bands: it.bands });
         splitRect(sheet, fit.rectIdx, fw, fh, o.kerf, splitPref);
       }
       mergeFree(sheet.free);
@@ -353,9 +378,9 @@
       let best = null;
       for (const ok of Object.keys(ORDERS)) {
         const sorted = remaining.slice().sort(ORDERS[ok]);
-        for (const pref of ['maxrect', 'wide', 'tall']) for (const mode of ['bssf', 'tl', 'baf']) for (const block of [false, true]) {
-          const r = fillOneSheet(sorted, W, H, o, pref, mode, block);
-          const area = r.placed.reduce((a, p) => a + p.w * p.h, 0);
+        for (const pref of ['maxrect', 'wide', 'tall']) for (const mode of ['bssf', 'tl', 'baf']) for (const block of [false, true]) for (const gr of [false, true]) {
+          const r = fillOneSheet(sorted, W, H, o, pref, mode, block, gr);
+          const area = r.placed.reduce((a, p) => a + (p.realW || p.w) * (p.realH || p.h), 0);
           if (!best || area > best.area + 1e-6) best = { area, sheet: r.sheet, rest: r.rest };
         }
       }
@@ -419,8 +444,8 @@
     return {
       sheets: res.sheets.length,
       unplaced: res.unplaced.length,
-      // fração ocupada por chapa, da mais cheia para a mais vazia
-      fills: res.sheets.map(s => s.placements.reduce((a, p) => a + p.w * p.h, 0) / (s.W * s.H)).sort((a, b) => b - a),
+      // fração ocupada por chapa (área REAL das peças, não o slot), da mais cheia para a mais vazia
+      fills: res.sheets.map(s => s.placements.reduce((a, p) => a + (p.realW || p.w) * (p.realH || p.h), 0) / (s.W * s.H)).sort((a, b) => b - a),
       off: offAreas(res.sheets),
       cuts: res.sheets.reduce((a, s) => a + s.cuts, 0),
     };
@@ -455,6 +480,7 @@
 
   function packGroup(items, W, H, o, matName) {
     items.forEach(it => it.__mat = matName);
+    annotateGroups(items, GROUP_TOL); // peças similares (<=5cm) usam a maior medida
     let best = null, bestScore = null;
     const consider = res => { const sc = score(res); if (better(sc, bestScore)) { best = res; bestScore = sc; } };
     for (const key of Object.keys(ORDERS)) {
@@ -462,7 +488,7 @@
       for (const pref of ['maxrect', 'wide', 'tall']) {
         for (const mode of ['bssf', 'tl', 'baf']) {
           for (const place of ['first', 'best']) {
-            for (const block of [false, true]) consider(packOnce(list, W, H, o, pref, mode, place, block));
+            for (const block of [false, true]) for (const gr of [false, true]) consider(packOnce(list, W, H, o, pref, mode, place, block, gr));
           }
         }
       }
@@ -497,7 +523,7 @@
     sheets.forEach(s => {
       const m = byMaterial[s.material] || (byMaterial[s.material] = { sheets: 0, pieces: 0, area: 0, usedArea: 0, cuts: 0 });
       m.sheets++; m.cuts += s.cuts; m.area += s.W * s.H;
-      s.placements.forEach(p => { m.pieces++; m.usedArea += p.w * p.h; });
+      s.placements.forEach(p => { m.pieces++; m.usedArea += (p.realW || p.w) * (p.realH || p.h); });
     });
 
     return { sheets, unplaced, byMaterial };
@@ -520,13 +546,14 @@
       const stock = stockFor(material);
       const matName = o.considerMaterial ? material : 'Geral';
       groupsMap[material].forEach(it => it.__mat = matName);
+      annotateGroups(groupsMap[material], GROUP_TOL);
       return { items: groupsMap[material], W: stock.width, H: stock.length, best: null, bestScore: null };
     });
 
     const orderKeys = Object.keys(ORDERS);
     const prefs = ['maxrect', 'wide', 'tall'], modes = ['bssf', 'tl', 'baf'], places = ['first', 'best'];
     const combos = [];
-    for (const ok of orderKeys) for (const pref of prefs) for (const mode of modes) for (const place of places) for (const block of [false, true]) combos.push({ ok, pref, mode, place, block });
+    for (const ok of orderKeys) for (const pref of prefs) for (const mode of modes) for (const place of places) for (const block of [false, true]) for (const gr of [false, true]) combos.push({ ok, pref, mode, place, block, gr });
     const totalDet = combos.length;
 
     let rng = 2463534242;
@@ -537,7 +564,7 @@
     let detIdx = 0, stepCount = 0, sinceImprove = 0, maxFillDone = false;
 
     function tryOn(g, list, c) {
-      const res = packOnce(list, g.W, g.H, o, c.pref, c.mode, c.place, c.block);
+      const res = packOnce(list, g.W, g.H, o, c.pref, c.mode, c.place, c.block, c.gr);
       const sc = score(res);
       if (better(sc, g.bestScore)) { g.best = res; g.bestScore = sc; return true; }
       return false;
@@ -565,7 +592,7 @@
         }
       } else {
         // reinícios aleatórios: embaralha a ordem + combo aleatório
-        const c = { pref: pick(prefs), mode: pick(modes), place: pick(places), block: rand() < 0.5 };
+        const c = { pref: pick(prefs), mode: pick(modes), place: pick(places), block: rand() < 0.5, gr: rand() < 0.5 };
         const ok = pick(orderKeys);
         for (const g of groups) {
           const base = g.items.slice().sort(ORDERS[ok]);
@@ -592,7 +619,7 @@
       sheets.forEach(s => {
         const m = byMaterial[s.material] || (byMaterial[s.material] = { sheets: 0, pieces: 0, area: 0, usedArea: 0, cuts: 0 });
         m.sheets++; m.cuts += s.cuts; m.area += s.W * s.H;
-        s.placements.forEach(p => { m.pieces++; m.usedArea += p.w * p.h; });
+        s.placements.forEach(p => { m.pieces++; m.usedArea += (p.realW || p.w) * (p.realH || p.h); });
       });
       return { sheets, unplaced, byMaterial };
     }
