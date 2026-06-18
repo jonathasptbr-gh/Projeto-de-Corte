@@ -505,7 +505,7 @@
       st.sheets.forEach(s => { s.free = guillotineOffcutsGreedy(s); s.cuts = countGuillotineCuts(s.W, s.H, s.placements); });
       const res = { sheets: st.sheets, unplaced: st.unplaced };
       const sc = score(res);
-      if (better(sc, bestScore)) { best = res; bestScore = sc; }
+      if (better(sc, bestScore, o.weights)) { best = res; bestScore = sc; }
     }
     return best || { sheets: [], unplaced: items.slice() };
   }
@@ -682,21 +682,16 @@
     a.sort((x, y) => y - x);
     return a;
   }
-  function cmpLex(a, b) {
-    const n = Math.max(a.length, b.length);
-    for (let i = 0; i < n; i++) {
-      const x = a[i] || 0, y = b[i] || 0;
-      if (Math.abs(x - y) > 1e-3) return x - y;
-    }
-    return 0;
+  function defaultWeights() {
+    return { unplaced: 10, sheets: 10, fill: 5, offcut: 5, cuts: 5 };
   }
-  // Compara frações de preenchimento com tolerância mais apertada (0,01%),
-  // para que diferenças pequenas de ocupação já decidam entre soluções.
-  function cmpFills(a, b) {
+  // tol opcional: substitui o padrão 1e-4 quando o chamador passa um peso customizado
+  function cmpFills(a, b, tol) {
+    tol = (tol != null) ? tol : 1e-4;
     const n = Math.max(a.length, b.length);
     for (let i = 0; i < n; i++) {
       const x = a[i] || 0, y = b[i] || 0;
-      if (Math.abs(x - y) > 1e-4) return x - y;
+      if (Math.abs(x - y) > tol) return x - y;
     }
     return 0;
   }
@@ -710,25 +705,30 @@
       cuts: res.sheets.reduce((a, s) => a + s.cuts, 0),
     };
   }
-  // Prioriza: menos não-encaixadas → menos chapas → FILLS (encher mais antes
-  // de abrir outra chapa, tolerância 0,01%) → MAIOR retalho (3% tol) →
-  // MENOS cortes → demais sobras (lex) → menos retalhos.
-  function better(a, b) {
+  // Compara dois resultados pelas 5 premissas, em ordem de prioridade.
+  // w.X = peso 1–10: peso maior → tolerância menor → critério mais exigente.
+  function better(a, b, w) {
     if (!b) return true;
-    if (a.unplaced !== b.unplaced) return a.unplaced < b.unplaced;
-    if (a.sheets !== b.sheets) return a.sheets < b.sheets;
-    // ENCHER AO MÁXIMO: chapas mais cheias primeiro (concentra a sobra numa só,
-    // em vez de deixar duas chapas meio-cheias). Tolerância de 0,01% (10× mais
-    // sensível que antes) — diferenças pequenas de aproveitamento já decidem.
-    const fl = cmpFills(a.fills, b.fills);
+    if (!w) w = defaultWeights();
+    // 1. Menos peças não-posicionadas (peso≥9→tol 0, ≥5→tol 1, <5→tol 2)
+    const unplTol = w.unplaced >= 9 ? 0 : w.unplaced >= 5 ? 1 : 2;
+    if (Math.abs(a.unplaced - b.unplaced) > unplTol) return a.unplaced < b.unplaced;
+    // 2. Menos chapas usadas
+    const shTol = w.sheets >= 9 ? 0 : w.sheets >= 5 ? 1 : 2;
+    if (Math.abs(a.sheets - b.sheets) > shTol) return a.sheets < b.sheets;
+    // 3. Chapas mais cheias (peso 10→tol 0,1%; peso 1→tol 5%)
+    const fillTol = 0.001 + (10 - w.fill) * (0.049 / 9);
+    const fl = cmpFills(a.fills, b.fills, fillTol);
     if (fl !== 0) return fl > 0;
+    // 4. Maior retalho único aproveitável (peso 10→tol 1%; peso 1→tol 30%)
     const a0 = a.off[0] || 0, b0 = b.off[0] || 0;
-    const tol = Math.max(a0, b0) * 0.03; // 3% no maior retalho
-    if (Math.abs(a0 - b0) > tol) return a0 > b0;
-    if (a.cuts !== b.cuts) return a.cuts < b.cuts;
-    if (a.off.length !== b.off.length) return a.off.length < b.off.length; // menos retalhos = menos fragmentação
-    const lex = cmpLex(a.off, b.off);
-    return lex > 0;
+    const offFactor = 0.01 + (10 - w.offcut) * (0.29 / 9);
+    if (Math.abs(a0 - b0) > Math.max(a0, b0) * offFactor) return a0 > b0;
+    // 5. Menos cortes — só decide quando os demais estão empatados
+    // (peso 10→qualquer diff conta; peso 1→ignora diferenças ≤20 cortes)
+    const cutsTol = Math.round((10 - w.cuts) * (20 / 9));
+    if (Math.abs(a.cuts - b.cuts) > cutsTol) return a.cuts < b.cuts;
+    return false;
   }
 
   // Recalcula as sobras do resultado final com a decomposição ÓTIMA (maior
@@ -741,7 +741,7 @@
     items.forEach(it => it.__mat = matName);
     annotateGroups(items, GROUP_TOL); // peças similares (<=5cm) usam a maior medida
     let best = null, bestScore = null;
-    const consider = res => { const sc = score(res); if (better(sc, bestScore)) { best = res; bestScore = sc; } };
+    const consider = res => { const sc = score(res); if (better(sc, bestScore, o.weights)) { best = res; bestScore = sc; } };
     for (const key of Object.keys(ORDERS)) {
       const list = items.slice().sort(ORDERS[key]);
       for (const pref of ['maxrect', 'wide', 'tall']) {
@@ -770,7 +770,7 @@
   }
 
   function optimize(panels, stockList, options) {
-    const o = Object.assign({ kerf: 0, considerMaterial: true, considerGrain: true, allowRotate: true }, options);
+    const o = Object.assign({ kerf: 0, considerMaterial: true, considerGrain: true, allowRotate: true, weights: defaultWeights() }, options);
     const items = expand(panels);
     const groups = {};
     items.forEach(it => { const key = o.considerMaterial ? it.material : '__all__'; (groups[key] = groups[key] || []).push(it); });
@@ -806,7 +806,7 @@
   // cada material. O app chama step() em lotes e renderiza quando melhora;
   // pode pausar a qualquer momento e usar o melhor plano até então. ----
   function createSearch(panels, stockList, options) {
-    const o = Object.assign({ kerf: 0, considerMaterial: true, considerGrain: true, allowRotate: true }, options);
+    const o = Object.assign({ kerf: 0, considerMaterial: true, considerGrain: true, allowRotate: true, weights: defaultWeights() }, options);
     const items = expand(panels);
     const groupsMap = {};
     items.forEach(it => { const key = o.considerMaterial ? it.material : '__all__'; (groupsMap[key] = groupsMap[key] || []).push(it); });
@@ -845,7 +845,7 @@
     function tryOn(g, list, c) {
       const res = packOnce(list, g.W, g.H, o, c.pref, c.mode, c.place, c.block, c.gr);
       const sc = score(res);
-      if (better(sc, g.bestScore)) { g.best = res; g.bestScore = sc; return true; }
+      if (better(sc, g.bestScore, o.weights)) { g.best = res; g.bestScore = sc; return true; }
       return false;
     }
 
@@ -855,7 +855,7 @@
         // 1º passo: "encher ao máximo" + guilhotina em faixas (2 estágios)
         maxFillDone = true;
         for (const g of groups) {
-          const tryRes = res => { const sc = score(res); if (better(sc, g.bestScore)) { g.best = res; g.bestScore = sc; improved = true; } };
+          const tryRes = res => { const sc = score(res); if (better(sc, g.bestScore, o.weights)) { g.best = res; g.bestScore = sc; improved = true; } };
           tryRes(packMaxFill(g.items, g.W, g.H, o));
           for (const axis of ['v', 'h']) for (const gt of [0, GROUP_TOL]) for (const ok of Object.keys(ORDERS)) tryRes(packShelf(g.items, g.W, g.H, o, { axis, groupTol: gt, order: g.items.slice().sort(ORDERS[ok]) }));
         }
@@ -876,10 +876,10 @@
           const list = g.items.slice().sort(ORDERS[job.ok]);
           let r = packBeam(g.items, g.W, g.H, o, { order: list, beamWidth: job.wgt });
           let sc = score(r);
-          if (better(sc, g.bestScore)) { g.best = r; g.bestScore = sc; improved = true; }
+          if (better(sc, g.bestScore, o.weights)) { g.best = r; g.bestScore = sc; improved = true; }
           r = packMaxFillBeam(list, g.W, g.H, o, { beamWidth: job.wgt });
           sc = score(r);
-          if (better(sc, g.bestScore)) { g.best = r; g.bestScore = sc; improved = true; }
+          if (better(sc, g.bestScore, o.weights)) { g.best = r; g.bestScore = sc; improved = true; }
         }
       } else {
         // reinícios aleatórios: embaralha a ordem + combo aleatório
@@ -918,5 +918,5 @@
     return { step, result, totalDet };
   }
 
-  global.Optimizer = { optimize, createSearch };
+  global.Optimizer = { optimize, createSearch, defaultWeights };
 })(window);
