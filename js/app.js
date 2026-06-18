@@ -319,7 +319,7 @@
       inp.addEventListener('change', () => {     // confirma: salva, re-renderiza e recalcula
         state.materialColors[m] = inp.value.toLowerCase(); save();
         renderMatLegend(); renderPanels(); renderStock();
-        if (validPanels().length) runPlan(true); // cores iguais → mesmo material no cálculo
+        if (validPanels().length) markPlanStale(); // cores iguais → mesmo material no cálculo
       });
       sw.appendChild(inp);
       const name = el('span', 'mat-name'); name.textContent = matLabel(m);
@@ -350,7 +350,7 @@
     selected.clear();
     save();
     renderPanels(); renderStock();
-    if (validPanels().length) runPlan(true); else renderPlanEmpty();
+    if (validPanels().length) markPlanStale(); else renderPlanEmpty();
     toast('Material excluído');
   }
 
@@ -384,7 +384,7 @@
       if (selectMode && selected.has(p) && selected.size > 1) {
         selected.forEach(q => { if (q !== p) q.grain = next; }); save(); renderPanels();
       } else { paint(); save(); }
-      if (validPanels().length) runPlan(true);
+      if (validPanels().length) markPlanStale();
     });
     return b;
   }
@@ -542,7 +542,7 @@
     const bind = (id, key, isNum, isBool) => $(id).addEventListener('change', e => {
       state.options[key] = isBool ? e.target.checked : (isNum ? parseFloat(e.target.value) || 0 : e.target.value);
       save();
-      if (validPanels().length) runPlan(true); // reflete a opção no resultado imediatamente
+      if (validPanels().length) markPlanStale(); // opção alterada → recalcular manualmente
     });
     bind('#opt-kerf', 'kerf', true);
     bind('#opt-labels', 'labels', false, true);
@@ -581,7 +581,7 @@
     save();
     refreshOptionsUI(); updateProjectName(); renderStock(); renderPanels();
     $('#import-status').textContent = `${panels.length} peças · ${panels.reduce((a, p) => a + p.qty, 0)} un.`;
-    runPlan(true);
+    renderPlanEmpty(); // cálculo é manual: usuário toca em "Calcular plano"
     gotoTab('plan');
     toast('Projeto: ' + proj.name);
   }
@@ -676,7 +676,7 @@
     renderStock(); renderPanels();
     const total = state.panels.reduce((a, p) => a + (p.length > 0 && p.width > 0 ? (p.qty || 1) : 0), 0);
     $('#import-status').textContent = total ? `${total} un. em peças` : '';
-    if (validPanels().length) runPlan(true); else renderPlanEmpty();
+    showSavedPlan(); // mostra o plano salvo sem recalcular (cálculo é manual)
     if ($('#view-budget').classList.contains('active')) renderBudget();
   }
   function setActive(id) {
@@ -823,6 +823,21 @@
     return result;
   }
 
+  // Cálculo é MANUAL: edições só marcam o plano como desatualizado; o usuário
+  // dispara o cálculo no botão "Calcular plano".
+  let planStale = false;
+  function markPlanStale() {
+    planStale = true;
+    if (live) return; // já está calculando
+    if (state.plan && state.plan.sheets && state.plan.sheets.length)
+      setPlanStatus('Peças/opções alteradas — toque em “Calcular plano” para atualizar.');
+  }
+  // Mostra o plano já salvo (sem recalcular) ou o aviso vazio.
+  function showSavedPlan() {
+    if (state.plan && state.plan.sheets && state.plan.sheets.length) { showResult(state.plan); planStale = false; }
+    else renderPlanEmpty();
+  }
+
   // Cálculo de uma só passada (usado nas atualizações automáticas/silenciosas).
   function runPlan(silent) {
     stopLiveSearch();
@@ -886,6 +901,7 @@
     if (!inp) { toast('Importe um CSV ou adicione peças.'); return; }
     const search = Optimizer.createSearch(inp.gpanels, inp.gstock, inp.opts);
     live = { search, groupLabel: inp.groupLabel, raf: 0 };
+    planStale = false;
     setRunButton(true);
     $('#plan-empty').style.display = 'none';
     setPlanStatus('Procurando o melhor aproveitamento…');
@@ -1074,7 +1090,7 @@
     });
     initTabs(); initOptions(); initImport(); initSelect(); initBudgetCfg(); initBandModal(); initProjects();
     updateProjectName(); renderStock(); renderPanels();
-    if (validPanels().length) runPlan(true); else renderPlanEmpty();
+    showSavedPlan(); // cálculo é manual
     $('#run-plan').addEventListener('click', toggleLiveSearch);
     initShareHandlers();
   }

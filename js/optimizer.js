@@ -575,8 +575,9 @@
       }
       stepCount++;
       if (improved) sinceImprove = 0; else sinceImprove++;
-      // convergiu: terminou a fase determinística e estagnou por muitos passos
-      const converged = detIdx >= combos.length && sinceImprove >= 800;
+      // convergiu: terminou a fase determinística e estagnou por MUITOS passos
+      // (busca mais longa/minuciosa; o usuário pode pausar a qualquer momento).
+      const converged = detIdx >= combos.length && sinceImprove >= 3000;
       return { improved, converged, det: detIdx, totalDet, step: stepCount };
     }
 
