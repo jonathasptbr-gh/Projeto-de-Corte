@@ -649,30 +649,30 @@
   // lado a lado, recursivamente). Espalhar uma tira na borda oposta gera mais
   // cortes do que consolidá-la junto às demais — é isto que medimos aqui.
   function countGuillotineCuts(W, H, placements) {
-    let n = 0;
-    function rec(x, y, w, h, items) {
-      if (items.length <= 1) return;
-      let chosen = null;
-      const xs = Array.from(new Set(items.map(p => p.x + p.w))).filter(X => X > x + EPS && X < x + w - EPS).sort((a, b) => a - b);
-      for (const X of xs) { if (items.every(p => p.x + p.w <= X + EPS || p.x >= X - EPS)) { chosen = { o: 'v', pos: X }; break; } }
-      if (!chosen) {
-        const ys = Array.from(new Set(items.map(p => p.y + p.h))).filter(Y => Y > y + EPS && Y < y + h - EPS).sort((a, b) => a - b);
-        for (const Y of ys) { if (items.every(p => p.y + p.h <= Y + EPS || p.y >= Y - EPS)) { chosen = { o: 'h', pos: Y }; break; } }
-      }
-      if (!chosen) return;
-      n++;
-      if (chosen.o === 'v') {
-        const X = chosen.pos;
-        rec(x, y, X - x, h, items.filter(p => p.x + p.w <= X + EPS));
-        rec(X, y, x + w - X, h, items.filter(p => p.x >= X - EPS));
-      } else {
-        const Y = chosen.pos;
-        rec(x, y, w, Y - y, items.filter(p => p.y + p.h <= Y + EPS));
-        rec(x, Y, w, h - (Y - y), items.filter(p => p.y >= Y - EPS));
-      }
+    // Mínimo de cortes guilhotinados via busca com memoização: testa V e H em
+    // cada nível, filtra cortes degenerados (lado vazio = não separa peças) e
+    // escolhe o que minimiza o total — garante a contagem ótima.
+    const memo = new Map();
+    const key = items => items.map(p => p.x + ',' + p.y).sort().join('|');
+    function minCuts(items) {
+      if (items.length <= 1) return 0;
+      const k = key(items);
+      if (memo.has(k)) return memo.get(k);
+      let best = Infinity;
+      Array.from(new Set(items.map(p => p.x + p.w))).forEach(X => {
+        const L = items.filter(p => p.x + p.w <= X + EPS), R = items.filter(p => p.x >= X - EPS);
+        if (L.length && R.length && items.every(p => p.x + p.w <= X + EPS || p.x >= X - EPS))
+          best = Math.min(best, 1 + minCuts(L) + minCuts(R));
+      });
+      Array.from(new Set(items.map(p => p.y + p.h))).forEach(Y => {
+        const T = items.filter(p => p.y + p.h <= Y + EPS), B = items.filter(p => p.y >= Y - EPS);
+        if (T.length && B.length && items.every(p => p.y + p.h <= Y + EPS || p.y >= Y - EPS))
+          best = Math.min(best, 1 + minCuts(T) + minCuts(B));
+      });
+      memo.set(k, isFinite(best) ? best : 0);
+      return memo.get(k);
     }
-    rec(0, 0, W, H, placements.slice());
-    return n;
+    return minCuts(placements.slice());
   }
 
   // Áreas das sobras reaproveitáveis (ignora fiapos), em ordem decrescente.
