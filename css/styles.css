@@ -172,6 +172,8 @@ table.grid th, table.grid td {
   padding: 4px 5px; text-align: left; vertical-align: middle;
 }
 table.grid thead th { background: #f0f3f1; font-weight: 700; }
+table.grid tbody tr:nth-child(even) td { background: #f4f7f5; }
+table.grid tbody tr.row-new td { background: #fcfdfc; }
 table.grid input, table.grid select {
   width: 100%; min-width: 0; border: none; background: transparent;
   font: inherit; padding: 2px; color: var(--text);
