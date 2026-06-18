@@ -579,6 +579,60 @@
     return { sheets, unplaced };
   }
 
+  // ---- GUILHOTINA EM 2 ESTÁGIOS (faixas / shelf) ------------------------
+  // Padrão de seccionadora clássico: 1º estágio corta a chapa em FAIXAS de
+  // lado a lado (todas com a altura da peça mais alta da faixa); 2º estágio
+  // corta as peças dentro da faixa. A "ponta" de cada faixa e o fundo da chapa
+  // ficam CONSOLIDADOS (uma sobra grande), em vez de pontinhas espalhadas.
+  //  axis 'v' = faixas verticais (colunas de altura cheia H, espessura=largura)
+  //  axis 'h' = faixas horizontais (tiras de largura cheia W, espessura=altura)
+  //  groupTol = agrupa alturas de faixa próximas (<= tol) → menos trim no topo
+  function packShelf(items, W, H, o, opts) {
+    opts = opts || {};
+    const axis = opts.axis || 'v';
+    const tol = opts.groupTol || 0;
+    const k = o.kerf;
+    const dimsOf = it => { let pw = it.w, ph = it.h, allow; if (o.considerGrain && it.grain) { allow = false; if (it.grain === 'h') { pw = it.h; ph = it.w; } } else allow = o.allowRotate; return { pw, ph, allow }; };
+    // cross = espessura da faixa; along = comprimento ao longo da faixa
+    const crossOf = it => { const d = dimsOf(it); return axis === 'h' ? d.ph : d.pw; };
+    const alongOf = it => { const d = dimsOf(it); return axis === 'h' ? d.pw : d.ph; };
+    const ALONG = axis === 'h' ? W : H, CROSS = axis === 'h' ? H : W;
+    // ordena por espessura desc (peça mais alta primeiro define a faixa), depois comprimento desc
+    let remaining = (opts.order || items.slice()).slice().sort((a, b) => crossOf(b) - crossOf(a) || alongOf(b) - alongOf(a));
+    const sheets = [], unplaced = [];
+    let sheet = null, crossCursor = 0, guard = 0;
+    const openSheet = () => { sheet = newSheet(remaining[0].__mat, W, H, sheets.length + 1); sheets.push(sheet); crossCursor = 0; };
+    while (remaining.length && guard++ < 5000) {
+      if (!sheet) openSheet();
+      const head = remaining[0];
+      const bandCross = crossOf(head) + (tol ? 0 : 0); // a faixa tem a altura da peça mais alta restante
+      if (crossCursor + bandCross > CROSS + 1e-6) {
+        if (crossCursor < 1e-6) { unplaced.push(head); remaining.shift(); sheet = null; continue; } // peça maior que a chapa
+        sheet = null; continue; // chapa cheia → abre outra
+      }
+      // preenche a faixa: pega peças (na ordem) com cross<=bandCross que couberem no comprimento
+      let alongCursor = 0; const used = [];
+      for (let i = 0; i < remaining.length; i++) {
+        const it = remaining[i];
+        if (crossOf(it) > bandCross + 1e-6) continue;
+        const a = alongOf(it);
+        if (alongCursor + a > ALONG + 1e-6) continue;
+        const d = dimsOf(it);
+        const x = axis === 'h' ? alongCursor : crossCursor;
+        const y = axis === 'h' ? crossCursor : alongCursor;
+        sheet.placements.push({ x, y, w: d.pw, h: d.ph, realW: d.pw, realH: d.ph, name: it.name, rotated: false, bands: it.bands });
+        alongCursor += a + k;
+        used.push(i);
+      }
+      for (let j = used.length - 1; j >= 0; j--) remaining.splice(used[j], 1);
+      crossCursor += bandCross + k;
+      if (!used.length) { unplaced.push(head); remaining.shift(); } // trava de segurança
+    }
+    sheets.forEach(s => { s.free = guillotineOffcutsGreedy(s); s.cuts = countGuillotineCuts(s.W, s.H, s.placements); });
+    return { sheets, unplaced };
+  }
+
+
   // Conta os cortes guilhotinados REAIS do layout (nº de linhas de corte de
   // lado a lado, recursivamente). Espalhar uma tira na borda oposta gera mais
   // cortes do que consolidá-la junto às demais — é isto que medimos aqui.
@@ -678,6 +732,10 @@
       }
     }
     consider(packMaxFill(items, W, H, o)); // "encher ao máximo antes de abrir outra"
+    // guilhotina em 2 estágios (faixas) — consolida pontas/fundo numa sobra grande
+    for (const axis of ['v', 'h']) for (const gt of [0, GROUP_TOL]) {
+      for (const key of Object.keys(ORDERS)) consider(packShelf(items, W, H, o, { axis, groupTol: gt, order: items.slice().sort(ORDERS[key]) }));
+    }
     // busca em árvore (beam) — só quando pedida (o.beamWidth); o one-shot
     // padrão fica instantâneo. Acha combinações que a gulosa não vê.
     if (o.beamWidth) {
@@ -772,12 +830,12 @@
     function step() {
       let improved = false;
       if (!maxFillDone) {
-        // 1º passo: "encher ao máximo antes de abrir outra chapa"
+        // 1º passo: "encher ao máximo" + guilhotina em faixas (2 estágios)
         maxFillDone = true;
         for (const g of groups) {
-          const res = packMaxFill(g.items, g.W, g.H, o);
-          const sc = score(res);
-          if (better(sc, g.bestScore)) { g.best = res; g.bestScore = sc; improved = true; }
+          const tryRes = res => { const sc = score(res); if (better(sc, g.bestScore)) { g.best = res; g.bestScore = sc; improved = true; } };
+          tryRes(packMaxFill(g.items, g.W, g.H, o));
+          for (const axis of ['v', 'h']) for (const gt of [0, GROUP_TOL]) for (const ok of Object.keys(ORDERS)) tryRes(packShelf(g.items, g.W, g.H, o, { axis, groupTol: gt, order: g.items.slice().sort(ORDERS[ok]) }));
         }
         stepCount++;
         if (improved) sinceImprove = 0; else sinceImprove++;
