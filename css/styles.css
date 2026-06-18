@@ -124,6 +124,12 @@ details.opt-details .options-grid { padding: 6px 0 10px; }
   border-bottom: 1px solid var(--line);
 }
 .card-head h2 { margin: 0; font-size: 1rem; }
+.app-version {
+  font-size: 10px; font-weight: 700; letter-spacing: 0.6px;
+  color: var(--muted); background: var(--gray-cell);
+  padding: 2px 7px; border-radius: 20px;
+  flex-shrink: 0;
+}
 .card-body { padding: 8px; }
 .card-body.table-wrap { padding: 0; }
 
