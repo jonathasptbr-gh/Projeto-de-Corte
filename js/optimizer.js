@@ -729,20 +729,16 @@
     };
   }
   // Prioriza: menos não-encaixadas → menos chapas → FILLS (0,01%) →
-  // MAIOR retalho (3% tol) → menos retalhos → lex sobras.
+  // MAIOR retalho (3% tol) → lex sobras (maiores e mais inteiras).
   function better(a, b) {
     if (!b) return true;
     if (a.unplaced !== b.unplaced) return a.unplaced < b.unplaced;
     if (a.sheets !== b.sheets) return a.sheets < b.sheets;
-    // ENCHER AO MÁXIMO: chapas mais cheias primeiro (concentra a sobra numa só,
-    // em vez de deixar duas chapas meio-cheias). Tolerância de 0,01% (10× mais
-    // sensível que antes) — diferenças pequenas de aproveitamento já decidem.
     const fl = cmpFills(a.fills, b.fills);
     if (fl !== 0) return fl > 0;
     const a0 = a.off[0] || 0, b0 = b.off[0] || 0;
-    const tol = Math.max(a0, b0) * 0.03; // 3% no maior retalho
+    const tol = Math.max(a0, b0) * 0.03;
     if (Math.abs(a0 - b0) > tol) return a0 > b0;
-    if (a.off.length !== b.off.length) return a.off.length < b.off.length;
     const lex = cmpLex(a.off, b.off);
     return lex > 0;
   }
