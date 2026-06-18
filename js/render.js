@@ -52,35 +52,63 @@
     return colorOf;
   }
 
-  // Reconstrói os cortes guilhotinados a partir das peças posicionadas.
-  // Retorna [{orient:'v'|'h', pos, a, b}] onde a..b é a extensão do corte.
+  // Reconstrói a sequência ÓTIMA de cortes guilhotinados a partir das peças
+  // posicionadas. Testa V e H em cada nível, filtra cortes degenerados (lado
+  // vazio) e usa memoização para garantir o mínimo de cortes. Desempate:
+  // prefere H (faixas inteiras) sobre V — remove sobra do grupo antes de
+  // separar peças individuais. Retorna [{orient:'v'|'h', pos, a, b}].
   function reconstructCuts(W, H, placements) {
     const cuts = [];
+    const memo = new Map();
+    const key = items => items.map(p => p.x + ',' + p.y).sort().join('|');
+    function minCuts(items) {
+      if (items.length <= 1) return 0;
+      const k = key(items);
+      if (memo.has(k)) return memo.get(k);
+      let best = Infinity;
+      Array.from(new Set(items.map(p => p.x + p.w))).forEach(X => {
+        const L = items.filter(p => p.x + p.w <= X + EPS), R = items.filter(p => p.x >= X - EPS);
+        if (L.length && R.length && items.every(p => p.x + p.w <= X + EPS || p.x >= X - EPS))
+          best = Math.min(best, 1 + minCuts(L) + minCuts(R));
+      });
+      Array.from(new Set(items.map(p => p.y + p.h))).forEach(Y => {
+        const T = items.filter(p => p.y + p.h <= Y + EPS), B = items.filter(p => p.y >= Y - EPS);
+        if (T.length && B.length && items.every(p => p.y + p.h <= Y + EPS || p.y >= Y - EPS))
+          best = Math.min(best, 1 + minCuts(T) + minCuts(B));
+      });
+      memo.set(k, isFinite(best) ? best : 0);
+      return memo.get(k);
+    }
     function rec(x, y, w, h, items) {
       if (items.length <= 1) return;
-      // tenta corte vertical (linha em X sem peça atravessando)
-      let chosen = null;
-      const xs = Array.from(new Set(items.map(p => p.x + p.w))).filter(X => X > x + EPS && X < x + w - EPS).sort((a, b) => a - b);
-      for (const X of xs) {
-        if (items.every(p => p.x + p.w <= X + EPS || p.x >= X - EPS)) { chosen = { orient: 'v', pos: X }; break; }
-      }
-      if (!chosen) {
-        const ys = Array.from(new Set(items.map(p => p.y + p.h))).filter(Y => Y > y + EPS && Y < y + h - EPS).sort((a, b) => a - b);
-        for (const Y of ys) {
-          if (items.every(p => p.y + p.h <= Y + EPS || p.y >= Y - EPS)) { chosen = { orient: 'h', pos: Y }; break; }
-        }
-      }
-      if (!chosen) return;
-      if (chosen.orient === 'v') {
-        const X = chosen.pos;
-        cuts.push({ orient: 'v', pos: X, a: y, b: y + h });
-        rec(x, y, X - x, h, items.filter(p => p.x + p.w <= X + EPS));
-        rec(X, y, x + w - X, h, items.filter(p => p.x >= X - EPS));
+      const target = minCuts(items);
+      const cands = [];
+      Array.from(new Set(items.map(p => p.x + p.w)))
+        .filter(X => X > x + EPS && X < x + w - EPS).sort((a, b) => a - b)
+        .forEach(X => {
+          const L = items.filter(p => p.x + p.w <= X + EPS), R = items.filter(p => p.x >= X - EPS);
+          if (L.length && R.length && items.every(p => p.x + p.w <= X + EPS || p.x >= X - EPS) &&
+              1 + minCuts(L) + minCuts(R) === target)
+            cands.push({ orient: 'v', pos: X, sA: L, sB: R });
+        });
+      Array.from(new Set(items.map(p => p.y + p.h)))
+        .filter(Y => Y > y + EPS && Y < y + h - EPS).sort((a, b) => a - b)
+        .forEach(Y => {
+          const T = items.filter(p => p.y + p.h <= Y + EPS), B = items.filter(p => p.y >= Y - EPS);
+          if (T.length && B.length && items.every(p => p.y + p.h <= Y + EPS || p.y >= Y - EPS) &&
+              1 + minCuts(T) + minCuts(B) === target)
+            cands.push({ orient: 'h', pos: Y, sA: T, sB: B });
+        });
+      if (!cands.length) return;
+      // Desempate: H antes de V (faixas agrupam peças antes de separar individualmente)
+      cands.sort((a, b) => (a.orient === 'h' ? 0 : 1) - (b.orient === 'h' ? 0 : 1));
+      const c = cands[0];
+      if (c.orient === 'v') {
+        cuts.push({ orient: 'v', pos: c.pos, a: y, b: y + h });
+        rec(x, y, c.pos - x, h, c.sA); rec(c.pos, y, x + w - c.pos, h, c.sB);
       } else {
-        const Y = chosen.pos;
-        cuts.push({ orient: 'h', pos: Y, a: x, b: x + w });
-        rec(x, y, w, Y - y, items.filter(p => p.y + p.h <= Y + EPS));
-        rec(x, Y, w, h - (Y - y), items.filter(p => p.y >= Y - EPS));
+        cuts.push({ orient: 'h', pos: c.pos, a: x, b: x + w });
+        rec(x, y, w, c.pos - y, c.sA); rec(x, c.pos, w, y + h - c.pos, c.sB);
       }
     }
     rec(0, 0, W, H, placements.slice());
