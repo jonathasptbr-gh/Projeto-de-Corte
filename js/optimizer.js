@@ -117,19 +117,61 @@
     }
   }
 
-  // Decomposição guilhotinada das SOBRAS (estilo "apara a ponta primeiro").
-  // Em cada região, procura o corte de lado-a-lado (vão livre, sem peça
-  // atravessando) que destaca a MAIOR área vazia — isto é, prefere arrancar
-  // uma tira inteira da ponta/lateral da chapa antes de fatiar entre peças.
-  // Resultado: quando as peças têm comprimentos parecidos, a ponta vira UM
-  // retalho único de largura cheia, em vez de várias pontinhas por tira.
+  // Decomposição guilhotinada das SOBRAS que MAXIMIZA O MAIOR retalho único.
+  // Em vez de descascar a maior área vazia (guloso, fragmenta), faz uma busca
+  // recursiva por todos os cortes de lado-a-lado e escolhe a sequência que
+  // deixa o MAIOR pedaço inteiro (desempate: maior área reaproveitável total).
+  // Assim ela "apara as tiras com peça" primeiro (esquerda, topo) e mantém o
+  // miolo vazio como um único retalho grande. Memoiza por região+peças.
   function guillotineOffcuts(sheet) {
+    if (!sheet.placements.length) return [{ x: 0, y: 0, w: sheet.W, h: sheet.H }];
+    const placements = sheet.placements;
+    // Muitas peças numa região → busca completa fica cara: cai no guloso.
+    if (placements.length > 14) return guillotineOffcutsGreedy(sheet);
+    const memo = new Map();
+    function best(x, y, w, h, items) {
+      if (w <= EPS || h <= EPS) return { rects: [], maxA: 0, total: 0 };
+      if (!items.length) { const a = w * h; return { rects: [{ x, y, w, h }], maxA: a, total: a }; }
+      const key = x.toFixed(1) + '|' + y.toFixed(1) + '|' + w.toFixed(1) + '|' + h.toFixed(1) + '|' + items.map(p => p.x.toFixed(0) + ',' + p.y.toFixed(0)).sort().join(';');
+      const hit = memo.get(key); if (hit) return hit;
+      let res = null;
+      const consider = (ca, cb) => {
+        const ra = best(ca.x, ca.y, ca.w, ca.h, ca.items);
+        const rb = best(cb.x, cb.y, cb.w, cb.h, cb.items);
+        const maxA = Math.max(ra.maxA, rb.maxA), total = ra.total + rb.total;
+        if (!res || maxA > res.maxA + 1e-6 || (Math.abs(maxA - res.maxA) <= 1e-6 && total > res.total + 1e-6)) {
+          res = { rects: ra.rects.concat(rb.rects), maxA, total };
+        }
+      };
+      const xs = Array.from(new Set([].concat(...items.map(p => [p.x, p.x + p.w])))).filter(X => X > x + EPS && X < x + w - EPS);
+      xs.forEach(X => {
+        if (items.every(p => p.x + p.w <= X + EPS || p.x >= X - EPS))
+          consider({ x, y, w: X - x, h, items: items.filter(p => p.x + p.w <= X + EPS) },
+                   { x: X, y, w: x + w - X, h, items: items.filter(p => p.x >= X - EPS) });
+      });
+      const ys = Array.from(new Set([].concat(...items.map(p => [p.y, p.y + p.h])))).filter(Y => Y > y + EPS && Y < y + h - EPS);
+      ys.forEach(Y => {
+        if (items.every(p => p.y + p.h <= Y + EPS || p.y >= Y - EPS))
+          consider({ x, y, w, h: Y - y, items: items.filter(p => p.y + p.h <= Y + EPS) },
+                   { x, y: Y, w, h: y + h - Y, items: items.filter(p => p.y >= Y - EPS) });
+      });
+      if (!res) res = { rects: [], maxA: 0, total: 0 }; // peça preenche a região
+      memo.set(key, res);
+      return res;
+    }
+    const r = best(0, 0, sheet.W, sheet.H, placements.slice());
+    const out = r.rects.filter(rc => rc.w > EPS && rc.h > EPS);
+    mergeFree(out);
+    return out;
+  }
+
+  // Versão gulosa (rápida) — usada como fallback quando há muitas peças.
+  function guillotineOffcutsGreedy(sheet) {
     const out = [];
     function decompose(x, y, w, h, items) {
       if (w <= EPS || h <= EPS) return;
       if (!items.length) { out.push({ x, y, w, h }); return; }
       const cands = [];
-      // cortes verticais possíveis (nenhuma peça atravessa a linha X)
       const xs = Array.from(new Set([].concat(...items.map(p => [p.x, p.x + p.w])))).filter(X => X > x + EPS && X < x + w - EPS);
       xs.forEach(X => {
         if (items.every(p => p.x + p.w <= X + EPS || p.x >= X - EPS)) {
@@ -138,7 +180,6 @@
           cands.push({ a: { x, y, w: X - x, h, items: left }, b: { x: X, y, w: x + w - X, h, items: right } });
         }
       });
-      // cortes horizontais possíveis (nenhuma peça atravessa a linha Y)
       const ys = Array.from(new Set([].concat(...items.map(p => [p.y, p.y + p.h])))).filter(Y => Y > y + EPS && Y < y + h - EPS);
       ys.forEach(Y => {
         if (items.every(p => p.y + p.h <= Y + EPS || p.y >= Y - EPS)) {
@@ -147,8 +188,7 @@
           cands.push({ a: { x, y, w, h: Y - y, items: top }, b: { x, y: Y, w, h: y + h - Y, items: bot } });
         }
       });
-      if (!cands.length) return; // peça preenche a região (sem retalho limpo)
-      // prioriza o corte que destaca a maior ÁREA VAZIA (tira da ponta/lateral)
+      if (!cands.length) return;
       const emptyArea = c => [c.a, c.b].reduce((s, r) => s + (r.items.length ? 0 : r.w * r.h), 0);
       const biggestEmpty = c => [c.a, c.b].reduce((m, r) => Math.max(m, r.items.length ? 0 : r.w * r.h), 0);
       cands.sort((c1, c2) => (emptyArea(c2) - emptyArea(c1)) || (biggestEmpty(c2) - biggestEmpty(c1)));
@@ -158,7 +198,7 @@
     }
     if (!sheet.placements.length) return [{ x: 0, y: 0, w: sheet.W, h: sheet.H }];
     decompose(0, 0, sheet.W, sheet.H, sheet.placements.slice());
-    mergeFree(out); // funde retalhos colineares adjacentes em peças maiores
+    mergeFree(out);
     return out.filter(r => r.w > EPS && r.h > EPS);
   }
 
@@ -252,8 +292,9 @@
       }
       mergeFree(target.free); // consolida a lista livre (estilo GuillotineBinPack)
     }
-    // sobras (apara a ponta primeiro) e nº real de cortes guilhotinados
-    sheets.forEach(s => { s.free = guillotineOffcuts(s); s.cuts = countGuillotineCuts(s.W, s.H, s.placements); });
+    // Durante a BUSCA usa a decomposição rápida (gulosa); o resultado final
+    // recebe a decomposição ótima (maior retalho) em refineOffcuts().
+    sheets.forEach(s => { s.free = guillotineOffcutsGreedy(s); s.cuts = countGuillotineCuts(s.W, s.H, s.placements); });
     return { sheets, unplaced };
   }
 
@@ -321,7 +362,7 @@
       if (!best || !best.placed && !best.sheet.placements.length) { unplaced.push.apply(unplaced, remaining); break; }
       if (!best.sheet.placements.length) { unplaced.push.apply(unplaced, remaining); break; }
       best.sheet.index = sheets.length + 1;
-      best.sheet.free = guillotineOffcuts(best.sheet);
+      best.sheet.free = guillotineOffcutsGreedy(best.sheet);
       best.sheet.cuts = countGuillotineCuts(best.sheet.W, best.sheet.H, best.sheet.placements);
       sheets.push(best.sheet);
       remaining = best.rest;
@@ -406,6 +447,12 @@
     return lex > 0;
   }
 
+  // Recalcula as sobras do resultado final com a decomposição ÓTIMA (maior
+  // retalho único). Roda só nas poucas chapas finais → barato.
+  function refineOffcuts(sheets) {
+    sheets.forEach(s => { s.free = guillotineOffcuts(s); });
+  }
+
   function packGroup(items, W, H, o, matName) {
     items.forEach(it => it.__mat = matName);
     let best = null, bestScore = null;
@@ -444,6 +491,7 @@
       res.sheets.forEach((s, i) => { s.index = i + 1; sheets.push(s); });
       res.unplaced.forEach(u => unplaced.push(u));
     });
+    refineOffcuts(sheets); // decomposição ótima das sobras (só no resultado final)
 
     const byMaterial = {};
     sheets.forEach(s => {
@@ -538,6 +586,7 @@
       const perMat = {};
       sheets.forEach(s => { (perMat[s.material] = perMat[s.material] || []).push(s); });
       Object.keys(perMat).forEach(k => perMat[k].forEach((s, i) => { s.index = i + 1; }));
+      refineOffcuts(sheets); // decomposição ótima das sobras (só no resultado mostrado)
       const byMaterial = {};
       sheets.forEach(s => {
         const m = byMaterial[s.material] || (byMaterial[s.material] = { sheets: 0, pieces: 0, area: 0, usedArea: 0, cuts: 0 });
