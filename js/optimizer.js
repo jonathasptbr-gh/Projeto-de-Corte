@@ -690,6 +690,16 @@
     }
     return 0;
   }
+  // Compara frações de preenchimento com tolerância mais apertada (0,01%),
+  // para que diferenças pequenas de ocupação já decidam entre soluções.
+  function cmpFills(a, b) {
+    const n = Math.max(a.length, b.length);
+    for (let i = 0; i < n; i++) {
+      const x = a[i] || 0, y = b[i] || 0;
+      if (Math.abs(x - y) > 1e-4) return x - y;
+    }
+    return 0;
+  }
   function score(res) {
     return {
       sheets: res.sheets.length,
@@ -700,19 +710,18 @@
       cuts: res.sheets.reduce((a, s) => a + s.cuts, 0),
     };
   }
-  // Prioriza: menos não-encaixadas → menos chapas → MAIOR retalho (com
-  // tolerância) → MENOS cortes → demais sobras (lex) → menos retalhos.
-  // A tolerância evita sacrificar o maior retalho por cortes, mas quando o
-  // maior retalho é praticamente o mesmo, escolhe o plano com menos cortes
-  // (ex.: consolidar tiras de um lado em vez de espalhar uma na borda oposta).
+  // Prioriza: menos não-encaixadas → menos chapas → FILLS (encher mais antes
+  // de abrir outra chapa, tolerância 0,01%) → MAIOR retalho (3% tol) →
+  // MENOS cortes → demais sobras (lex) → menos retalhos.
   function better(a, b) {
     if (!b) return true;
     if (a.unplaced !== b.unplaced) return a.unplaced < b.unplaced;
     if (a.sheets !== b.sheets) return a.sheets < b.sheets;
     // ENCHER AO MÁXIMO: chapas mais cheias primeiro (concentra a sobra numa só,
-    // em vez de deixar duas chapas meio-cheias). Tolerância de 0,1%.
-    const fl = cmpLex(a.fills, b.fills);
-    if (Math.abs(fl) > 1e-3) return fl > 0;
+    // em vez de deixar duas chapas meio-cheias). Tolerância de 0,01% (10× mais
+    // sensível que antes) — diferenças pequenas de aproveitamento já decidem.
+    const fl = cmpFills(a.fills, b.fills);
+    if (fl !== 0) return fl > 0;
     const a0 = a.off[0] || 0, b0 = b.off[0] || 0;
     const tol = Math.max(a0, b0) * 0.03; // 3% no maior retalho
     if (Math.abs(a0 - b0) > tol) return a0 > b0;
