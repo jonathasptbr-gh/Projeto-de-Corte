@@ -60,6 +60,11 @@ body {
 }
 .hdr-btn:hover { background: rgba(255,255,255,.28); }
 .hdr-btn .material-symbols-outlined { font-size: 22px; }
+.app-version {
+  flex: 0 0 auto; font-size: .7rem; font-weight: 700; letter-spacing: .02em;
+  color: #fff; background: rgba(0,0,0,.18); border-radius: 999px;
+  padding: 2px 8px; line-height: 1.4;
+}
 
 /* lista de projetos */
 .proj-list { display: flex; flex-direction: column; gap: 8px; max-height: 60vh; overflow-y: auto; }
