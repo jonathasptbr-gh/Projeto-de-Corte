@@ -30,7 +30,7 @@
   // Serve para desligar peças sem excluí-las.
   // Versão exibida no cabeçalho. Reflete o app.js carregado na tela (útil para
   // saber se o cache do Service Worker já atualizou). Manter igual ao N de sw.js.
-  const APP_VERSION = 'v50';
+  const APP_VERSION = 'v51';
 
   const clampQty = v => Math.min(MAX_QTY, Math.max(1, Math.round(parseNum(v) || 1)));
 
@@ -370,7 +370,7 @@
       pick.appendChild(it);
     };
     list.forEach(m => addOpt(m, matLabel(m)));
-    addOpt('', 'Sem material (fora do plano)');
+    addOpt('', 'Sem material');
     body.appendChild(pick);
     const actions = el('div', 'modal-actions');
     const cancelBtn = el('button', 'btn'); cancelBtn.textContent = 'Cancelar';
@@ -835,9 +835,11 @@
     const breakdownEl = $('#plan-breakdown');
     const sheetsEl    = $('#plan-sheets');
     const emptyEl     = $('#plan-empty');
+    const unplacedEl  = $('#plan-unplaced');
     if (metricsEl)   metricsEl.innerHTML   = '';
     if (breakdownEl) breakdownEl.innerHTML = '';
     if (sheetsEl)    sheetsEl.innerHTML    = '';
+    if (unplacedEl)  { unplacedEl.innerHTML = ''; unplacedEl.hidden = true; }
     if (emptyEl)     emptyEl.style.display = 'block';
     planStale = false; updateStaleNotice();
   }
@@ -1056,10 +1058,51 @@
       `<table class="grid compact breakdown"><thead><tr><th>Material</th><th>Chapas</th><th>Mín</th>` +
       `<th>Peças</th><th>Aprov.</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table>`;
 
+    renderUnplaced(result);
     Render.renderSheets(sheetsEl, result, { showLabels: true });
     Budget.applyMetrics(state.budgetItems, m);
   }
   function metric(k, v) { return `<div class="metric"><div class="v">${v}</div><div class="k">${k}</div></div>`; }
+
+  // Lista, no TOPO do plano, as peças que não couberam — em tabela EDITÁVEL
+  // (reusa makePanelRow, então editar reflete direto na lista de peças original).
+  function renderUnplaced(result) {
+    const box = $('#plan-unplaced'); if (!box) return;
+    box.innerHTML = '';
+    const items = (result && result.unplaced) || [];
+    if (!items.length) { box.hidden = true; return; }
+    // mapeia cada unidade não-posicionada de volta à peça original (por valor)
+    const order = [], count = new Map();
+    items.forEach(it => {
+      const p = state.panels.find(q => q.width === it.w && q.length === it.h
+        && (q.name || '') === (it.name || '') && materialGroupKey(q.material) === it.material);
+      if (!p) return;
+      if (!count.has(p)) { count.set(p, 0); order.push(p); }
+      count.set(p, count.get(p) + 1);
+    });
+    box.hidden = false;
+    const total = items.length;
+    const head = el('div', 'unplaced-head');
+    head.innerHTML = `<span class="material-symbols-outlined">warning</span>` +
+      `<b>${total} peça(s) não couberam.</b> Ajuste medidas, quantidade, material ou veio aqui — ou aumente o estoque — e recalcule.`;
+    box.appendChild(head);
+    if (!order.length) return; // não achou correspondência (peças editadas após o cálculo)
+    const table = el('table', 'grid compact');
+    table.innerHTML =
+      `<thead><tr><th class="cell-act"></th><th class="cell-num">Larg.</th><th class="cell-num">Compr.</th>` +
+      `<th class="cell-qty">Qtd</th><th class="cell-mat">Mat</th><th class="cell-name">Nome</th>` +
+      `<th class="cell-veio">Veio</th><th class="cell-fita">Fita</th><th class="cell-act">Faltou</th></tr></thead>`;
+    const tbody = el('tbody');
+    order.forEach(p => {
+      const tr = makePanelRow(p);
+      // troca o último botão (excluir) por um marcador de quantas unidades faltaram
+      const last = tr.lastChild; if (last) { last.textContent = count.get(p) + '×'; last.className = 'cell-act unplaced-count'; }
+      tbody.appendChild(tr);
+    });
+    table.appendChild(tbody);
+    const wrap = el('div', 'table-wrap'); wrap.appendChild(table);
+    box.appendChild(wrap);
+  }
 
   // ---------- Busca contínua (testa e melhora ao vivo) ----------
   let live = null; // { search, groupLabel, raf }

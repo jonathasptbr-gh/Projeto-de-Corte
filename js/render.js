@@ -225,15 +225,8 @@
         sheetSVG(sheet, colorMap, opts.showLabels);
       container.appendChild(card);
     });
-
-    if (result.unplaced && result.unplaced.length) {
-      const warn = document.createElement('div');
-      warn.className = 'sheet-card';
-      warn.style.borderColor = '#c0392b';
-      warn.innerHTML = `<h3 style="color:#c0392b">⚠ ${result.unplaced.length} peça(s) não couberam</h3>` +
-        `<div class="sub">Verifique o tamanho da chapa, a <b>quantidade de chapas</b> no estoque ou a direção do grão.</div>`;
-      container.appendChild(warn);
-    }
+    // As peças que não couberam são listadas no TOPO do plano, em tabela
+    // editável (montada no app.js — renderUnplaced), não mais aqui no fim.
   }
 
   global.Render = { renderSheets };
