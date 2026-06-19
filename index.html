@@ -19,7 +19,7 @@
     <div class="brand">
       <span class="material-symbols-outlined">content_cut</span>
       <span id="project-name" class="proj-name" title="Projetos">Projeto</span>
-      <span class="app-version">v44</span>
+      <span class="app-version">v45</span>
       <button id="open-projects" class="hdr-btn" title="Projetos / histórico"><span class="material-symbols-outlined">folder_open</span></button>
     </div>
     <nav class="tabs" id="tabs">
@@ -37,15 +37,6 @@
         <div class="options-grid">
           <label class="opt">Espessura de corte (kerf)
             <input type="number" id="opt-kerf" step="0.1" min="0" value="0.8" />
-          </label>
-          <label class="opt switch">Nome nos painéis
-            <input type="checkbox" id="opt-labels" checked />
-          </label>
-          <label class="opt switch">Considerar material
-            <input type="checkbox" id="opt-material" checked />
-          </label>
-          <label class="opt switch">Considerar direção do grão
-            <input type="checkbox" id="opt-grain" checked />
           </label>
         </div>
       </details>
@@ -67,7 +58,7 @@
         <div class="table-wrap">
           <table class="grid compact" id="stock-table">
             <thead>
-              <tr><th class="cell-act"></th><th class="cell-num">Largura</th><th class="cell-num">Compr.</th><th class="cell-qty">Qtd</th><th class="cell-mat">Mat</th><th class="cell-veio" title="Direção do veio da chapa">Veio</th><th class="cell-act"></th></tr>
+              <tr><th class="cell-act"></th><th class="cell-num">Largura</th><th class="cell-num">Compr.</th><th class="cell-qty">Qtd</th><th class="cell-mat">Mat</th><th class="cell-veio">Veio</th><th class="cell-act"></th></tr>
             </thead>
             <tbody id="stock-body"></tbody>
           </table>
@@ -92,14 +83,14 @@
           <table class="grid compact" id="panels-table">
             <thead>
               <tr id="panels-head">
-                <th class="cell-act"><input type="checkbox" id="sel-all" class="sel-all" title="Selecionar todas"></th>
+                <th class="cell-act"><input type="checkbox" id="sel-all" class="sel-all"></th>
                 <th class="cell-num">Larg.</th>
                 <th class="cell-num">Compr.</th>
                 <th class="cell-qty">Qtd</th>
                 <th class="cell-mat">Mat</th>
                 <th class="cell-name">Nome</th>
-                <th class="cell-veio" title="Direção do veio">Veio</th>
-                <th class="cell-fita" title="Fita de borda">Fita</th>
+                <th class="cell-veio">Veio</th>
+                <th class="cell-fita">Fita</th>
                 <th class="cell-act"></th>
               </tr>
             </thead>
@@ -121,7 +112,6 @@
           <p class=”plan-stale-hint” id=”plan-stale-hint” style=”display:none”>⚠ Dados alterados — clique em “Calcular plano” para atualizar.</p>
           <div class=”metrics” id=”plan-metrics”></div>
           <div id=”plan-breakdown”></div>
-          <p class=”empty-hint” id=”plan-empty”>Clique em “Calcular plano” para gerar o aproveitamento das chapas.</p>
         </div>
       </div>
       <div id="plan-sheets" class="sheets"></div>
