@@ -694,7 +694,9 @@
   function renderPlanEmpty() {
     stopLiveSearch();
     state.plan = null;
-    $('#plan-metrics').innerHTML = ''; $('#plan-breakdown').innerHTML = ''; $('#plan-sheets').innerHTML = '';
+    const me = $('#plan-metrics'); if (me) me.innerHTML = '';
+    const be = $('#plan-breakdown'); if (be) be.innerHTML = '';
+    const se = $('#plan-sheets'); if (se) se.innerHTML = '';
   }
   function renderActive() {
     refreshOptionsUI(); updateProjectName();
@@ -889,7 +891,9 @@
     const m = Budget.metricsFromPlan(result, 'cm');
 
     const sh = $('#plan-stale-hint'); if (sh) sh.style.display = 'none';
-    $('#plan-metrics').innerHTML =
+    const metricsEl = $('#plan-metrics');
+    if (!metricsEl) toast('DBG: #plan-metrics null!');
+    if (metricsEl) metricsEl.innerHTML =
       metric('Chapas', result.sheets.length) + metric('Peças', pieces) + metric('Cortes', cuts) +
       metric('Fita (m)', numFmt(m.bandMeters)) + metric('Aproveit.', eff.toFixed(1) + '%') +
       metric('Não couberam', result.unplaced.length);
@@ -903,11 +907,14 @@
       rows += `<tr><td>${esc(mat)}</td><td>${d.sheets}</td><td>${minSheets}</td><td>${d.pieces}</td>` +
         `<td>${effMat.toFixed(1)}%</td><td>${optimal ? '<span class="ok">ótimo ✓</span>' : 'juntar'}</td></tr>`;
     });
-    $('#plan-breakdown').innerHTML =
+    const breakdownEl = $('#plan-breakdown');
+    if (!breakdownEl) toast('DBG: #plan-breakdown null!');
+    if (breakdownEl) breakdownEl.innerHTML =
       `<table class="grid compact breakdown"><thead><tr><th>Material</th><th>Chapas</th><th>Mín</th>` +
       `<th>Peças</th><th>Aprov.</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table>`;
 
     const sheetsEl = $('#plan-sheets');
+    if (!sheetsEl) toast('DBG: #plan-sheets null!');
     if (sheetsEl) Render.renderSheets(sheetsEl, result, { showLabels: state.options.labels });
     Budget.applyMetrics(state.budgetItems, m);
   }
