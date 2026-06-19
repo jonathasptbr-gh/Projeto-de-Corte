@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#2f6f4f" />
+  <title>Projeto de Corte</title>
+  <link rel="manifest" href="manifest.json" />
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="icons/icon-192.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet"
+    href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=swap" />
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+  <header class="app-header">
+    <div class="brand">
+      <span class="material-symbols-outlined">content_cut</span>
+      <span id="project-name" class="proj-name" title="Projetos">Projeto</span>
+      <button id="open-projects" class="hdr-btn" title="Projetos / histórico"><span class="material-symbols-outlined">folder_open</span></button>
+    </div>
+    <nav class="tabs" id="tabs">
+      <button class="tab active" data-tab="panels"><span class="material-symbols-outlined">table_chart</span>Peças</button>
+      <button class="tab" data-tab="plan"><span class="material-symbols-outlined">content_cut</span>Cortes</button>
+      <button class="tab" data-tab="budget"><span class="material-symbols-outlined">request_quote</span>Orçamento</button>
+    </nav>
+  </header>
+
+  <main>
+    <!-- ===================== ABA: PAINÉIS & STOCK ===================== -->
+    <section class="view active" id="view-panels">
+      <details class="opt-details" id="opt-details">
+        <summary><span class="material-symbols-outlined">tune</span> Opções</summary>
+        <div class="options-grid">
+          <label class="opt">Espessura de corte (kerf)
+            <input type="number" id="opt-kerf" step="0.1" min="0" value="0.8" />
+          </label>
+          <label class="opt switch">Nome nos painéis
+            <input type="checkbox" id="opt-labels" checked />
+          </label>
+          <label class="opt switch">Considerar material
+            <input type="checkbox" id="opt-material" checked />
+          </label>
+          <label class="opt switch">Considerar direção do grão
+            <input type="checkbox" id="opt-grain" checked />
+          </label>
+        </div>
+        <div class="opt-priorities">
+          <div class="opt-priorities-title">Prioridades do otimizador</div>
+          <div class="w-row">
+            <span class="w-num">1</span>
+            <span class="w-label">Peças posicionadas</span>
+            <input type="range" class="w-slider" id="w-unplaced" min="1" max="10" step="1" value="10" />
+            <span class="w-val" id="w-unplaced-val">10</span>
+          </div>
+          <div class="w-row">
+            <span class="w-num">2</span>
+            <span class="w-label">Menos chapas</span>
+            <input type="range" class="w-slider" id="w-sheets" min="1" max="10" step="1" value="10" />
+            <span class="w-val" id="w-sheets-val">10</span>
+          </div>
+          <div class="w-row">
+            <span class="w-num">3</span>
+            <span class="w-label">Chapas mais cheias</span>
+            <input type="range" class="w-slider" id="w-fill" min="1" max="10" step="1" value="5" />
+            <span class="w-val" id="w-fill-val">5</span>
+          </div>
+          <div class="w-row">
+            <span class="w-num">4</span>
+            <span class="w-label">Maior retalho</span>
+            <input type="range" class="w-slider" id="w-offcut" min="1" max="10" step="1" value="5" />
+            <span class="w-val" id="w-offcut-val">5</span>
+          </div>
+          <div class="w-row">
+            <span class="w-num">5</span>
+            <span class="w-label">Menos cortes</span>
+            <input type="range" class="w-slider" id="w-cuts" min="1" max="10" step="1" value="5" />
+            <span class="w-val" id="w-cuts-val">5</span>
+          </div>
+        </div>
+      </details>
+
+      <div class="block">
+        <div class="block-head">
+          <h2 class="block-title">Materiais</h2>
+          <div class="block-actions">
+            <button id="add-material" class="btn small primary" type="button" title="Criar material">
+              <span class="material-symbols-outlined">add</span>Material
+            </button>
+          </div>
+        </div>
+        <div id="mat-legend" class="mat-legend"></div>
+      </div>
+
+      <div class="block">
+        <h2 class="block-title">Stock (Chapas)</h2>
+        <div class="table-wrap">
+          <table class="grid compact" id="stock-table">
+            <thead>
+              <tr><th class="cell-act"></th><th class="cell-num">Largura</th><th class="cell-num">Compr.</th><th class="cell-qty">Qtd</th><th class="cell-mat">Mat</th><th class="cell-veio" title="Direção do veio da chapa">Veio</th><th class="cell-act"></th></tr>
+            </thead>
+            <tbody id="stock-body"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="block">
+        <div class="block-head">
+          <h2 class="block-title">Painéis</h2>
+          <div class="block-actions">
+            <label class="btn small primary file-btn" title="Importar CSV">
+              <span class="material-symbols-outlined">upload_file</span>CSV
+              <input type="file" id="csv-input" accept=".csv,text/csv" hidden />
+            </label>
+            <button type="button" class="btn small" id="export-csv" title="Exportar/compartilhar CSV (com suas edições)"><span class="material-symbols-outlined">download</span></button>
+            <button class="btn small ghost" id="clear-panels" title="Limpar"><span class="material-symbols-outlined">delete_sweep</span></button>
+            <button class="btn small" id="toggle-select" title="Seleção rápida"><span class="material-symbols-outlined">checklist</span></button>
+          </div>
+        </div>
+        <span class="import-status" id="import-status"></span>
+        <div class="table-wrap">
+          <table class="grid compact" id="panels-table">
+            <thead>
+              <tr id="panels-head">
+                <th class="cell-act"><input type="checkbox" id="sel-all" class="sel-all" title="Selecionar todas"></th>
+                <th class="cell-num">Larg.</th>
+                <th class="cell-num">Compr.</th>
+                <th class="cell-qty">Qtd</th>
+                <th class="cell-mat">Mat</th>
+                <th class="cell-name">Nome</th>
+                <th class="cell-veio" title="Direção do veio">Veio</th>
+                <th class="cell-fita" title="Fita de borda">Fita</th>
+                <th class="cell-act"></th>
+              </tr>
+            </thead>
+            <tbody id="panels-body"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== ABA: PLANO DE CORTE ===================== -->
+    <section class="view" id="view-plan">
+      <div class="card">
+        <div class="card-head">
+          <h2>Plano de Corte (Aproveitamento)</h2>
+          <button class="btn primary" id="run-plan"><span class="material-symbols-outlined">play_arrow</span>Calcular plano</button>
+        </div>
+        <div class="card-body">
+          <div class="plan-status" id="plan-status"></div>
+          <div class="metrics" id="plan-metrics"></div>
+          <div id="plan-breakdown"></div>
+          <p class="empty-hint" id="plan-empty">Clique em “Calcular plano” para gerar o aproveitamento das chapas.</p>
+        </div>
+      </div>
+      <div id="plan-sheets" class="sheets"></div>
+    </section>
+
+    <!-- ===================== ABA: ORÇAMENTO ===================== -->
+    <section class="view" id="view-budget">
+      <div class="card">
+        <div class="card-head"><h2>Resumo do corte</h2></div>
+        <div class="card-body">
+          <div class="badges" id="budget-badges"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><h2>Orçamento</h2>
+          <span class="muted small">Quantidades em <b>cinza</b> vêm do plano de corte.</span>
+        </div>
+        <div class="card-body table-wrap">
+          <table class="grid budget compact" id="budget-table">
+            <thead>
+              <tr><th>Material</th><th>Quant.</th><th>Valor Und.</th><th>Sub. Total</th></tr>
+            </thead>
+            <tbody id="budget-body"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><h2>Condições</h2></div>
+        <div class="card-body">
+          <div class="conditions-config">
+            <label>Mão de obra (% sobre materiais)
+              <input type="number" id="cfg-labor" step="1" value="80" />
+            </label>
+            <label>Margem / impostos (%)
+              <input type="number" id="cfg-markup" step="1" value="10" />
+            </label>
+            <label>Desconto Pix (%)
+              <input type="number" id="cfg-pix" step="1" value="10" />
+            </label>
+            <label>Dias por peça
+              <input type="number" id="cfg-days" step="0.001" value="0.105" />
+            </label>
+          </div>
+          <table class="conditions" id="conditions-table"></table>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><h2>Material (custo)</h2></div>
+        <div class="card-body chart-wrap">
+          <canvas id="chart" width="600" height="320"></canvas>
+          <div class="legend" id="chart-legend"></div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <div class="toast" id="toast"></div>
+
+  <!-- Modal: projetos / histórico -->
+  <div class="modal-overlay" id="proj-modal" hidden>
+    <div class="modal">
+      <div class="modal-head">
+        <b>Projetos</b>
+        <button class="icon-btn" id="proj-close"><span class="material-symbols-outlined">close</span></button>
+      </div>
+      <button class="btn primary" id="proj-new" style="width:100%;justify-content:center;margin-bottom:10px">
+        <span class="material-symbols-outlined">add</span>Novo projeto
+      </button>
+      <div id="proj-list" class="proj-list"></div>
+    </div>
+  </div>
+
+  <!-- Modal: editor de fita de borda + direção do grão -->
+  <div class="modal-overlay" id="band-modal" hidden>
+    <div class="modal">
+      <div class="modal-head">
+        <b id="bm-title">Peça</b>
+        <button class="icon-btn" id="bm-close"><span class="material-symbols-outlined">close</span></button>
+      </div>
+      <p class="muted small" id="bm-hint">Toque em um lado da peça para aplicar/retirar a fita.</p>
+      <div class="band-editor" id="bm-canvas"></div>
+      <div class="bm-grain">
+        <span>Direção do grão</span>
+        <div class="seg" id="bm-grain">
+          <button type="button" data-g="">—</button>
+          <button type="button" data-g="h">↔</button>
+          <button type="button" data-g="v">↕</button>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn" id="bm-cancel">Cancelar</button>
+        <button class="btn primary" id="bm-ok"><span class="material-symbols-outlined">check</span>Confirmar</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="js/csv.js"></script>
+  <script src="js/optimizer.js"></script>
+  <script src="js/render.js"></script>
+  <script src="js/budget.js"></script>
+  <script src="js/app.js"></script>
+  <script>
+    if ('serviceWorker' in navigator) {
+      // Recarrega 1× quando uma versão NOVA do app assume (não na 1ª instalação),
+      // para não servir HTML novo com JS antigo em cache.
+      var __hadController = !!navigator.serviceWorker.controller, __refreshing = false;
+      navigator.serviceWorker.addEventListener('controllerchange', function () {
+        if (__refreshing) return; __refreshing = true;
+        if (__hadController) location.reload();
+      });
+      window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').then(reg => {
+        if (reg.update) setInterval(() => reg.update().catch(()=>{}), 60000); // checa atualização
+      }).catch(()=>{}));
+    }
+  </script>
+</body>
+</html>
