@@ -200,12 +200,15 @@ table.grid input:focus, table.grid select:focus { outline: 2px solid var(--green
 
 /* colunas de largura mínima — dimensionadas pelo dígito mais longo */
 table.grid.compact { font-size: .8rem; }
-table.grid.compact th, table.grid.compact td { padding: 2px 3px; }
+table.grid.compact th, table.grid.compact td { padding: 7px 3px; } /* linhas mais altas */
 .cell-num { width: 2.9rem; }
 .cell-num input { text-align: right; }
 .cell-qty { width: 2.1rem; }
 .cell-qty input { text-align: center; }
-.cell-mat { min-width: 3.6rem; }
+.cell-mat { width: 1.9rem; min-width: 1.9rem; } /* só o símbolo (chip), comprimido */
+.cell-matname { width: 4.6rem; }
+.matname-text { display: inline-block; max-width: 5.4rem; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; font-weight: 600; cursor: pointer; vertical-align: middle; }
 /* centralização (especificidade alta p/ vencer "table.grid td{text-align:left}") */
 table.grid th.cell-qty, table.grid td.cell-qty,
 table.grid th.cell-mat, table.grid td.cell-mat,
@@ -214,10 +217,10 @@ table.grid th.cell-fita, table.grid td.cell-fita { text-align: center; }
 table.grid td.cell-mat { text-align: center; }
 table.grid td.cell-mat .mat-cell-btn { margin: 0 auto; }
 .cell-name { width: 3.4rem; }
-.cell-fita { width: 2.6rem; text-align: center; }
-.cell-veio { width: 1.8rem; text-align: center; }
+.cell-fita { width: 2.8rem; text-align: center; }
+.cell-veio { width: 2.4rem; text-align: center; }
 .veio-btn {
-  width: 13px; height: 26px; padding: 0; cursor: pointer; vertical-align: middle;
+  width: 15px; height: 30px; padding: 0; cursor: pointer; vertical-align: middle;
   border: 1px solid #9aa39d; border-radius: 3px; background: #f3f3f3;
 }
 .veio-btn.v { background: repeating-linear-gradient(90deg, #9a7b50 0 1.5px, #e6d3ad 1.5px 3.5px); }
@@ -234,7 +237,6 @@ table.select-mode .sel-all { display: inline-block; }
 .btn.active { background: var(--green); color: #fff; border-color: var(--green); }
 
 /* material: chip colorido que abre o popup temático de seleção */
-.cell-mat { width: 2.4rem; }
 .mat-cell-btn { display: inline-flex; padding: 0; border: none; background: none; cursor: pointer; }
 .mat-chip {
   display: flex; align-items: center; justify-content: center;
@@ -293,14 +295,12 @@ table.select-mode .sel-all { display: inline-block; }
 .icon-btn.del { color: #c0392b; }
 .col-del { width: 30px; text-align: center; }
 
-/* botão de fita na linha: mostra nº de lados com fita */
+/* botão de fita na linha: mini-retângulo com as bordas (lados com fita coloridos) */
 .fita-btn {
-  display: inline-flex; align-items: center; gap: 3px;
-  border: 1px solid var(--line); border-radius: 7px; background: #f6f8f6;
-  padding: 3px 6px; font-size: .78rem; font-weight: 700; cursor: pointer; color: var(--muted);
+  display: inline-flex; align-items: center; justify-content: center;
+  padding: 0; border: none; background: none; cursor: pointer; vertical-align: middle;
 }
-.fita-btn.has { color: var(--green); border-color: var(--green-light); background: #eef6ee; }
-.fita-btn .material-symbols-outlined { font-size: 16px; }
+.fita-btn svg { display: block; }
 
 /* linha vazia da base (nova) levemente esmaecida */
 tr.row-new td { background: #fcfdfc; }
@@ -388,11 +388,14 @@ table.conditions tr.total td:last-child { background: #cfe0f0; }
 .band-editor svg { width: 100%; max-width: 280px; height: auto; touch-action: manipulation; }
 .band-editor .edge-hit { fill: transparent; cursor: pointer; }
 .band-editor .edge { stroke-linecap: round; }
-.bm-grain { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 4px 0 14px; font-size: .9rem; font-weight: 600; }
-.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 9px; overflow: hidden; }
-.seg button { border: none; background: #f1f4f2; padding: 7px 14px; font-size: 1rem; cursor: pointer; }
-.seg button + button { border-left: 1px solid var(--line); }
-.seg button.active { background: var(--green); color: #fff; }
+.bm-band { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 4px 0 14px; font-size: .9rem; font-weight: 600; }
+#bm-band-chip { width: 46px; height: 32px; border-radius: 7px; font-size: .85rem; }
+/* picker de material da fita: por material, larguras 22 e 45 */
+.band-pick-row { display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 6px 4px; border-bottom: 1px solid var(--line); }
+.band-pick-widths { display: flex; gap: 8px; flex: 0 0 auto; }
+.band-w { width: 40px; height: 30px; border-radius: 7px; }
+.band-w.sel { outline: 2px solid var(--green); outline-offset: 1px; }
 .modal-actions { display: flex; gap: 10px; justify-content: flex-end; }
 
 /* diálogos temáticos (alert/confirm/prompt) */

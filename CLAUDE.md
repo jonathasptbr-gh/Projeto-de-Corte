@@ -4,7 +4,7 @@ PWA offline-first de plano de corte de chapas (MDF/madeira), com otimizador de a
 
 ## Versão
 
-A cada deploy deve-se incrementar `N` em **`sw.js`** (`const CACHE = 'projeto-corte-vN'`) **e** em **`app.js`** (`const APP_VERSION = 'vN'`, exibido no cabeçalho). Os dois devem ficar iguais. Versão atual: **v51**.
+A cada deploy deve-se incrementar `N` em **`sw.js`** (`const CACHE = 'projeto-corte-vN'`) **e** em **`app.js`** (`const APP_VERSION = 'vN'`, exibido no cabeçalho). Os dois devem ficar iguais. Versão atual: **v52**.
 
 O selo de versão no topo (`#app-version`) reflete o `app.js` que a tela carregou — serve para conferir, após um deploy, se o cache do Service Worker já atualizou (número novo) ou não (número antigo).
 
@@ -84,7 +84,7 @@ O mesmo padrão foi aplicado em `renderPlanEmpty()`.
 - **Comprimento (H)** = dimensão no eixo Y da chapa.
 - Unidade: centímetros no otimizador; exibição em cm ou mm conforme o CSV importado.
 - **Veio (`grain`):** `'v'` = vertical (ao longo do comprimento), `'h'` = horizontal, `''` = sem restrição.
-- **Fita de borda (`bands`):** objeto `{ top, bottom, left, right }` booleanos. `top`/`bottom` acompanham a largura; `left`/`right` acompanham o comprimento.
+- **Fita de borda (`bands`):** objeto `{ top, bottom, left, right }` booleanos (quais lados têm fita). `top`/`bottom` acompanham a largura; `left`/`right` acompanham o comprimento. A **cor** (`p.bandColor`) e a **largura** (`p.bandWidth` = 22 ou 45) são por peça (a fita é única na peça). `bandColorOf(p)` cai na cor do material da peça quando não definida. O **botão de fita** na linha é um mini-retângulo SVG com os lados banded em linha grossa colorida (sem número). O **modal de fita** (`openBandModal`) tem a ilustração na **mesma proporção** da peça, sem controle de veio, e um chip "material da fita" que abre `openBandMatPicker` (cores dos materiais × {22, 45}). `budget.js` conta metros de fita pelos lados (largura 22/45 ainda não diferencia custo).
 
 ## Identidade de material no otimizador
 
