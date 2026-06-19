@@ -12,7 +12,7 @@
     return {
       panels: [],
       stock: [{ width: 184, length: 274, qty: 5, material: '' }],
-      options: { kerf: 0.8, labels: true, material: true, grain: true, weights: Optimizer.defaultWeights() },
+      options: { kerf: 0.8 }, // única opção ajustável (material/grão/labels/pesos fixos no padrão)
       materialColors: {},
       materialNames: {},
       materials: [],
@@ -28,7 +28,7 @@
   const MAX_QTY = 999; // teto de quantidade por linha (peças/estoque) — evita travar a busca
   // Versão exibida no cabeçalho. Reflete o app.js carregado na tela (útil para
   // saber se o cache do Service Worker já atualizou). Manter igual ao N de sw.js.
-  const APP_VERSION = 'v45';
+  const APP_VERSION = 'v46';
 
   const clampQty = v => Math.min(MAX_QTY, Math.max(1, Math.round(parseNum(v) || 1)));
 
@@ -53,7 +53,8 @@
     const out = {
       panels: Array.isArray(d.panels) ? d.panels : e.panels,
       stock: Array.isArray(d.stock) && d.stock.length ? d.stock : e.stock,
-      options: Object.assign(e.options, d.options || {}),
+      // só o kerf persiste; demais configs foram removidas (ignora valores antigos)
+      options: { kerf: (d.options && isFinite(parseFloat(d.options.kerf))) ? parseFloat(d.options.kerf) : e.options.kerf },
       materialColors: (d.materialColors && typeof d.materialColors === 'object') ? d.materialColors : {},
       materialNames: coerceNames(d.materialNames),
       materials: Array.isArray(d.materials) ? d.materials.slice() : [],
@@ -61,7 +62,6 @@
       budgetItems: e.budgetItems,
       plan: null,
     };
-    delete out.options.unit; delete out.options.rotate;
     if (Array.isArray(d.budgetItems)) {
       out.budgetItems = Budget.defaultItems().map(def => {
         const f = d.budgetItems.find(i => i.key === def.key);
@@ -569,38 +569,17 @@
   }
 
   // ---------- Opções ----------
+  // Única opção restante: kerf. (Material/grão/labels/pesos são fixos no padrão.)
   function refreshOptionsUI() {
-    const o = state.options;
-    $('#opt-kerf').value = o.kerf;
-    $('#opt-labels').checked = o.labels;
-    $('#opt-material').checked = o.material;
-    $('#opt-grain').checked = o.grain;
-    const w = o.weights || Optimizer.defaultWeights();
-    [['unplaced', 'w-unplaced'], ['sheets', 'w-sheets'], ['fill', 'w-fill'], ['offcut', 'w-offcut'], ['cuts', 'w-cuts']].forEach(([k, id]) => {
-      const el = $('#' + id); if (el) { el.value = w[k]; $('#' + id + '-val').textContent = w[k]; }
-    });
+    const k = $('#opt-kerf'); if (k) k.value = state.options.kerf;
   }
   function initOptions() {
     refreshOptionsUI();
-    const bind = (id, key, isNum, isBool) => $(id).addEventListener('change', e => {
-      state.options[key] = isBool ? e.target.checked : (isNum ? parseFloat(e.target.value) || 0 : e.target.value);
+    const k = $('#opt-kerf'); if (!k) return;
+    k.addEventListener('change', e => {
+      state.options.kerf = parseFloat(e.target.value) || 0;
       save();
       if (validPanels().length) markPlanStale();
-    });
-    bind('#opt-kerf', 'kerf', true);
-    bind('#opt-labels', 'labels', false, true);
-    bind('#opt-material', 'material', false, true);
-    bind('#opt-grain', 'grain', false, true);
-    [['w-unplaced', 'unplaced'], ['w-sheets', 'sheets'], ['w-fill', 'fill'], ['w-offcut', 'offcut'], ['w-cuts', 'cuts']].forEach(([id, key]) => {
-      const el = $('#' + id); if (!el) return;
-      el.addEventListener('input', e => {
-        const v = parseInt(e.target.value, 10);
-        $('#' + id + '-val').textContent = v;
-        if (!state.options.weights) state.options.weights = Optimizer.defaultWeights();
-        state.options.weights[key] = v;
-        save();
-        if (validPanels().length) markPlanStale();
-      });
     });
   }
 
@@ -869,10 +848,10 @@
     const gstock = validStock().map(s => Object.assign({}, s, { material: materialGroupKey(s.material) }));
     const opts = {
       kerf: state.options.kerf,
-      considerMaterial: state.options.material,
-      considerGrain: state.options.grain,
+      considerMaterial: true, // fixos (opções removidas da UI)
+      considerGrain: true,
       allowRotate: true,
-      weights: state.options.weights || Optimizer.defaultWeights(),
+      weights: Optimizer.defaultWeights(),
     };
     return { gpanels, gstock, groupLabel, opts };
   }
@@ -947,7 +926,7 @@
       `<table class="grid compact breakdown"><thead><tr><th>Material</th><th>Chapas</th><th>Mín</th>` +
       `<th>Peças</th><th>Aprov.</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table>`;
 
-    Render.renderSheets(sheetsEl, result, { showLabels: state.options.labels });
+    Render.renderSheets(sheetsEl, result, { showLabels: true });
     Budget.applyMetrics(state.budgetItems, m);
   }
   function metric(k, v) { return `<div class="metric"><div class="v">${v}</div><div class="k">${k}</div></div>`; }

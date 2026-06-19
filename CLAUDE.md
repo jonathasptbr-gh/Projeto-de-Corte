@@ -4,7 +4,7 @@ PWA offline-first de plano de corte de chapas (MDF/madeira), com otimizador de a
 
 ## Versão
 
-A cada deploy deve-se incrementar `N` em **`sw.js`** (`const CACHE = 'projeto-corte-vN'`) **e** em **`app.js`** (`const APP_VERSION = 'vN'`, exibido no cabeçalho). Os dois devem ficar iguais. Versão atual: **v45**.
+A cada deploy deve-se incrementar `N` em **`sw.js`** (`const CACHE = 'projeto-corte-vN'`) **e** em **`app.js`** (`const APP_VERSION = 'vN'`, exibido no cabeçalho). Os dois devem ficar iguais. Versão atual: **v46**.
 
 O selo de versão no topo (`#app-version`) reflete o `app.js` que a tela carregou — serve para conferir, após um deploy, se o cache do Service Worker já atualizou (número novo) ou não (número antigo).
 
@@ -98,8 +98,18 @@ material. O otimizador recebe esse teto como `o.maxSheets` por grupo de material
 **"não couberam"** (`result.unplaced`) em vez de abrir mais chapas. O teto é
 respeitado por TODOS os empacotadores (`packOnce`, `packMaxFill`, `packShelf`,
 `packBeam`, `packMaxFillBeam`) via o helper `sheetCap(o)`. `qty` ausente/0 → sem
-limite (`Infinity`). Com `considerMaterial` desligado, vale a `qty` do primeiro
-estoque (grupo único `__all__`).
+limite (`Infinity`).
+
+## Opções da UI
+
+A **única opção ajustável** é o **kerf** (`#opt-kerf` → `state.options.kerf`). As
+demais (nome nos painéis, considerar material, considerar grão e os 5 pesos do
+otimizador) foram **removidas da UI** e são **fixas no padrão**: `considerMaterial`
+e `considerGrain` sempre `true`, `showLabels` sempre `true`, `weights =
+Optimizer.defaultWeights()` — fixados em `buildPlanInputs()` e `showResult()`.
+O otimizador ainda **aceita** esses parâmetros (não remover do `optimize`/
+`createSearch`); apenas não há mais controle de tela. `normalizeData` descarta
+qualquer config antiga persistida, mantendo só o `kerf`.
 
 ## Ordenação de peças na importação (INTENCIONAL)
 
