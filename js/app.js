@@ -1149,8 +1149,14 @@
     safeCall('renderStock', () => { updateProjectName(); renderStock(); renderPanels(); showSavedPlan(); });
     const runBtn = $('#run-plan');
     if (runBtn) {
-      runBtn.addEventListener('click', toggleLiveSearch);
-      runBtn.addEventListener('touchend', e => { e.preventDefault(); toggleLiveSearch(); });
+      let recentTouch = false;
+      runBtn.addEventListener('touchend', e => {
+        e.preventDefault();
+        recentTouch = true;
+        toggleLiveSearch();
+        setTimeout(() => { recentTouch = false; }, 500);
+      });
+      runBtn.addEventListener('click', () => { if (!recentTouch) toggleLiveSearch(); });
       runBtn._listenerOk = true;
     }
     safeCall('initShareHandlers', initShareHandlers);
@@ -1160,8 +1166,14 @@
     setTimeout(() => {
       const b = document.querySelector('#run-plan');
       if (b && !b._listenerOk) {
-        b.addEventListener('click', toggleLiveSearch);
-        b.addEventListener('touchend', e => { e.preventDefault(); toggleLiveSearch(); });
+        let recentTouch = false;
+        b.addEventListener('touchend', e => {
+          e.preventDefault();
+          recentTouch = true;
+          toggleLiveSearch();
+          setTimeout(() => { recentTouch = false; }, 500);
+        });
+        b.addEventListener('click', () => { if (!recentTouch) toggleLiveSearch(); });
         b._listenerOk = true;
       }
     }, 0);
