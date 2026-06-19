@@ -12,7 +12,7 @@
     return {
       panels: [],
       stock: [{ width: 184, length: 274, qty: 5, material: '' }],
-      options: { kerf: 0.8, labels: true, material: true, grain: true, weights: Optimizer.defaultWeights() },
+      options: { kerf: 0.8, labels: true, material: true, grain: true },
       materialColors: {},
       materialNames: {},
       materials: [],
@@ -567,10 +567,6 @@
     $('#opt-labels').checked = o.labels;
     $('#opt-material').checked = o.material;
     $('#opt-grain').checked = o.grain;
-    const w = o.weights || Optimizer.defaultWeights();
-    [['unplaced', 'w-unplaced'], ['sheets', 'w-sheets'], ['fill', 'w-fill'], ['offcut', 'w-offcut'], ['cuts', 'w-cuts']].forEach(([k, id]) => {
-      const el = $('#' + id); if (el) { el.value = w[k]; $('#' + id + '-val').textContent = w[k]; }
-    });
   }
   function initOptions() {
     refreshOptionsUI();
@@ -583,17 +579,6 @@
     bind('#opt-labels', 'labels', false, true);
     bind('#opt-material', 'material', false, true);
     bind('#opt-grain', 'grain', false, true);
-    [['w-unplaced', 'unplaced'], ['w-sheets', 'sheets'], ['w-fill', 'fill'], ['w-offcut', 'offcut'], ['w-cuts', 'cuts']].forEach(([id, key]) => {
-      const el = $('#' + id); if (!el) return;
-      el.addEventListener('input', e => {
-        const v = parseInt(e.target.value, 10);
-        $('#' + id + '-val').textContent = v;
-        if (!state.options.weights) state.options.weights = Optimizer.defaultWeights();
-        state.options.weights[key] = v;
-        save();
-        if (validPanels().length) markPlanStale();
-      });
-    });
   }
 
   // ---------- Importação (cada CSV vira um projeto no histórico) ----------
@@ -857,7 +842,7 @@
       considerMaterial: state.options.material,
       considerGrain: state.options.grain,
       allowRotate: true,
-      weights: state.options.weights || Optimizer.defaultWeights(),
+      weights: Optimizer.defaultWeights(),
     };
     return { gpanels, gstock, groupLabel, opts };
   }

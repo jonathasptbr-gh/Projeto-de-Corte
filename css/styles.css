@@ -279,14 +279,8 @@ tr.row-new input::placeholder { color: #b9c2bd; }
 .opt.switch { flex-direction: row; align-items: center; justify-content: space-between; }
 .opt.switch input { width: 42px; height: 24px; }
 
-/* ---------- Optimizer weight sliders ---------- */
-.opt-priorities { padding: 10px 0 6px; border-top: 1px solid var(--line); margin-top: 6px; }
-.opt-priorities-title { font-size: .78rem; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; margin-bottom: 8px; }
-.w-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; font-size: .85rem; }
-.w-num { width: 16px; font-weight: 700; color: var(--green); text-align: right; flex-shrink: 0; }
-.w-label { flex: 0 0 140px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.w-slider { flex: 1; min-width: 80px; accent-color: var(--green); cursor: pointer; }
-.w-val { width: 24px; font-weight: 700; text-align: center; flex-shrink: 0; color: var(--green); }
+/* ---------- App version badge ---------- */
+.app-version { font-size: .7rem; font-weight: 700; color: var(--muted); background: #eaf2ec; border-radius: 4px; padding: 1px 5px; margin-left: 2px; flex-shrink: 0; }
 
 /* ---------- Plan metrics ---------- */
 .metrics { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px,1fr)); gap: 10px; }
