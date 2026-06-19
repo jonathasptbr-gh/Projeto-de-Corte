@@ -146,8 +146,9 @@ code { background: #eef1ef; padding: 1px 5px; border-radius: 5px; font-size: .85
   background: #eef1ef; color: var(--text);
   border: 1px solid var(--line); border-radius: 9px;
   padding: 9px 14px; font-size: .9rem; font-weight: 600;
-  cursor: pointer;
+  cursor: pointer; -webkit-tap-highlight-color: rgba(0,0,0,.18);
 }
+.btn:active { filter: brightness(.88); }
 .btn .material-symbols-outlined { font-size: 19px; }
 .btn.small .material-symbols-outlined { font-size: 17px; }
 .col-del .material-symbols-outlined { font-size: 19px; }

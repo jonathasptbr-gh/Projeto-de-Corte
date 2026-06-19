@@ -1145,16 +1145,22 @@
     safeCall('initProjects', initProjects);
     safeCall('renderStock', () => { updateProjectName(); renderStock(); renderPanels(); showSavedPlan(); });
     const runBtn = $('#run-plan');
-    if (runBtn) { runBtn.addEventListener('click', toggleLiveSearch); runBtn._listenerOk = true; }
+    if (runBtn) {
+      runBtn.addEventListener('click', toggleLiveSearch);
+      runBtn.addEventListener('touchend', e => { e.preventDefault(); toggleLiveSearch(); });
+      runBtn._listenerOk = true;
+    }
     safeCall('initShareHandlers', initShareHandlers);
   }
-  // Garante que o botão funcione mesmo se init() falhou por algum motivo
   document.addEventListener('DOMContentLoaded', () => {
     init();
-    // Segundo registro defensivo: se o primeiro não colou, este cola
     setTimeout(() => {
       const b = document.querySelector('#run-plan');
-      if (b && !b._listenerOk) { b.addEventListener('click', toggleLiveSearch); b._listenerOk = true; }
+      if (b && !b._listenerOk) {
+        b.addEventListener('click', toggleLiveSearch);
+        b.addEventListener('touchend', e => { e.preventDefault(); toggleLiveSearch(); });
+        b._listenerOk = true;
+      }
     }, 0);
   });
 })();
