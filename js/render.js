@@ -133,28 +133,30 @@
       const dw = p.realW || p.w, dh = p.realH || p.h; // medida REAL no rótulo (slot pode ser maior)
       const small = Math.min(p.w, p.h);
       const cx = x + p.w / 2, cy = y + p.h / 2;
-      // fonte proporcional à MENOR medida da peça, com piso (mín) consistente
-      const fsDim = Math.max(2.2, Math.min(small * 0.22, 7));
-      // largura na lateral superior; comprimento na lateral esquerda
+      // fonte proporcional à MENOR medida da peça, piso menor p/ peças pequenas
+      const fsDim = Math.max(1.6, Math.min(small * 0.2, 7));
+      // largura na lateral superior (centro); comprimento na lateral esquerda (centro)
       parts.push(`<text x="${cx}" y="${y + fsDim * 1.05}" font-size="${fsDim}" text-anchor="middle" fill="#555">${fmt(dw)}</text>`);
       parts.push(`<text x="${x + fsDim * 1.05}" y="${cy}" font-size="${fsDim}" text-anchor="middle" dominant-baseline="central" fill="#555" transform="rotate(-90 ${x + fsDim * 1.05} ${cy})">${fmt(dh)}</text>`);
-      // nome no centro
-      const fsName = Math.max(2.6, Math.min(small * 0.26, 8));
-      parts.push(`<text x="${cx}" y="${cy}" font-size="${fsName}" text-anchor="middle" dominant-baseline="central" fill="#2a2a2a" font-weight="600">${esc(p.name)}</text>`);
+      // nome deslocado para o quadrante superior-esquerdo — fora das linhas
+      // centrais (onde ficam os números das bordas), então nunca os cobre.
+      const fsName = Math.max(1.6, Math.min(small * 0.2, 8));
+      const nx = x + p.w * 0.25, ny = y + p.h * 0.25;
+      parts.push(`<text x="${nx}" y="${ny}" font-size="${fsName}" text-anchor="middle" dominant-baseline="central" fill="#2a2a2a" font-weight="600">${esc(p.name)}</text>`);
     });
 
-    // sobras reaproveitáveis — sem preenchimento, apenas a medida do retalho
+    // sobras reaproveitáveis — sem preenchimento; medidas nas BORDAS (igual às peças)
     (sheet.free || []).forEach(r => {
       if (Math.min(r.w, r.h) < 3) return;
       const x = ox + r.x, y = oy + r.y;
       parts.push(`<rect x="${x}" y="${y}" width="${r.w}" height="${r.h}" fill="none" stroke="#9aa39d" stroke-width="0.6"/>`);
       const small = Math.min(r.w, r.h);
       if (small >= 8) {
-        const fs = Math.max(2.4, Math.min(small * 0.18, 7));
+        const fs = Math.max(1.6, Math.min(small * 0.18, 7));
         const cx = x + r.w / 2, cy = y + r.h / 2;
-        const vert = r.h > r.w;
-        const tr = vert ? `transform="rotate(-90 ${cx} ${cy})"` : '';
-        parts.push(`<text x="${cx}" y="${cy}" ${tr} font-size="${fs}" text-anchor="middle" dominant-baseline="central" fill="#555" font-weight="600">${fmt(r.w)} × ${fmt(r.h)}</text>`);
+        // largura na borda superior; comprimento na borda esquerda
+        parts.push(`<text x="${cx}" y="${y + fs * 1.05}" font-size="${fs}" text-anchor="middle" fill="#8a938d">${fmt(r.w)}</text>`);
+        parts.push(`<text x="${x + fs * 1.05}" y="${cy}" font-size="${fs}" text-anchor="middle" dominant-baseline="central" fill="#8a938d" transform="rotate(-90 ${x + fs * 1.05} ${cy})">${fmt(r.h)}</text>`);
       }
     });
 

@@ -31,7 +31,7 @@
   const NONE_MATERIAL = 'Nenhum';
   // Versão exibida no cabeçalho. Reflete o app.js carregado na tela (útil para
   // saber se o cache do Service Worker já atualizou). Manter igual ao N de sw.js.
-  const APP_VERSION = 'v48';
+  const APP_VERSION = 'v49';
 
   const clampQty = v => Math.min(MAX_QTY, Math.max(1, Math.round(parseNum(v) || 1)));
 
@@ -319,39 +319,69 @@
     const i = document.createElement('input'); i.placeholder = ph || ''; i.value = val || '';
     i.addEventListener('change', () => onCh(i.value)); return i;
   }
-  // Controle de material compacto: chip colorido com o número + select
-  // transparente por cima (abre a lista nativa ao tocar).
+  // Pinta um chip de material conforme o valor atual (compartilhado pela tabela
+  // e pelo popup de seleção).
+  function paintMatChip(chip, cur) {
+    chip.classList.remove('empty', 'light', 'none');
+    if (cur === NONE_MATERIAL) {
+      chip.textContent = '—'; chip.style.background = '#e6e6e6'; chip.classList.add('none');
+    } else if (cur) {
+      const col = matColor(cur);
+      chip.style.background = col;
+      chip.textContent = matThickness(cur) || '';
+      chip.classList.toggle('light', isLight(col));
+    } else { chip.textContent = ''; chip.classList.add('empty'); chip.style.background = 'transparent'; }
+  }
+  // Controle de material na tabela: chip colorido que abre o popup temático de
+  // seleção (mesmo padrão de popup da seção de materiais).
   function materialControl(obj, onCh) {
     const list = materialsOrdered();
-    if (!list.length) { // ainda sem materiais → input livre
+    if (!list.length) { // ainda sem materiais → input livre p/ digitar o primeiro
       const c = document.createElement('input'); c.placeholder = 'material'; c.value = obj.material || '';
       c.addEventListener('change', () => onCh(c.value));
       return c;
     }
     const cur = obj.material || '';
-    const wrap = el('span', 'mat-cell');
+    const btn = el('button', 'mat-cell-btn'); btn.type = 'button'; btn.title = 'Escolher material';
     const chip = el('span', 'mat-chip');
-    const paint = () => {
-      chip.classList.remove('empty', 'light', 'none');
-      if (cur === NONE_MATERIAL) {
-        chip.textContent = '—'; chip.style.background = '#e6e6e6'; chip.classList.add('none');
-      } else if (cur) {
-        const col = matColor(cur);
-        chip.style.background = col;
-        chip.textContent = matThickness(cur) || '';
-        chip.classList.toggle('light', isLight(col));
-      } else { chip.textContent = ''; chip.classList.add('empty'); chip.style.background = 'transparent'; }
+    paintMatChip(chip, cur);
+    btn.appendChild(chip);
+    btn.addEventListener('click', () => openMaterialPicker(cur, onCh));
+    return btn;
+  }
+
+  // Popup temático para escolher o material de uma peça/chapa.
+  function openMaterialPicker(cur, onPick) {
+    const list = materialsOrdered();
+    const ov = el('div', 'modal-overlay dialog-overlay');
+    const card = el('div', 'modal dialog');
+    const head = el('div', 'dialog-head'); head.textContent = 'Escolher material';
+    const body = el('div', 'dialog-body');
+    const pick = el('div', 'mat-pick');
+    const addOpt = (value, labelText, kind) => {
+      const it = el('button', 'mat-pick-item' + (value === cur ? ' sel' : '')); it.type = 'button';
+      const chip = el('span', 'mat-chip');
+      if (kind === 'clear') { chip.classList.add('empty'); chip.style.background = 'transparent'; }
+      else paintMatChip(chip, value);
+      const name = el('span', 'mat-pick-name'); name.textContent = labelText;
+      it.appendChild(chip); it.appendChild(name);
+      it.addEventListener('click', () => { ov.remove(); document.removeEventListener('keydown', onKey); onPick(value); });
+      pick.appendChild(it);
     };
-    paint();
-    wrap.appendChild(chip);
-    const sel = document.createElement('select'); sel.className = 'mat-select';
-    sel.innerHTML = `<option value=""></option>` +
-      `<option value="${NONE_MATERIAL}"${cur === NONE_MATERIAL ? ' selected' : ''}>Nenhum (fora do plano)</option>` +
-      list.map(m => `<option value="${attr(m)}"${m === cur ? ' selected' : ''}>${esc(matLabel(m))}</option>`).join('');
-    sel.value = cur;
-    sel.addEventListener('change', () => onCh(sel.value));
-    wrap.appendChild(sel);
-    return wrap;
+    list.forEach(m => addOpt(m, matLabel(m)));
+    addOpt(NONE_MATERIAL, 'Nenhum (fora do plano)', 'none');
+    addOpt('', 'Sem material', 'clear');
+    body.appendChild(pick);
+    const actions = el('div', 'modal-actions');
+    const cancelBtn = el('button', 'btn'); cancelBtn.textContent = 'Cancelar';
+    actions.appendChild(cancelBtn);
+    card.appendChild(head); card.appendChild(body); card.appendChild(actions); ov.appendChild(card);
+    document.body.appendChild(ov);
+    const close = () => { ov.remove(); document.removeEventListener('keydown', onKey); };
+    cancelBtn.addEventListener('click', close);
+    ov.addEventListener('click', e => { if (e.target === ov) close(); });
+    function onKey(e) { if (e.key === 'Escape') { e.preventDefault(); close(); } }
+    document.addEventListener('keydown', onKey);
   }
 
   // Legenda de materiais (acima do Stock): chip + nome. Tocar no chip ou no nome
@@ -397,20 +427,14 @@
     body.appendChild(lblColor);
     const swatches = [];
     const mark = () => swatches.forEach(s => s.classList.toggle('sel', s.dataset.col.toLowerCase() === String(chosen).toLowerCase()));
-    // cor personalizada (declarada antes para os presets poderem refleti-la)
-    const customWrap = el('label', 'color-custom'); customWrap.appendChild(document.createTextNode('Personalizada '));
-    const customInp = document.createElement('input'); customInp.type = 'color';
-    customInp.value = /^#[0-9a-f]{6}$/i.test(chosen) ? chosen : '#888888';
-    customInp.addEventListener('input', () => { chosen = customInp.value; mark(); });
-    customWrap.appendChild(customInp);
     const grid = el('div', 'color-grid');
     presets.forEach(hex => {
       const b = el('button', 'color-sw'); b.type = 'button'; b.style.background = hex; b.dataset.col = hex;
       if (isLight(hex)) b.classList.add('light');
-      b.addEventListener('click', () => { chosen = hex; customInp.value = hex; mark(); });
+      b.addEventListener('click', () => { chosen = hex; mark(); });
       grid.appendChild(b); swatches.push(b);
     });
-    body.appendChild(grid); body.appendChild(customWrap);
+    body.appendChild(grid);
 
     const actions = el('div', 'modal-actions');
     const cancelBtn = el('button', 'btn'); cancelBtn.textContent = 'Cancelar';
