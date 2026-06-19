@@ -31,7 +31,7 @@ A cada deploy **dois valores devem ser incrementados juntos**:
 O número N é a fonte única de verdade. O badge no topo do app mostra ao
 usuário que a versão foi atualizada. Nunca atualizar um sem o outro.
 
-Versão atual: **v54**
+Versão atual: **v55**
 
 ---
 

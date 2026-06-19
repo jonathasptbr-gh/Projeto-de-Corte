@@ -890,13 +890,28 @@
     const eff = totalArea ? (usedArea / totalArea * 100) : 0;
     const m = Budget.metricsFromPlan(result, 'cm');
 
-    const sh = $('#plan-stale-hint'); if (sh) sh.style.display = 'none';
+    // Cache all refs BEFORE any innerHTML mutations — some browsers may orphan
+    // sibling elements when innerHTML is set on a parent/sibling.
+    const sh = $('#plan-stale-hint');
     const metricsEl = $('#plan-metrics');
-    if (!metricsEl) toast('DBG: #plan-metrics null!');
+    let breakdownEl = $('#plan-breakdown');
+    const sheetsEl = $('#plan-sheets');
+
+    if (sh) sh.style.display = 'none';
+
     if (metricsEl) metricsEl.innerHTML =
       metric('Chapas', result.sheets.length) + metric('Peças', pieces) + metric('Cortes', cuts) +
       metric('Fita (m)', numFmt(m.bandMeters)) + metric('Aproveit.', eff.toFixed(1) + '%') +
       metric('Não couberam', result.unplaced.length);
+
+    // If breakdown was orphaned by the metrics mutation, re-create and insert it.
+    if (!breakdownEl || !breakdownEl.parentNode) {
+      breakdownEl = document.createElement('div');
+      breakdownEl.id = 'plan-breakdown';
+      if (metricsEl && metricsEl.parentNode) {
+        metricsEl.parentNode.insertBefore(breakdownEl, metricsEl.nextSibling);
+      }
+    }
 
     const bm = result.byMaterial; let rows = '';
     Object.keys(bm).forEach(mat => {
@@ -907,14 +922,10 @@
       rows += `<tr><td>${esc(mat)}</td><td>${d.sheets}</td><td>${minSheets}</td><td>${d.pieces}</td>` +
         `<td>${effMat.toFixed(1)}%</td><td>${optimal ? '<span class="ok">ótimo ✓</span>' : 'juntar'}</td></tr>`;
     });
-    const breakdownEl = $('#plan-breakdown');
-    if (!breakdownEl) toast('DBG: #plan-breakdown null!');
-    if (breakdownEl) breakdownEl.innerHTML =
+    breakdownEl.innerHTML =
       `<table class="grid compact breakdown"><thead><tr><th>Material</th><th>Chapas</th><th>Mín</th>` +
       `<th>Peças</th><th>Aprov.</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table>`;
 
-    const sheetsEl = $('#plan-sheets');
-    if (!sheetsEl) toast('DBG: #plan-sheets null!');
     if (sheetsEl) Render.renderSheets(sheetsEl, result, { showLabels: state.options.labels });
     Budget.applyMetrics(state.budgetItems, m);
   }
@@ -937,22 +948,19 @@
     try {
       setPlanStatus('Verificando peças…');
       const panels = validPanels();
-      toast('DBG peças:' + panels.length);
       if (!panels.length) { setPlanStatus('Sem peças — importe um CSV ou preencha a tabela.'); return; }
       setPlanStatus('Montando dados (' + panels.length + ' peças)…');
       const inp = buildPlanInputs();
-      if (!inp) { toast('DBG buildPlanInputs null'); setPlanStatus('Erro ao preparar dados.'); return; }
-      toast('DBG criando busca…');
+      if (!inp) { setPlanStatus('Erro ao preparar dados.'); return; }
       setPlanStatus('Criando busca…');
       const search = Optimizer.createSearch(inp.gpanels, inp.gstock, inp.opts);
-      toast('DBG busca criada OK');
       live = { search, groupLabel: inp.groupLabel, raf: 0 };
       planStale = false;
       setRunButton(true);
       setPlanStatus('Procurando o melhor aproveitamento…');
       tickLive();
     } catch (err) {
-      toast('ERRO: ' + err.message);
+      toast('Erro ao iniciar: ' + err.message);
       setPlanStatus('Erro: ' + err.message);
       setRunButton(false);
     }
@@ -978,18 +986,17 @@
       } while (!info.converged && performance.now() - t0 < 14);
 
       if (improved) {
-        let result;
-        try { result = relabelResult(search.result(), live.groupLabel); } catch(e) { toast('ERR-A relabel: ' + e.message); throw e; }
+        const result = relabelResult(search.result(), live.groupLabel);
         state.plan = result;
-        try { showResult(result); } catch(e) { toast('ERR-B show: ' + e.message); throw e; }
-        try { save(); } catch(e) { toast('ERR-C save: ' + e.message); throw e; }
+        showResult(result);
+        save();
       }
       const pct = Math.min(100, Math.round(info.det / info.totalDet * 100));
       const phase = info.det < info.totalDet ? `Testando combinações… ${pct}%`
         : (info.beam && info.beam.idx < info.beam.total) ? `Busca profunda (beam)… ${info.beam.idx}/${info.beam.total}`
         : 'Refinando (reinícios aleatórios)…';
       const ns = state.plan ? state.plan.sheets.length : 0;
-      try { setPlanStatus(`${phase} · melhor: ${ns} chapa(s) · ${info.step} tentativas — toque em “Pausar e usar este” quando quiser.`); } catch(e) { toast('ERR-D status: ' + e.message); throw e; }
+      setPlanStatus(`${phase} · melhor: ${ns} chapa(s) · ${info.step} tentativas — toque em “Pausar e usar este” quando quiser.`);
 
       if (info.converged) {
         setPlanStatus('');
@@ -999,8 +1006,7 @@
       }
       live.raf = requestAnimationFrame(tickLive);
     } catch (err) {
-      if (!err._tagged) toast('ERRO tick: ' + err.message);
-      err._tagged = true;
+      toast('Erro no cálculo: ' + err.message);
       setPlanStatus('Erro no cálculo: ' + err.message);
       stopLiveSearch();
     }
