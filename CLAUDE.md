@@ -4,7 +4,7 @@ PWA offline-first de plano de corte de chapas (MDF/madeira), com otimizador de a
 
 ## Versão
 
-A cada deploy deve-se incrementar `N` em **`sw.js`** (`const CACHE = 'projeto-corte-vN'`) **e** em **`app.js`** (`const APP_VERSION = 'vN'`, exibido no cabeçalho). Os dois devem ficar iguais. Versão atual: **v52**.
+A cada deploy deve-se incrementar `N` em **`sw.js`** (`const CACHE = 'projeto-corte-vN'`) **e** em **`app.js`** (`const APP_VERSION = 'vN'`, exibido no cabeçalho). Os dois devem ficar iguais. Versão atual: **v53**.
 
 O selo de versão no topo (`#app-version`) reflete o `app.js` que a tela carregou — serve para conferir, após um deploy, se o cache do Service Worker já atualizou (número novo) ou não (número antigo).
 
@@ -84,7 +84,8 @@ O mesmo padrão foi aplicado em `renderPlanEmpty()`.
 - **Comprimento (H)** = dimensão no eixo Y da chapa.
 - Unidade: centímetros no otimizador; exibição em cm ou mm conforme o CSV importado.
 - **Veio (`grain`):** `'v'` = vertical (ao longo do comprimento), `'h'` = horizontal, `''` = sem restrição.
-- **Fita de borda (`bands`):** objeto `{ top, bottom, left, right }` booleanos (quais lados têm fita). `top`/`bottom` acompanham a largura; `left`/`right` acompanham o comprimento. A **cor** (`p.bandColor`) e a **largura** (`p.bandWidth` = 22 ou 45) são por peça (a fita é única na peça). `bandColorOf(p)` cai na cor do material da peça quando não definida. O **botão de fita** na linha é um mini-retângulo SVG com os lados banded em linha grossa colorida (sem número). O **modal de fita** (`openBandModal`) tem a ilustração na **mesma proporção** da peça, sem controle de veio, e um chip "material da fita" que abre `openBandMatPicker` (cores dos materiais × {22, 45}). `budget.js` conta metros de fita pelos lados (largura 22/45 ainda não diferencia custo).
+- **Fita de borda (`bands`):** **por lado** — `p.bands[side]` = `{ w:22|45, color:'#hex' }` ou `false` (`side` ∈ top/left/bottom/right). `top`/`bottom` acompanham a largura; `left`/`right` o comprimento. `bandSpecOf(p,side)` normaliza formatos antigos (booleano; cor/largura global da v52) → `normalizeData` migra. `bandFallbackColor(p)` cai na cor do material, ou **branco** quando não há. **Botão na linha** (`refreshFitaButton`): mini-retângulo com fundo **cinza** (p/ enxergar fita branca); cada lado com fita vira uma linha na sua cor — fina p/ 22, grossa p/ 45. **Modal** (`openBandModal`): ilustração com **proporção limitada** (`maxRatio` 2.4, p/ não estourar a tela), lados sem fita em linha **sólida cinza**; um "pincel" (chip cor+largura) é aplicado por lado ao tocar (toque de novo retira) — **cada lado é independente**. `openBandMatPicker` lista **Branco sempre** + cores dos materiais × {22,45}. `buildPlanInputs` grava fitas concretas no plano.
+- **Orçamento de fita** (`budget.js`): métricas separadas por largura×cor — `band22White/band45White/band22Color/band45Color` (auto nos itens). **Fita 45 é dividida por 2** (a fita larga é compartilhada por 2 peças coladas). Branco é detectado pela COR (`#ffffff`).
 
 ## Identidade de material no otimizador
 

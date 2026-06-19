@@ -385,7 +385,7 @@ table.conditions tr.total td:last-child { background: #cfe0f0; }
 .modal-head { display: flex; align-items: center; justify-content: space-between; }
 .modal-head b { font-size: 1.05rem; }
 .band-editor { display: flex; justify-content: center; margin: 6px 0 10px; }
-.band-editor svg { width: 100%; max-width: 280px; height: auto; touch-action: manipulation; }
+.band-editor svg { width: 100%; max-width: 260px; max-height: 42vh; height: auto; touch-action: manipulation; }
 .band-editor .edge-hit { fill: transparent; cursor: pointer; }
 .band-editor .edge { stroke-linecap: round; }
 .bm-band { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 4px 0 14px; font-size: .9rem; font-weight: 600; }

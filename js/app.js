@@ -30,7 +30,7 @@
   // Serve para desligar peças sem excluí-las.
   // Versão exibida no cabeçalho. Reflete o app.js carregado na tela (útil para
   // saber se o cache do Service Worker já atualizou). Manter igual ao N de sw.js.
-  const APP_VERSION = 'v52';
+  const APP_VERSION = 'v53';
 
   const clampQty = v => Math.min(MAX_QTY, Math.max(1, Math.round(parseNum(v) || 1)));
 
@@ -53,7 +53,19 @@
   function normalizeData(d) {
     const e = emptyData(); d = d || {};
     // Migração: material "Nenhum" (v48) virou "Sem material" (vazio).
-    if (Array.isArray(d.panels)) d.panels.forEach(p => { if (p && p.material === 'Nenhum') p.material = ''; });
+    if (Array.isArray(d.panels)) d.panels.forEach(p => {
+      if (!p) return;
+      if (p.material === 'Nenhum') p.material = '';
+      // Fita: booleano (antigo) ou cor/largura global (v52) → objeto por lado {w,color}.
+      const b = p.bands;
+      if (b && typeof b === 'object') ['top', 'left', 'bottom', 'right'].forEach(s => {
+        const v = b[s];
+        if (!v) { b[s] = false; return; }
+        if (typeof v === 'object') { b[s] = { w: v.w === 45 ? 45 : 22, color: v.color || p.bandColor || '' }; }
+        else b[s] = { w: p.bandWidth === 45 ? 45 : 22, color: p.bandColor || '' };
+      });
+      delete p.bandColor; delete p.bandWidth;
+    });
     if (Array.isArray(d.stock)) d.stock.forEach(s => { if (s && s.material === 'Nenhum') s.material = ''; });
     const out = {
       panels: Array.isArray(d.panels) ? d.panels : e.panels,
@@ -508,32 +520,42 @@
 
   // ---------- Fita (botão visual + popup) ----------
   const BAND_WIDTHS = [22, 45]; // larguras de fita padrão (mm)
-  // Cor da fita da peça: usa a cor escolhida; senão a cor do material da peça.
-  function bandColorOf(p) {
-    if (p.bandColor) return p.bandColor;
-    const c = p.material ? matColor(p.material) : '';
-    return (c && c !== 'transparent') ? c : '#2f6f4f';
+  const BAND_SIDES = ['top', 'left', 'bottom', 'right'];
+  // Cor padrão da fita: cor do material da peça, ou branco quando não há.
+  function bandFallbackColor(p) {
+    const c = p && p.material ? matColor(p.material) : '';
+    return (c && c !== 'transparent') ? c : '#ffffff';
   }
-  function bandWidthOf(p) { return p.bandWidth === 45 ? 45 : 22; }
+  // Fita de um lado: { w:22|45, color:'#hex' } ou null. Tolera formato antigo
+  // (booleano + p.bandColor/p.bandWidth da v52).
+  function bandSpecOf(p, side) {
+    const v = (p.bands || {})[side];
+    if (!v) return null;
+    if (typeof v === 'object') return { w: v.w === 45 ? 45 : 22, color: v.color || bandFallbackColor(p) };
+    return { w: p.bandWidth === 45 ? 45 : 22, color: p.bandColor || bandFallbackColor(p) };
+  }
   function makeFitaButton(p) {
     const b = el('button', 'fita-btn'); b.type = 'button';
     refreshFitaButton(b, p);
     b.addEventListener('click', () => openBandModal(p, b));
     return b;
   }
-  // Botão = retângulo com as bordas; lados com fita ganham linha grossa na cor da fita.
+  // Botão = retângulo (fundo cinza p/ ver fita branca); cada lado com fita ganha
+  // uma linha na sua cor — fina p/ 22, grossa p/ 45.
   function refreshFitaButton(b, p) {
-    const bands = p.bands || {};
-    const sides = ['top', 'left', 'bottom', 'right'];
-    const any = sides.some(s => bands[s]);
-    const col = bandColorOf(p);
+    let any = false;
     const W = 17, H = 28, m = 3;
-    const ln = (on, x1, y1, x2, y2) => `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${on ? col : '#c8d0cb'}" stroke-width="${on ? 4 : 1.4}" stroke-linecap="round"/>`;
-    b.innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" aria-hidden="true">` +
-      `<rect x="${m}" y="${m}" width="${W - 2 * m}" height="${H - 2 * m}" fill="#fbfbf8" stroke="#dde2de" stroke-width="0.8"/>` +
-      ln(bands.top, m, m, W - m, m) + ln(bands.bottom, m, H - m, W - m, H - m) +
-      ln(bands.left, m, m, m, H - m) + ln(bands.right, W - m, m, W - m, H - m) +
-      `</svg>`;
+    const ln = (sp, x1, y1, x2, y2) => {
+      if (!sp) return `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="#aeb5b0" stroke-width="1" stroke-linecap="round"/>`;
+      any = true;
+      const sw = sp.w === 45 ? 5 : 2.4;
+      return `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${sp.color}" stroke-width="${sw}" stroke-linecap="round"/>`;
+    };
+    const body =
+      `<rect x="${m}" y="${m}" width="${W - 2 * m}" height="${H - 2 * m}" fill="#cfd5d1" stroke="#aeb5b0" stroke-width="0.8"/>` +
+      ln(bandSpecOf(p, 'top'), m, m, W - m, m) + ln(bandSpecOf(p, 'bottom'), m, H - m, W - m, H - m) +
+      ln(bandSpecOf(p, 'left'), m, m, m, H - m) + ln(bandSpecOf(p, 'right'), W - m, m, W - m, H - m);
+    b.innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" aria-hidden="true">${body}</svg>`;
     b.classList.toggle('has', any);
     b.title = any ? 'Fita aplicada — toque para editar' : 'Sem fita — toque para aplicar';
   }
@@ -590,12 +612,6 @@
     const tdQ = el('td', 'cell-qty'); tdQ.appendChild(numInput(p.qty, '1', 'numeric', v => onPanelField(p, 'qty', v))); tr.appendChild(tdQ);
     // material (chip)
     const tdM = el('td', 'cell-mat'); tdM.appendChild(materialControl(p, v => onPanelField(p, 'material', v))); tr.appendChild(tdM);
-    // nome do material (texto) — abre o mesmo seletor ao tocar
-    const tdMN = el('td', 'cell-matname');
-    const mn = el('span', 'matname-text'); mn.textContent = p.material ? matLabel(p.material) : '—';
-    mn.title = 'Escolher material';
-    mn.addEventListener('click', () => openMaterialPicker(p.material || '', v => onPanelField(p, 'material', v)));
-    tdMN.appendChild(mn); tr.appendChild(tdMN);
     // nome da peça
     const tdN = el('td', 'cell-name');
     const nameInp = document.createElement('input'); nameInp.placeholder = 'nome'; nameInp.value = p.name || '';
@@ -647,6 +663,11 @@
     const tdL = el('td', 'cell-num'); tdL.appendChild(numInput(s.length, 'Compr.', 'decimal', v => onStockField(s, 'length', v))); tr.appendChild(tdL);
     const tdQ = el('td', 'cell-qty'); tdQ.appendChild(numInput(s.qty, '1', 'numeric', v => onStockField(s, 'qty', v))); tr.appendChild(tdQ);
     const tdM = el('td', 'cell-mat'); tdM.appendChild(materialControl(s, v => onStockField(s, 'material', v))); tr.appendChild(tdM);
+    // nome da chapa (material) — abre o mesmo seletor ao tocar
+    const tdMN = el('td', 'cell-matname');
+    const mn = el('span', 'matname-text'); mn.textContent = s.material ? matLabel(s.material) : '—';
+    mn.title = 'Escolher material'; mn.addEventListener('click', () => openMaterialPicker(s.material || '', v => onStockField(s, 'material', v)));
+    tdMN.appendChild(mn); tr.appendChild(tdMN);
     if (s.grain == null) s.grain = 'v'; // padrão: veio ao longo do comprimento
     const tdV = el('td', 'cell-veio'); tdV.appendChild(veioButton(s, { stock: true, onCycle: () => { save(); markPlanStale(); } })); tr.appendChild(tdV);
     const tdD = el('td', 'cell-act'); tdD.appendChild(iconBtn('del', 'delete', 'Excluir', () => deleteRow('stock', s))); tr.appendChild(tdD);
@@ -936,26 +957,35 @@
   }
 
   // ---------- Modal: editor de fita de borda ----------
-  // Estado: lados com fita (bands) + cor e largura (22/45) da fita da peça.
+  // Estado: bands por lado ({w,color}|false) + "pincel" (cor+largura a aplicar).
   let editing = null;
   function openBandModal(p, btn) {
-    editing = { p, btn, bands: Object.assign({ top: false, left: false, bottom: false, right: false }, p.bands), color: bandColorOf(p), width: bandWidthOf(p) };
+    const bands = {};
+    BAND_SIDES.forEach(s => { const sp = bandSpecOf(p, s); bands[s] = sp ? { w: sp.w, color: sp.color } : false; });
+    editing = { p, btn, bands, brush: { w: 22, color: bandFallbackColor(p) } };
     $('#bm-title').textContent = p.name ? p.name : 'Peça';
-    $('#bm-hint').textContent = `${fmtNum(p.width) || '?'} × ${fmtNum(p.length) || '?'} · toque num lado para aplicar/retirar a fita`;
+    $('#bm-hint').textContent = `${fmtNum(p.width) || '?'} × ${fmtNum(p.length) || '?'} · escolha a fita no quadro e toque nos lados (toque de novo para retirar)`;
     drawBandEditor(); paintBandChipEl();
     $('#band-modal').hidden = false;
   }
   function closeBandModal() { $('#band-modal').hidden = true; editing = null; }
-  function paintBandChipEl() { const chip = $('#bm-band-chip'); if (chip && editing) paintBandChip(chip, editing.color, editing.width); }
+  function paintBandChipEl() { const chip = $('#bm-band-chip'); if (chip && editing) paintBandChip(chip, editing.brush.color, editing.brush.w); }
   function drawBandEditor() {
     const p = editing.p;
     const L = p.width > 0 ? p.width : 60, C = p.length > 0 ? p.length : 40;
-    // mesma PROPORÇÃO da peça (escala pelo maior lado); piso pequeno só p/ peças muito finas
-    const maxPx = 180, scale = maxPx / Math.max(L, C);
-    const w = Math.max(16, Math.round(L * scale)), h = Math.max(16, Math.round(C * scale));
+    // PROPORÇÃO da peça, mas LIMITADA (senão peças compridas estouram a tela)
+    const maxRatio = 2.4;
+    let rw = L, rh = C;
+    if (rw / rh > maxRatio) rh = rw / maxRatio; else if (rh / rw > maxRatio) rw = rh / maxRatio;
+    const maxPx = 168, scale = maxPx / Math.max(rw, rh);
+    const w = Math.round(rw * scale), h = Math.round(rh * scale);
     const pad = 30, x0 = pad, y0 = pad, x1 = pad + w, y1 = pad + h;
-    const ON = editing.color, OFF = '#c2ccc6', b = editing.bands;
-    const edge = (s, ax, ay, bx, by) => `<line x1="${ax}" y1="${ay}" x2="${bx}" y2="${by}" stroke="${b[s] ? ON : OFF}" stroke-width="${b[s] ? 9 : 3}" stroke-dasharray="${b[s] ? '' : '5 5'}" stroke-linecap="round"/>`;
+    const b = editing.bands;
+    const edge = (s, ax, ay, bx, by) => {
+      const sp = b[s];
+      if (!sp) return `<line x1="${ax}" y1="${ay}" x2="${bx}" y2="${by}" stroke="#9aa39d" stroke-width="3" stroke-linecap="round"/>`;
+      return `<line x1="${ax}" y1="${ay}" x2="${bx}" y2="${by}" stroke="${sp.color}" stroke-width="${sp.w === 45 ? 12 : 8}" stroke-linecap="round"/>`;
+    };
     const hit = (s, x, y, ww, hh) => `<rect class="edge-hit" data-side="${s}" x="${x}" y="${y}" width="${ww}" height="${hh}"/>`;
     const svg =
       `<svg viewBox="0 0 ${w + pad * 2} ${h + pad * 2}">` +
@@ -967,13 +997,16 @@
       `</svg>`;
     const c = $('#bm-canvas'); c.innerHTML = svg;
     c.querySelectorAll('[data-side]').forEach(el2 => el2.addEventListener('click', () => {
-      const s = el2.dataset.side; editing.bands[s] = !editing.bands[s]; drawBandEditor();
+      const s = el2.dataset.side;
+      editing.bands[s] = editing.bands[s] ? false : { w: editing.brush.w, color: editing.brush.color };
+      drawBandEditor();
     }));
   }
-  // Popup: escolhe o "material da fita" (cor de um material) em 22 ou 45 mm.
+  // Popup: escolhe o "material da fita" (cor) em 22 ou 45 mm. Branco está
+  // sempre disponível, mesmo sem um material branco no projeto.
   function openBandMatPicker(curColor, curWidth, onPick) {
-    const list = materialsOrdered();
-    const mats = list.length ? list.map(m => ({ label: matLabel(m), color: matColor(m) })) : [{ label: 'Padrão', color: curColor }];
+    const mats = [{ label: 'Branco (fita)', color: '#ffffff' }];
+    materialsOrdered().forEach(m => { const c = matColor(m); if (String(c).toLowerCase() !== '#ffffff') mats.push({ label: matLabel(m), color: c }); });
     const ov = el('div', 'modal-overlay dialog-overlay');
     const card = el('div', 'modal dialog');
     const head = el('div', 'dialog-head'); head.textContent = 'Material da fita';
@@ -1010,14 +1043,15 @@
     $('#band-modal').addEventListener('click', e => { if (e.target.id === 'band-modal') closeBandModal(); });
     $('#bm-band-chip').addEventListener('click', () => {
       if (!editing) return;
-      openBandMatPicker(editing.color, editing.width, (color, width) => {
-        editing.color = color; editing.width = width;
-        drawBandEditor(); paintBandChipEl();
+      openBandMatPicker(editing.brush.color, editing.brush.w, (color, width) => {
+        editing.brush = { w: width, color: color };
+        paintBandChipEl();
       });
     });
     $('#bm-ok').addEventListener('click', () => {
       if (!editing) return;
-      const apply = q => { q.bands = Object.assign({}, editing.bands); q.bandColor = editing.color; q.bandWidth = editing.width; };
+      const snap = editing.bands;
+      const apply = q => { const nb = {}; BAND_SIDES.forEach(s => { nb[s] = snap[s] ? { w: snap[s].w, color: snap[s].color } : false; }); q.bands = nb; delete q.bandColor; delete q.bandWidth; };
       apply(editing.p);
       if (selectMode && selected.has(editing.p) && selected.size > 1) {
         selected.forEach(q => { if (q !== editing.p) apply(q); });
@@ -1046,7 +1080,11 @@
     if (!raw.length) return null;
     const groupLabel = {};
     raw.forEach(p => { const k = materialGroupKey(p.material); if (!(k in groupLabel)) groupLabel[k] = matLabel(p.material); });
-    const gpanels = raw.map(p => Object.assign({}, p, { material: materialGroupKey(p.material) }));
+    const gpanels = raw.map(p => {
+      const bands = {}; // fitas concretas por lado ({w,color}) p/ o orçamento
+      BAND_SIDES.forEach(s => { const sp = bandSpecOf(p, s); if (sp) bands[s] = { w: sp.w, color: sp.color }; });
+      return Object.assign({}, p, { material: materialGroupKey(p.material), bands });
+    });
     const gstock = validStock().map(s => Object.assign({}, s, { material: materialGroupKey(s.material) }));
     const opts = {
       kerf: state.options.kerf,
@@ -1160,7 +1198,7 @@
     const table = el('table', 'grid compact');
     table.innerHTML =
       `<thead><tr><th class="cell-act"></th><th class="cell-num">Larg.</th><th class="cell-num">Compr.</th>` +
-      `<th class="cell-qty">Qtd</th><th class="cell-mat">Mat</th><th class="cell-matname">Material</th><th class="cell-name">Nome</th>` +
+      `<th class="cell-qty">Qtd</th><th class="cell-mat">Mat</th><th class="cell-name">Nome</th>` +
       `<th class="cell-veio">Veio</th><th class="cell-fita">Fita</th><th class="cell-act">Faltou</th></tr></thead>`;
     const tbody = el('tbody');
     order.forEach(p => {
