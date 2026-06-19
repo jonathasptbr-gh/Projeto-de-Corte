@@ -4,7 +4,7 @@ PWA offline-first de plano de corte de chapas (MDF/madeira), com otimizador de a
 
 ## Versão
 
-A cada deploy deve-se incrementar `N` em **`sw.js`** (`const CACHE = 'projeto-corte-vN'`) **e** em **`app.js`** (`const APP_VERSION = 'vN'`, exibido no cabeçalho). Os dois devem ficar iguais. Versão atual: **v47**.
+A cada deploy deve-se incrementar `N` em **`sw.js`** (`const CACHE = 'projeto-corte-vN'`) **e** em **`app.js`** (`const APP_VERSION = 'vN'`, exibido no cabeçalho). Os dois devem ficar iguais. Versão atual: **v48**.
 
 O selo de versão no topo (`#app-version`) reflete o `app.js` que a tela carregou — serve para conferir, após um deploy, se o cache do Service Worker já atualizou (número novo) ou não (número antigo).
 
@@ -32,6 +32,9 @@ Não há `package.json`, transpiler, nem bundler.
 - **`startLiveSearch()`** inicia um loop RAF via `tickLive()` que chama `Optimizer.createSearch` e vai melhorando o resultado ao longo do tempo.
 - **`showResult(result)`** renderiza métricas, tabela por material e SVG das chapas.
 - **Projetos** ficam em `localStorage`; o plano de corte (`state.plan`) não é persistido — é recalculado ao abrir.
+- **Desfazer/Refazer:** `save()` registra um snapshot do projeto ativo (sem `plan`) em `history`; `doUndo`/`doRedo` navegam por `histIndex`. `applySnapshot()` restaura via `normalizeData` e re-renderiza (com a guarda `restoringHistory` para não gravar histórico durante a restauração). `resetHistory()` é chamado ao trocar/criar/importar/excluir projeto. Botões `#undo-btn`/`#redo-btn` no cabeçalho + atalhos Ctrl+Z / Ctrl+Shift+Z (ignorados quando o foco está num campo, para preservar o desfazer nativo do texto). Histórico é em memória (por sessão).
+- **Material "Nenhum"** (`NONE_MATERIAL`): peça com esse material fica **fora do plano** (`buildPlanInputs` filtra). Serve para desligar peças sem excluí-las. Não aparece na legenda nem em `materialsOrdered`; o `<select>` de material sempre oferece a opção.
+- **Editor de material** (`openMaterialEditor`): tocar no chip/nome na legenda abre um popup temático para renomear (`materialNames[m]=[novo]`) e escolher a cor (paleta + cor personalizada). O rótulo (`matLabel`) usa só o **primeiro** nome nativo + espessura.
 
 ## Bugs conhecidos no Android Chrome (S24 Ultra)
 

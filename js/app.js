@@ -26,9 +26,12 @@
   const DB_KEY = 'projeto-corte-db-v1';
   const OLD_KEY = 'projeto-corte-v1';
   const MAX_QTY = 999; // teto de quantidade por linha (peças/estoque) — evita travar a busca
+  // Material especial: peças marcadas como "Nenhum" ficam de FORA do plano de
+  // corte (servem para desligar peças sem precisar excluí-las).
+  const NONE_MATERIAL = 'Nenhum';
   // Versão exibida no cabeçalho. Reflete o app.js carregado na tela (útil para
   // saber se o cache do Service Worker já atualizou). Manter igual ao N de sw.js.
-  const APP_VERSION = 'v47';
+  const APP_VERSION = 'v48';
 
   const clampQty = v => Math.min(MAX_QTY, Math.max(1, Math.round(parseNum(v) || 1)));
 
@@ -102,7 +105,43 @@
       localStorage.setItem(DB_KEY, JSON.stringify(slim));
     } catch (e) {}
   }
-  function save() { const p = activeProject(); if (p) p.updatedAt = Date.now(); saveDb(); }
+  function save() { const p = activeProject(); if (p) p.updatedAt = Date.now(); saveDb(); recordHistory(); }
+
+  // ---------- Histórico (desfazer / refazer) ----------
+  // Snapshots do projeto ativo (sem o plano, que não é persistido). Cada save()
+  // registra um ponto; desfazer/refazer navegam por eles. Em memória, por sessão.
+  let history = [], histIndex = -1, restoringHistory = false;
+  const HISTORY_MAX = 120;
+  function snapData() { return JSON.stringify(Object.assign({}, state, { plan: null })); }
+  function resetHistory() { history = [snapData()]; histIndex = 0; updateUndoButtons(); }
+  function recordHistory() {
+    if (restoringHistory) return;
+    const snap = snapData();
+    if (history[histIndex] === snap) return;       // sem mudança real → ignora
+    history = history.slice(0, histIndex + 1);      // descarta o "refazer" pendente
+    history.push(snap);
+    if (history.length > HISTORY_MAX) history.shift();
+    histIndex = history.length - 1;
+    updateUndoButtons();
+  }
+  function applySnapshot(snap) {
+    restoringHistory = true;
+    try {
+      const proj = activeProject();
+      if (proj) { proj.data = normalizeData(JSON.parse(snap)); state = proj.data; saveDb(); }
+      selected.clear();
+      renderActive();
+    } catch (e) {}
+    restoringHistory = false;
+    updateUndoButtons();
+  }
+  function doUndo() { if (histIndex > 0) { histIndex--; applySnapshot(history[histIndex]); toast('Desfeito'); } }
+  function doRedo() { if (histIndex < history.length - 1) { histIndex++; applySnapshot(history[histIndex]); toast('Refeito'); } }
+  function updateUndoButtons() {
+    const u = $('#undo-btn'), r = $('#redo-btn');
+    if (u) u.disabled = histIndex <= 0;
+    if (r) r.disabled = histIndex >= history.length - 1;
+  }
 
   // ---------- Utilidades ----------
   const brl = n => 'R$ ' + (n || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -198,7 +237,7 @@
   // O índice define o NÚMERO do material exibido no chip.
   function materialsOrdered() {
     const seen = [];
-    const add = m => { if (m && !seen.includes(m)) seen.push(m); };
+    const add = m => { if (m && m !== NONE_MATERIAL && !seen.includes(m)) seen.push(m); };
     state.panels.forEach(p => add(p.material));
     state.stock.forEach(s => add(s.material));
     (state.materials || []).forEach(add); // materiais criados manualmente
@@ -209,9 +248,11 @@
   // Rótulo da legenda: nome NATIVO importado + espessura.
   function matNatives(m) { const v = state.materialNames && state.materialNames[m]; return Array.isArray(v) ? v : (v ? [v] : []); }
   function matLabel(m) {
+    if (m === NONE_MATERIAL) return 'Nenhum';
     const arr = matNatives(m);
     const th = matThickness(m);
-    if (arr.length) return arr[0] + (arr.length > 1 ? ` (+${arr.length - 1})` : '') + (th ? ` · ${th}mm` : '');
+    // Apenas o PRIMEIRO nome nativo importado (+ espessura).
+    if (arr.length) return arr[0] + (th ? ` · ${th}mm` : '');
     return m;
   }
 
@@ -291,18 +332,21 @@
     const wrap = el('span', 'mat-cell');
     const chip = el('span', 'mat-chip');
     const paint = () => {
-      if (cur) {
+      chip.classList.remove('empty', 'light', 'none');
+      if (cur === NONE_MATERIAL) {
+        chip.textContent = '—'; chip.style.background = '#e6e6e6'; chip.classList.add('none');
+      } else if (cur) {
         const col = matColor(cur);
         chip.style.background = col;
         chip.textContent = matThickness(cur) || '';
         chip.classList.toggle('light', isLight(col));
-        chip.classList.remove('empty');
       } else { chip.textContent = ''; chip.classList.add('empty'); chip.style.background = 'transparent'; }
     };
     paint();
     wrap.appendChild(chip);
     const sel = document.createElement('select'); sel.className = 'mat-select';
     sel.innerHTML = `<option value=""></option>` +
+      `<option value="${NONE_MATERIAL}"${cur === NONE_MATERIAL ? ' selected' : ''}>Nenhum (fora do plano)</option>` +
       list.map(m => `<option value="${attr(m)}"${m === cur ? ' selected' : ''}>${esc(matLabel(m))}</option>`).join('');
     sel.value = cur;
     sel.addEventListener('change', () => onCh(sel.value));
@@ -310,7 +354,8 @@
     return wrap;
   }
 
-  // Legenda de materiais (acima do Stock): chip + número + nome, cor editável.
+  // Legenda de materiais (acima do Stock): chip + nome. Tocar no chip ou no nome
+  // abre o editor (nome + cor) usando o popup temático do app.
   function renderMatLegend() {
     const box = $('#mat-legend'); if (!box) return;
     const list = materialsOrdered();
@@ -318,24 +363,79 @@
     list.forEach(m => {
       const col = matColor(m);
       const item = el('div', 'mat-legend-item');
-      const sw = el('label', 'swatch'); sw.style.background = col; sw.classList.toggle('light', isLight(col));
+      const sw = el('button', 'swatch'); sw.type = 'button';
+      sw.style.background = col; sw.classList.toggle('light', isLight(col));
+      sw.title = 'Editar material';
       const num = el('span', 'sw-num'); num.textContent = matThickness(m) || '';
       sw.appendChild(num);
-      const inp = document.createElement('input'); inp.type = 'color';
-      inp.value = /^#[0-9a-f]{6}$/i.test(col) ? col : '#888888';
-      const applyColor = () => { sw.style.background = inp.value; sw.classList.toggle('light', isLight(inp.value)); };
-      inp.addEventListener('input', applyColor); // prévia ao vivo
-      inp.addEventListener('change', () => {     // confirma: salva, re-renderiza e recalcula
-        state.materialColors[m] = inp.value.toLowerCase(); save();
-        renderMatLegend(); renderPanels(); renderStock();
-        if (validPanels().length) markPlanStale(); // cores iguais → mesmo material no cálculo
-      });
-      sw.appendChild(inp);
+      sw.addEventListener('click', () => openMaterialEditor(m));
       const name = el('span', 'mat-name'); name.textContent = matLabel(m);
+      name.title = 'Editar material'; name.addEventListener('click', () => openMaterialEditor(m));
       const del = iconBtn('del', 'delete', 'Excluir material e suas peças', () => deleteMaterial(m));
       item.appendChild(sw); item.appendChild(name); item.appendChild(del);
       box.appendChild(item);
     });
+  }
+
+  // Editor de material (popup temático): renomeia e escolhe a cor.
+  function openMaterialEditor(m) {
+    const curName = matNatives(m)[0] || m;
+    const th = matThickness(m);
+    let chosen = matColor(m);
+    const presets = [];
+    COLOR_WORDS.forEach(([, hex]) => { if (!presets.includes(hex)) presets.push(hex); });
+    FALLBACK_COLORS.forEach(hex => { if (!presets.includes(hex)) presets.push(hex); });
+
+    const ov = el('div', 'modal-overlay dialog-overlay');
+    const card = el('div', 'modal dialog');
+    const head = el('div', 'dialog-head'); head.textContent = 'Editar material';
+    const body = el('div', 'dialog-body');
+    const lblName = el('div', 'mat-edit-label'); lblName.textContent = 'Nome' + (th ? ` (espessura ${th}mm)` : '');
+    const nameInp = document.createElement('input'); nameInp.className = 'dialog-input'; nameInp.value = curName;
+    body.appendChild(lblName); body.appendChild(nameInp);
+    const lblColor = el('div', 'mat-edit-label'); lblColor.textContent = 'Cor';
+    body.appendChild(lblColor);
+    const swatches = [];
+    const mark = () => swatches.forEach(s => s.classList.toggle('sel', s.dataset.col.toLowerCase() === String(chosen).toLowerCase()));
+    // cor personalizada (declarada antes para os presets poderem refleti-la)
+    const customWrap = el('label', 'color-custom'); customWrap.appendChild(document.createTextNode('Personalizada '));
+    const customInp = document.createElement('input'); customInp.type = 'color';
+    customInp.value = /^#[0-9a-f]{6}$/i.test(chosen) ? chosen : '#888888';
+    customInp.addEventListener('input', () => { chosen = customInp.value; mark(); });
+    customWrap.appendChild(customInp);
+    const grid = el('div', 'color-grid');
+    presets.forEach(hex => {
+      const b = el('button', 'color-sw'); b.type = 'button'; b.style.background = hex; b.dataset.col = hex;
+      if (isLight(hex)) b.classList.add('light');
+      b.addEventListener('click', () => { chosen = hex; customInp.value = hex; mark(); });
+      grid.appendChild(b); swatches.push(b);
+    });
+    body.appendChild(grid); body.appendChild(customWrap);
+
+    const actions = el('div', 'modal-actions');
+    const cancelBtn = el('button', 'btn'); cancelBtn.textContent = 'Cancelar';
+    const okBtn = el('button', 'btn primary'); okBtn.textContent = 'Salvar';
+    actions.appendChild(cancelBtn); actions.appendChild(okBtn);
+    card.appendChild(head); card.appendChild(body); card.appendChild(actions); ov.appendChild(card);
+    document.body.appendChild(ov);
+    mark();
+
+    const close = () => { ov.remove(); document.removeEventListener('keydown', onKey); };
+    const onOk = () => {
+      const newName = nameInp.value.trim();
+      if (newName) state.materialNames[m] = [newName];
+      state.materialColors[m] = String(chosen).toLowerCase();
+      save();
+      renderMatLegend(); renderPanels(); renderStock();
+      if (validPanels().length) markPlanStale(); // cores iguais → mesmo material no cálculo
+      close(); toast('Material atualizado');
+    };
+    cancelBtn.addEventListener('click', close);
+    okBtn.addEventListener('click', onOk);
+    ov.addEventListener('click', e => { if (e.target === ov) close(); });
+    function onKey(e) { if (e.key === 'Escape') { e.preventDefault(); close(); } else if (e.key === 'Enter') { e.preventDefault(); onOk(); } }
+    document.addEventListener('keydown', onKey);
+    setTimeout(() => { nameInp.focus(); nameInp.select(); }, 30);
   }
 
   // Cria um material manualmente (aparece na legenda e nos seletores das
@@ -468,6 +568,9 @@
     if (selectMode && selected.has(p) && selected.size > 1) {
       selected.forEach(q => { if (q !== p) applyPanelField(q, f, value); });
       save(); renderPanels();
+    } else if (f === 'material') {
+      // material novo/alterado → repinta chips, legenda e seletores na hora
+      save(); renderPanels(); renderStock();
     } else { save(); afterRowEdit('panels'); }
     if (validPanels().length) markPlanStale();
   }
@@ -501,7 +604,8 @@
     if (f === 'material') s[f] = String(value).trim();
     else if (f === 'qty') s[f] = clampQty(value);
     else s[f] = parseNum(value);
-    save(); afterRowEdit('stock');
+    if (f === 'material') { save(); renderStock(); renderPanels(); }
+    else { save(); afterRowEdit('stock'); }
     if (validPanels().length) markPlanStale();
   }
   function renderStock() {
@@ -616,6 +720,7 @@
     $('#import-status').textContent = `${panels.length} peças · ${panels.reduce((a, p) => a + p.qty, 0)} un.`;
     gotoTab('plan');
     toast('Projeto: ' + proj.name);
+    resetHistory();
     startLiveSearch();
   }
   // Exporta as peças atuais (com edições de medida/veio/material/fita) num CSV
@@ -724,6 +829,7 @@
     if (!db.projects.find(p => p.id === id)) return;
     db.activeId = id; state = activeProject().data; saveDb(); selected.clear();
     renderActive();
+    resetHistory();
   }
   function fmtDate(ts) {
     try { return new Date(ts).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' }); }
@@ -756,14 +862,14 @@
     if (!db.projects.length) { const np = makeProject('Projeto 1', null); db.projects.push(np); db.activeId = np.id; }
     if (p.id === db.activeId) db.activeId = db.projects[0].id;
     state = activeProject().data; saveDb();
-    renderActive(); renderProjectsList();
+    renderActive(); renderProjectsList(); resetHistory();
   }
   function newProject() {
     const base = activeProject() ? activeProject().data : emptyData();
     const proj = makeProject(projectNameFromFile('Projeto'),
       { options: base.options, budgetItems: base.budgetItems, budgetCfg: base.budgetCfg });
     db.projects.unshift(proj); db.activeId = proj.id; state = proj.data; saveDb();
-    selected.clear(); closeProjects(); renderActive(); gotoTab('panels');
+    selected.clear(); closeProjects(); renderActive(); gotoTab('panels'); resetHistory();
   }
   function openProjects() { renderProjectsList(); $('#proj-modal').hidden = false; }
   function closeProjects() { $('#proj-modal').hidden = true; }
@@ -840,7 +946,7 @@
   // Monta os parâmetros do otimizador a partir das peças/estoque atuais.
   // Retorna null se não houver peças válidas.
   function buildPlanInputs() {
-    const raw = validPanels();
+    const raw = validPanels().filter(p => p.material !== NONE_MATERIAL); // "Nenhum" fica fora do plano
     if (!raw.length) return null;
     const groupLabel = {};
     raw.forEach(p => { const k = materialGroupKey(p.material); if (!(k in groupLabel)) groupLabel[k] = matLabel(p.material); });
@@ -1158,6 +1264,19 @@
       if (recentTouch) return;
       toggleLiveSearch();
     });
+    // Desfazer / Refazer (botões + atalhos de teclado)
+    const undoBtn = $('#undo-btn'), redoBtn = $('#redo-btn');
+    if (undoBtn) undoBtn.addEventListener('click', doUndo);
+    if (redoBtn) redoBtn.addEventListener('click', doRedo);
+    document.addEventListener('keydown', e => {
+      if (!(e.ctrlKey || e.metaKey)) return;
+      const ae = document.activeElement;
+      if (ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.isContentEditable)) return; // deixa o desfazer nativo do campo
+      const k = e.key.toLowerCase();
+      if (k === 'z' && !e.shiftKey) { e.preventDefault(); doUndo(); }
+      else if (k === 'y' || (k === 'z' && e.shiftKey)) { e.preventDefault(); doRedo(); }
+    });
+    resetHistory();
     initShareHandlers();
   }
   document.addEventListener('DOMContentLoaded', init);
