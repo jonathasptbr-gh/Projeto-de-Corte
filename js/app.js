@@ -928,10 +928,13 @@
 
   function startLiveSearch() {
     try {
+      setPlanStatus('Verificando peças…');
       const panels = validPanels();
-      if (!panels.length) { setPlanStatus('Adicione peças com largura e comprimento.'); toast('Adicione peças com largura e comprimento.'); return; }
+      if (!panels.length) { setPlanStatus('Sem peças — importe um CSV ou preencha a tabela.'); return; }
+      setPlanStatus('Montando dados (' + panels.length + ' peças)…');
       const inp = buildPlanInputs();
-      if (!inp) { setPlanStatus('Erro ao preparar os dados.'); return; }
+      if (!inp) { setPlanStatus('Erro ao preparar dados.'); return; }
+      setPlanStatus('Criando busca…');
       const search = Optimizer.createSearch(inp.gpanels, inp.gstock, inp.opts);
       live = { search, groupLabel: inp.groupLabel, raf: 0 };
       planStale = false;
