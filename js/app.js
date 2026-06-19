@@ -978,17 +978,18 @@
       } while (!info.converged && performance.now() - t0 < 14);
 
       if (improved) {
-        const result = relabelResult(search.result(), live.groupLabel);
+        let result;
+        try { result = relabelResult(search.result(), live.groupLabel); } catch(e) { toast('ERR-A relabel: ' + e.message); throw e; }
         state.plan = result;
-        showResult(result);
-        save();
+        try { showResult(result); } catch(e) { toast('ERR-B show: ' + e.message); throw e; }
+        try { save(); } catch(e) { toast('ERR-C save: ' + e.message); throw e; }
       }
       const pct = Math.min(100, Math.round(info.det / info.totalDet * 100));
       const phase = info.det < info.totalDet ? `Testando combinações… ${pct}%`
         : (info.beam && info.beam.idx < info.beam.total) ? `Busca profunda (beam)… ${info.beam.idx}/${info.beam.total}`
         : 'Refinando (reinícios aleatórios)…';
       const ns = state.plan ? state.plan.sheets.length : 0;
-      setPlanStatus(`${phase} · melhor: ${ns} chapa(s) · ${info.step} tentativas — toque em “Pausar e usar este” quando quiser.`);
+      try { setPlanStatus(`${phase} · melhor: ${ns} chapa(s) · ${info.step} tentativas — toque em “Pausar e usar este” quando quiser.`); } catch(e) { toast('ERR-D status: ' + e.message); throw e; }
 
       if (info.converged) {
         setPlanStatus('');
@@ -998,7 +999,8 @@
       }
       live.raf = requestAnimationFrame(tickLive);
     } catch (err) {
-      toast('ERRO tick: ' + err.message);
+      if (!err._tagged) toast('ERRO tick: ' + err.message);
+      err._tagged = true;
       setPlanStatus('Erro no cálculo: ' + err.message);
       stopLiveSearch();
     }
