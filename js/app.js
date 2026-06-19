@@ -462,6 +462,8 @@
     if (selectMode && selected.has(p) && selected.size > 1) {
       selected.forEach(q => { if (q !== p) applyPanelField(q, f, value); });
       save(); renderPanels();
+    } else if (f === 'material') {
+      save(); renderPanels();
     } else { save(); afterRowEdit('panels'); }
   }
   function renderPanels() {
@@ -562,23 +564,15 @@
 
   // ---------- Opções ----------
   function refreshOptionsUI() {
-    const o = state.options;
-    $('#opt-kerf').value = o.kerf;
-    $('#opt-labels').checked = o.labels;
-    $('#opt-material').checked = o.material;
-    $('#opt-grain').checked = o.grain;
+    $('#opt-kerf').value = state.options.kerf;
   }
   function initOptions() {
     refreshOptionsUI();
-    const bind = (id, key, isNum, isBool) => $(id).addEventListener('change', e => {
-      state.options[key] = isBool ? e.target.checked : (isNum ? parseFloat(e.target.value) || 0 : e.target.value);
+    $('#opt-kerf').addEventListener('change', e => {
+      state.options.kerf = parseFloat(e.target.value) || 0;
       save();
       if (validPanels().length) markPlanStale();
     });
-    bind('#opt-kerf', 'kerf', true);
-    bind('#opt-labels', 'labels', false, true);
-    bind('#opt-material', 'material', false, true);
-    bind('#opt-grain', 'grain', false, true);
   }
 
   // ---------- Importação (cada CSV vira um projeto no histórico) ----------
@@ -701,7 +695,6 @@
     stopLiveSearch();
     state.plan = null;
     $('#plan-metrics').innerHTML = ''; $('#plan-breakdown').innerHTML = ''; $('#plan-sheets').innerHTML = '';
-    $('#plan-empty').style.display = 'block';
   }
   function renderActive() {
     refreshOptionsUI(); updateProjectName();
@@ -865,8 +858,6 @@
     showPlanStaleHint();
   }
   function showPlanStaleHint() {
-    const el = $('#plan-empty');
-    if (el && state.plan) el.style.display = 'block';
     const hint = $('#plan-stale-hint');
     if (hint) hint.style.display = 'block';
   }
@@ -897,7 +888,6 @@
     const eff = totalArea ? (usedArea / totalArea * 100) : 0;
     const m = Budget.metricsFromPlan(result, 'cm');
 
-    $('#plan-empty').style.display = 'none';
     const sh = $('#plan-stale-hint'); if (sh) sh.style.display = 'none';
     $('#plan-metrics').innerHTML =
       metric('Chapas', result.sheets.length) + metric('Peças', pieces) + metric('Cortes', cuts) +
@@ -942,7 +932,6 @@
     live = { search, groupLabel: inp.groupLabel, raf: 0 };
     planStale = false;
     setRunButton(true);
-    $('#plan-empty').style.display = 'none';
     setPlanStatus('Procurando o melhor aproveitamento…');
     tickLive();
   }
