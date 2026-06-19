@@ -26,12 +26,11 @@
   const DB_KEY = 'projeto-corte-db-v1';
   const OLD_KEY = 'projeto-corte-v1';
   const MAX_QTY = 999; // teto de quantidade por linha (peças/estoque) — evita travar a busca
-  // Material especial: peças marcadas como "Nenhum" ficam de FORA do plano de
-  // corte (servem para desligar peças sem precisar excluí-las).
-  const NONE_MATERIAL = 'Nenhum';
+  // "Sem material" (material vazio) = peça FORA do plano de corte (símbolo —).
+  // Serve para desligar peças sem excluí-las.
   // Versão exibida no cabeçalho. Reflete o app.js carregado na tela (útil para
   // saber se o cache do Service Worker já atualizou). Manter igual ao N de sw.js.
-  const APP_VERSION = 'v49';
+  const APP_VERSION = 'v50';
 
   const clampQty = v => Math.min(MAX_QTY, Math.max(1, Math.round(parseNum(v) || 1)));
 
@@ -53,6 +52,9 @@
   // Garante todos os campos de um "data" de projeto.
   function normalizeData(d) {
     const e = emptyData(); d = d || {};
+    // Migração: material "Nenhum" (v48) virou "Sem material" (vazio).
+    if (Array.isArray(d.panels)) d.panels.forEach(p => { if (p && p.material === 'Nenhum') p.material = ''; });
+    if (Array.isArray(d.stock)) d.stock.forEach(s => { if (s && s.material === 'Nenhum') s.material = ''; });
     const out = {
       panels: Array.isArray(d.panels) ? d.panels : e.panels,
       stock: Array.isArray(d.stock) && d.stock.length ? d.stock : e.stock,
@@ -237,7 +239,7 @@
   // O índice define o NÚMERO do material exibido no chip.
   function materialsOrdered() {
     const seen = [];
-    const add = m => { if (m && m !== NONE_MATERIAL && !seen.includes(m)) seen.push(m); };
+    const add = m => { if (m && !seen.includes(m)) seen.push(m); }; // vazio = "sem material"
     state.panels.forEach(p => add(p.material));
     state.stock.forEach(s => add(s.material));
     (state.materials || []).forEach(add); // materiais criados manualmente
@@ -248,7 +250,6 @@
   // Rótulo da legenda: nome NATIVO importado + espessura.
   function matNatives(m) { const v = state.materialNames && state.materialNames[m]; return Array.isArray(v) ? v : (v ? [v] : []); }
   function matLabel(m) {
-    if (m === NONE_MATERIAL) return 'Nenhum';
     const arr = matNatives(m);
     const th = matThickness(m);
     // Apenas o PRIMEIRO nome nativo importado (+ espessura).
@@ -323,14 +324,15 @@
   // e pelo popup de seleção).
   function paintMatChip(chip, cur) {
     chip.classList.remove('empty', 'light', 'none');
-    if (cur === NONE_MATERIAL) {
-      chip.textContent = '—'; chip.style.background = '#e6e6e6'; chip.classList.add('none');
-    } else if (cur) {
+    if (cur) {
       const col = matColor(cur);
       chip.style.background = col;
       chip.textContent = matThickness(cur) || '';
       chip.classList.toggle('light', isLight(col));
-    } else { chip.textContent = ''; chip.classList.add('empty'); chip.style.background = 'transparent'; }
+    } else {
+      // "Sem material" = fora do plano (símbolo —)
+      chip.textContent = '—'; chip.style.background = '#e6e6e6'; chip.classList.add('none');
+    }
   }
   // Controle de material na tabela: chip colorido que abre o popup temático de
   // seleção (mesmo padrão de popup da seção de materiais).
@@ -358,19 +360,17 @@
     const head = el('div', 'dialog-head'); head.textContent = 'Escolher material';
     const body = el('div', 'dialog-body');
     const pick = el('div', 'mat-pick');
-    const addOpt = (value, labelText, kind) => {
+    const addOpt = (value, labelText) => {
       const it = el('button', 'mat-pick-item' + (value === cur ? ' sel' : '')); it.type = 'button';
       const chip = el('span', 'mat-chip');
-      if (kind === 'clear') { chip.classList.add('empty'); chip.style.background = 'transparent'; }
-      else paintMatChip(chip, value);
+      paintMatChip(chip, value);
       const name = el('span', 'mat-pick-name'); name.textContent = labelText;
       it.appendChild(chip); it.appendChild(name);
       it.addEventListener('click', () => { ov.remove(); document.removeEventListener('keydown', onKey); onPick(value); });
       pick.appendChild(it);
     };
     list.forEach(m => addOpt(m, matLabel(m)));
-    addOpt(NONE_MATERIAL, 'Nenhum (fora do plano)', 'none');
-    addOpt('', 'Sem material', 'clear');
+    addOpt('', 'Sem material (fora do plano)');
     body.appendChild(pick);
     const actions = el('div', 'modal-actions');
     const cancelBtn = el('button', 'btn'); cancelBtn.textContent = 'Cancelar';
@@ -970,7 +970,7 @@
   // Monta os parâmetros do otimizador a partir das peças/estoque atuais.
   // Retorna null se não houver peças válidas.
   function buildPlanInputs() {
-    const raw = validPanels().filter(p => p.material !== NONE_MATERIAL); // "Nenhum" fica fora do plano
+    const raw = validPanels().filter(p => p.material); // "sem material" (vazio) fica fora do plano
     if (!raw.length) return null;
     const groupLabel = {};
     raw.forEach(p => { const k = materialGroupKey(p.material); if (!(k in groupLabel)) groupLabel[k] = matLabel(p.material); });
