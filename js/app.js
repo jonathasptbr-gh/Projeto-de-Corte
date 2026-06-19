@@ -462,8 +462,6 @@
     if (selectMode && selected.has(p) && selected.size > 1) {
       selected.forEach(q => { if (q !== p) applyPanelField(q, f, value); });
       save(); renderPanels();
-    } else if (f === 'material') {
-      save(); renderPanels();
     } else { save(); afterRowEdit('panels'); }
   }
   function renderPanels() {
@@ -564,15 +562,23 @@
 
   // ---------- Opções ----------
   function refreshOptionsUI() {
-    $('#opt-kerf').value = state.options.kerf;
+    const o = state.options;
+    $('#opt-kerf').value = o.kerf;
+    $('#opt-labels').checked = o.labels;
+    $('#opt-material').checked = o.material;
+    $('#opt-grain').checked = o.grain;
   }
   function initOptions() {
     refreshOptionsUI();
-    $('#opt-kerf').addEventListener('change', e => {
-      state.options.kerf = parseFloat(e.target.value) || 0;
+    const bind = (id, key, isNum, isBool) => $(id).addEventListener('change', e => {
+      state.options[key] = isBool ? e.target.checked : (isNum ? parseFloat(e.target.value) || 0 : e.target.value);
       save();
       if (validPanels().length) markPlanStale();
     });
+    bind('#opt-kerf', 'kerf', true);
+    bind('#opt-labels', 'labels', false, true);
+    bind('#opt-material', 'material', false, true);
+    bind('#opt-grain', 'grain', false, true);
   }
 
   // ---------- Importação (cada CSV vira um projeto no histórico) ----------
@@ -694,9 +700,8 @@
   function renderPlanEmpty() {
     stopLiveSearch();
     state.plan = null;
-    const me = $('#plan-metrics'); if (me) me.innerHTML = '';
-    const be = $('#plan-breakdown'); if (be) be.innerHTML = '';
-    const se = $('#plan-sheets'); if (se) se.innerHTML = '';
+    $('#plan-metrics').innerHTML = ''; $('#plan-breakdown').innerHTML = ''; $('#plan-sheets').innerHTML = '';
+    $('#plan-empty').style.display = 'block';
   }
   function renderActive() {
     refreshOptionsUI(); updateProjectName();
@@ -860,6 +865,8 @@
     showPlanStaleHint();
   }
   function showPlanStaleHint() {
+    const el = $('#plan-empty');
+    if (el && state.plan) el.style.display = 'block';
     const hint = $('#plan-stale-hint');
     if (hint) hint.style.display = 'block';
   }
@@ -890,28 +897,12 @@
     const eff = totalArea ? (usedArea / totalArea * 100) : 0;
     const m = Budget.metricsFromPlan(result, 'cm');
 
-    // Cache all refs BEFORE any innerHTML mutations — some browsers may orphan
-    // sibling elements when innerHTML is set on a parent/sibling.
-    const sh = $('#plan-stale-hint');
-    const metricsEl = $('#plan-metrics');
-    let breakdownEl = $('#plan-breakdown');
-    const sheetsEl = $('#plan-sheets');
-
-    if (sh) sh.style.display = 'none';
-
-    if (metricsEl) metricsEl.innerHTML =
+    $('#plan-empty').style.display = 'none';
+    const sh = $('#plan-stale-hint'); if (sh) sh.style.display = 'none';
+    $('#plan-metrics').innerHTML =
       metric('Chapas', result.sheets.length) + metric('Peças', pieces) + metric('Cortes', cuts) +
       metric('Fita (m)', numFmt(m.bandMeters)) + metric('Aproveit.', eff.toFixed(1) + '%') +
       metric('Não couberam', result.unplaced.length);
-
-    // If breakdown was orphaned by the metrics mutation, re-create and insert it.
-    if (!breakdownEl || !breakdownEl.parentNode) {
-      breakdownEl = document.createElement('div');
-      breakdownEl.id = 'plan-breakdown';
-      if (metricsEl && metricsEl.parentNode) {
-        metricsEl.parentNode.insertBefore(breakdownEl, metricsEl.nextSibling);
-      }
-    }
 
     const bm = result.byMaterial; let rows = '';
     Object.keys(bm).forEach(mat => {
@@ -922,11 +913,11 @@
       rows += `<tr><td>${esc(mat)}</td><td>${d.sheets}</td><td>${minSheets}</td><td>${d.pieces}</td>` +
         `<td>${effMat.toFixed(1)}%</td><td>${optimal ? '<span class="ok">ótimo ✓</span>' : 'juntar'}</td></tr>`;
     });
-    breakdownEl.innerHTML =
+    $('#plan-breakdown').innerHTML =
       `<table class="grid compact breakdown"><thead><tr><th>Material</th><th>Chapas</th><th>Mín</th>` +
       `<th>Peças</th><th>Aprov.</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table>`;
 
-    if (sheetsEl) Render.renderSheets(sheetsEl, result, { showLabels: state.options.labels });
+    Render.renderSheets($('#plan-sheets'), result, { showLabels: state.options.labels });
     Budget.applyMetrics(state.budgetItems, m);
   }
   function metric(k, v) { return `<div class="metric"><div class="v">${v}</div><div class="k">${k}</div></div>`; }
@@ -945,25 +936,15 @@
   function setPlanStatus(txt) { const e = $('#plan-status'); if (e) { e.textContent = txt || ''; e.style.display = txt ? 'block' : 'none'; } }
 
   function startLiveSearch() {
-    try {
-      setPlanStatus('Verificando peças…');
-      const panels = validPanels();
-      if (!panels.length) { setPlanStatus('Sem peças — importe um CSV ou preencha a tabela.'); return; }
-      setPlanStatus('Montando dados (' + panels.length + ' peças)…');
-      const inp = buildPlanInputs();
-      if (!inp) { setPlanStatus('Erro ao preparar dados.'); return; }
-      setPlanStatus('Criando busca…');
-      const search = Optimizer.createSearch(inp.gpanels, inp.gstock, inp.opts);
-      live = { search, groupLabel: inp.groupLabel, raf: 0 };
-      planStale = false;
-      setRunButton(true);
-      setPlanStatus('Procurando o melhor aproveitamento…');
-      tickLive();
-    } catch (err) {
-      toast('Erro ao iniciar: ' + err.message);
-      setPlanStatus('Erro: ' + err.message);
-      setRunButton(false);
-    }
+    const inp = buildPlanInputs();
+    if (!inp) { toast('Importe um CSV ou adicione peças.'); return; }
+    const search = Optimizer.createSearch(inp.gpanels, inp.gstock, inp.opts);
+    live = { search, groupLabel: inp.groupLabel, raf: 0 };
+    planStale = false;
+    setRunButton(true);
+    $('#plan-empty').style.display = 'none';
+    setPlanStatus('Procurando o melhor aproveitamento…');
+    tickLive();
   }
 
   function stopLiveSearch() {
@@ -976,44 +957,37 @@
 
   function tickLive() {
     if (!live) return;
-    try {
-      const search = live.search;
-      const t0 = performance.now();
-      let improved = false, info = null;
-      do {
-        info = search.step();
-        if (info.improved) improved = true;
-      } while (!info.converged && performance.now() - t0 < 14);
+    const search = live.search;
+    const t0 = performance.now();
+    let improved = false, info = null;
+    do {
+      info = search.step();
+      if (info.improved) improved = true;
+    } while (!info.converged && performance.now() - t0 < 14);
 
-      if (improved) {
-        const result = relabelResult(search.result(), live.groupLabel);
-        state.plan = result;
-        showResult(result);
-        save();
-      }
-      const pct = Math.min(100, Math.round(info.det / info.totalDet * 100));
-      const phase = info.det < info.totalDet ? `Testando combinações… ${pct}%`
-        : (info.beam && info.beam.idx < info.beam.total) ? `Busca profunda (beam)… ${info.beam.idx}/${info.beam.total}`
-        : 'Refinando (reinícios aleatórios)…';
-      const ns = state.plan ? state.plan.sheets.length : 0;
-      setPlanStatus(`${phase} · melhor: ${ns} chapa(s) · ${info.step} tentativas — toque em “Pausar e usar este” quando quiser.`);
-
-      if (info.converged) {
-        setPlanStatus('');
-        stopLiveSearch();
-        toast('Otimização estabilizou — usando o melhor plano.');
-        return;
-      }
-      live.raf = requestAnimationFrame(tickLive);
-    } catch (err) {
-      toast('Erro no cálculo: ' + err.message);
-      setPlanStatus('Erro no cálculo: ' + err.message);
-      stopLiveSearch();
+    if (improved) {
+      const result = relabelResult(search.result(), live.groupLabel);
+      state.plan = result;
+      showResult(result);
+      save();
     }
+    const pct = Math.min(100, Math.round(info.det / info.totalDet * 100));
+    const phase = info.det < info.totalDet ? `Testando combinações… ${pct}%`
+      : (info.beam && info.beam.idx < info.beam.total) ? `Busca profunda (beam)… ${info.beam.idx}/${info.beam.total}`
+      : 'Refinando (reinícios aleatórios)…';
+    const ns = state.plan ? state.plan.sheets.length : 0;
+    setPlanStatus(`${phase} · melhor: ${ns} chapa(s) · ${info.step} tentativas — toque em “Pausar e usar este” quando quiser.`);
+
+    if (info.converged) {
+      setPlanStatus('');
+      stopLiveSearch();
+      toast('Otimização estabilizou — usando o melhor plano.');
+      return;
+    }
+    live.raf = requestAnimationFrame(tickLive);
   }
 
   function toggleLiveSearch() {
-    toast(live ? 'Parando…' : 'Iniciando cálculo…');
     if (live) {
       stopLiveSearch();
       toast('Usando o melhor plano encontrado.');
@@ -1146,54 +1120,20 @@
   }
 
   // ---------- Init ----------
-  function safeCall(name, fn) {
-    try { fn(); } catch (e) { console.error('init error in ' + name + ':', e); }
-  }
   function init() {
-    safeCall('load', load);
+    load();
+    // seleciona todo o conteúdo de campos numéricos ao focar
     document.addEventListener('focusin', e => {
       const t = e.target;
       if (t && t.tagName === 'INPUT' && (t.inputMode === 'decimal' || t.inputMode === 'numeric' || t.type === 'number')) {
         setTimeout(() => { try { t.select(); } catch (err) {} }, 0);
       }
     });
-    safeCall('initTabs', initTabs);
-    safeCall('initOptions', initOptions);
-    safeCall('initImport', initImport);
-    safeCall('initSelect', initSelect);
-    safeCall('initBudgetCfg', initBudgetCfg);
-    safeCall('initBandModal', initBandModal);
-    safeCall('initProjects', initProjects);
-    safeCall('renderStock', () => { updateProjectName(); renderStock(); renderPanels(); showSavedPlan(); });
-    const runBtn = $('#run-plan');
-    if (runBtn) {
-      let recentTouch = false;
-      runBtn.addEventListener('touchend', e => {
-        e.preventDefault();
-        recentTouch = true;
-        toggleLiveSearch();
-        setTimeout(() => { recentTouch = false; }, 500);
-      });
-      runBtn.addEventListener('click', () => { if (!recentTouch) toggleLiveSearch(); });
-      runBtn._listenerOk = true;
-    }
-    safeCall('initShareHandlers', initShareHandlers);
+    initTabs(); initOptions(); initImport(); initSelect(); initBudgetCfg(); initBandModal(); initProjects();
+    updateProjectName(); renderStock(); renderPanels();
+    showSavedPlan(); // cálculo é manual
+    $('#run-plan').addEventListener('click', toggleLiveSearch);
+    initShareHandlers();
   }
-  document.addEventListener('DOMContentLoaded', () => {
-    init();
-    setTimeout(() => {
-      const b = document.querySelector('#run-plan');
-      if (b && !b._listenerOk) {
-        let recentTouch = false;
-        b.addEventListener('touchend', e => {
-          e.preventDefault();
-          recentTouch = true;
-          toggleLiveSearch();
-          setTimeout(() => { recentTouch = false; }, 500);
-        });
-        b.addEventListener('click', () => { if (!recentTouch) toggleLiveSearch(); });
-        b._listenerOk = true;
-      }
-    }, 0);
-  });
+  document.addEventListener('DOMContentLoaded', init);
 })();
