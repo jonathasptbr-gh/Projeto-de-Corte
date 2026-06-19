@@ -4,7 +4,7 @@ PWA offline-first de plano de corte de chapas (MDF/madeira), com otimizador de a
 
 ## Versão
 
-A cada deploy deve-se incrementar `N` em **`sw.js`** (`const CACHE = 'projeto-corte-vN'`) **e** em **`app.js`** (`const APP_VERSION = 'vN'`, exibido no cabeçalho). Os dois devem ficar iguais. Versão atual: **v46**.
+A cada deploy deve-se incrementar `N` em **`sw.js`** (`const CACHE = 'projeto-corte-vN'`) **e** em **`app.js`** (`const APP_VERSION = 'vN'`, exibido no cabeçalho). Os dois devem ficar iguais. Versão atual: **v47**.
 
 O selo de versão no topo (`#app-version`) reflete o `app.js` que a tela carregou — serve para conferir, após um deploy, se o cache do Service Worker já atualizou (número novo) ou não (número antigo).
 
@@ -21,7 +21,7 @@ Não há `package.json`, transpiler, nem bundler.
 | `js/render.js` | Geração SVG das chapas com réguas, rótulos, linhas de corte. Exporta `window.Render`. |
 | `js/budget.js` | Cálculo de orçamento (materiais, mão de obra, markup, Pix). Exporta `window.Budget`. |
 | `js/app.js` | Controlador principal: estado, UI, tabs, projetos (localStorage), import/export CSV, plano de corte. |
-| `sw.js` | Service Worker: cache offline do app shell + recepção de CSV via Web Share Target. Os ícones (Material Symbols, CDN do Google) ficam num cache próprio `FONT_CACHE` que **não** é apagado no `activate` — assim permanecem offline mesmo após um bump de versão. |
+| `sw.js` | Service Worker: cache offline do app shell + recepção de CSV via Web Share Target. **App shell é cache-first PURO e atômico por versão** (o `install`/`addAll` troca o cache inteiro; **não** se regrava arquivos avulsos em runtime — isso misturava versões, ex.: HTML novo + JS antigo, e quebrava o `init`). Os ícones (Material Symbols, CDN do Google) ficam num cache próprio `FONT_CACHE` que **não** é apagado no `activate` — assim permanecem offline mesmo após um bump de versão. |
 | `manifest.json` | PWA manifest (ícones, share target, display standalone). |
 | `.github/workflows/deploy-pages.yml` | Deploy automático no GitHub Pages ao fazer push em `main`. Usa actions nativas (`configure-pages`, `upload-pages-artifact`, `deploy-pages`). **Não usar `enablement: true`** no passo `configure-pages` — causa falha imediata do workflow. |
 

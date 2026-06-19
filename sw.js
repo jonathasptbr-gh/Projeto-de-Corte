@@ -1,5 +1,5 @@
 /* Service Worker — cache do app shell + recepção de CSV compartilhado. */
-const CACHE = 'projeto-corte-v46';
+const CACHE = 'projeto-corte-v47';
 const SHARE_CACHE = 'projeto-corte-share';
 const FONT_CACHE = 'projeto-corte-fonts'; // ícones do Google (persiste entre versões)
 const FONT_HOSTS = ['fonts.googleapis.com', 'fonts.gstatic.com'];
@@ -74,16 +74,11 @@ self.addEventListener('fetch', e => {
     return;
   }
 
-  e.respondWith(
-    caches.match(req).then(cached => {
-      const fetched = fetch(req).then(res => {
-        if (res && (res.status === 200 || res.type === 'opaque')) {
-          const copy = res.clone();
-          caches.open(CACHE).then(c => c.put(req, copy));
-        }
-        return res;
-      }).catch(() => cached);
-      return cached || fetched;
-    })
-  );
+  // App shell: cache-first PURO. A atualização é ATÔMICA por versão — o install
+  // troca o cache inteiro de uma vez (addAll do CACHE novo) e o activate apaga o
+  // antigo. NÃO regravamos arquivos avulsos no cache em runtime: isso misturava
+  // versões (ex.: index.html novo + app.js antigo), e o JS antigo quebrava ao
+  // referenciar elementos já removidos do HTML. Cada versão do SW serve apenas
+  // o conjunto coerente da sua própria versão.
+  e.respondWith(caches.match(req).then(cached => cached || fetch(req)));
 });
