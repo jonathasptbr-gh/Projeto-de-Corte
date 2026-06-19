@@ -4,7 +4,7 @@ PWA offline-first de plano de corte de chapas (MDF/madeira), com otimizador de a
 
 ## Versão
 
-A cada deploy deve-se incrementar `N` em **`sw.js`** (`const CACHE = 'projeto-corte-vN'`). Versão atual: **v43**.
+A cada deploy deve-se incrementar `N` em **`sw.js`** (`const CACHE = 'projeto-corte-vN'`). Versão atual: **v44**.
 
 Não há `package.json`, transpiler, nem bundler.
 
@@ -19,14 +19,14 @@ Não há `package.json`, transpiler, nem bundler.
 | `js/render.js` | Geração SVG das chapas com réguas, rótulos, linhas de corte. Exporta `window.Render`. |
 | `js/budget.js` | Cálculo de orçamento (materiais, mão de obra, markup, Pix). Exporta `window.Budget`. |
 | `js/app.js` | Controlador principal: estado, UI, tabs, projetos (localStorage), import/export CSV, plano de corte. |
-| `sw.js` | Service Worker: cache offline do app shell + recepção de CSV via Web Share Target. |
+| `sw.js` | Service Worker: cache offline do app shell + recepção de CSV via Web Share Target. Os ícones (Material Symbols, CDN do Google) ficam num cache próprio `FONT_CACHE` que **não** é apagado no `activate` — assim permanecem offline mesmo após um bump de versão. |
 | `manifest.json` | PWA manifest (ícones, share target, display standalone). |
 | `.github/workflows/deploy-pages.yml` | Deploy automático no GitHub Pages ao fazer push em `main`. Usa actions nativas (`configure-pages`, `upload-pages-artifact`, `deploy-pages`). **Não usar `enablement: true`** no passo `configure-pages` — causa falha imediata do workflow. |
 
 ## Arquitetura do app.js
 
 - **Estado** vive em `state` (referência ao `data` do projeto ativo) e em `db` (todos os projetos, persistido em `localStorage` como `projeto-corte-db-v1`).
-- **Cálculo é MANUAL**: edições apenas marcam o plano como desatualizado (`markPlanStale`). O usuário dispara com o botão "Calcular plano" (`toggleLiveSearch`).
+- **O cálculo só INICIA pelo botão** "Calcular plano" (`toggleLiveSearch` → `startLiveSearch`). Uma vez iniciado, roda continuamente (loop RAF) melhorando o resultado. Edições **não** recalculam: `markPlanStale()` apenas para uma busca em andamento (se houver), marca o plano como desatualizado e exibe um **aviso** na aba Cortes — banner `#plan-stale` + ponto `#plan-tab-dot` na aba. `updateStaleNotice()` controla a visibilidade (só aparece quando há plano calculado, ele está stale e nenhuma busca roda).
 - **`startLiveSearch()`** inicia um loop RAF via `tickLive()` que chama `Optimizer.createSearch` e vai melhorando o resultado ao longo do tempo.
 - **`showResult(result)`** renderiza métricas, tabela por material e SVG das chapas.
 - **Projetos** ficam em `localStorage`; o plano de corte (`state.plan`) não é persistido — é recalculado ao abrir.

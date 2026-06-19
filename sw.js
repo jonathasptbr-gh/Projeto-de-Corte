@@ -1,6 +1,8 @@
 /* Service Worker — cache do app shell + recepção de CSV compartilhado. */
-const CACHE = 'projeto-corte-v43';
+const CACHE = 'projeto-corte-v44';
 const SHARE_CACHE = 'projeto-corte-share';
+const FONT_CACHE = 'projeto-corte-fonts'; // ícones do Google (persiste entre versões)
+const FONT_HOSTS = ['fonts.googleapis.com', 'fonts.gstatic.com'];
 const SHARE_KEY = 'shared-csv';
 const ASSETS = [
   './',
@@ -22,7 +24,7 @@ self.addEventListener('install', e => {
 self.addEventListener('activate', e => {
   e.waitUntil(
     caches.keys()
-      .then(keys => Promise.all(keys.filter(k => k !== CACHE && k !== SHARE_CACHE).map(k => caches.delete(k))))
+      .then(keys => Promise.all(keys.filter(k => k !== CACHE && k !== SHARE_CACHE && k !== FONT_CACHE).map(k => caches.delete(k))))
       .then(() => self.clients.claim())
   );
 });
@@ -57,6 +59,20 @@ self.addEventListener('fetch', e => {
   }
 
   if (req.method !== 'GET') return;
+
+  // Ícones (Material Symbols) do CDN do Google → cache próprio, cache-first,
+  // que NÃO é apagado no activate. Garante ícones offline mesmo após um bump
+  // de versão (o app shell troca de cache, mas a fonte permanece).
+  if (FONT_HOSTS.includes(url.host)) {
+    e.respondWith(caches.open(FONT_CACHE).then(c => c.match(req).then(hit => {
+      const net = fetch(req).then(res => {
+        if (res && (res.status === 200 || res.type === 'opaque')) c.put(req, res.clone());
+        return res;
+      }).catch(() => hit);
+      return hit || net;
+    })));
+    return;
+  }
 
   e.respondWith(
     caches.match(req).then(cached => {

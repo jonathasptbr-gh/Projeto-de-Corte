@@ -220,18 +220,20 @@
   // Arredonda CADA dimensão independentemente para o topo do seu "cluster"
   // (valores a <= tol viram o maior). Assim peças de comprimento parecido
   // nivelam (mesma altura de faixa) mesmo tendo larguras diferentes.
+  // Mapa valor → topo do seu cluster: valores cuja diferença ao primeiro do
+  // cluster é <= tol viram o MAIOR do cluster (nivela medidas próximas).
+  function clusterMaxMap(vals, tol) {
+    const sorted = Array.from(new Set(vals)).sort((a, b) => a - b);
+    const map = {}; let i = 0;
+    while (i < sorted.length) {
+      let j = i; while (j + 1 < sorted.length && sorted[j + 1] - sorted[i] <= tol) j++;
+      const mx = sorted[j]; for (let k = i; k <= j; k++) map[sorted[k]] = mx; i = j + 1;
+    }
+    return map;
+  }
   function annotateGroups(items, tol) {
-    const clusterMax = vals => {
-      const sorted = Array.from(new Set(vals)).sort((a, b) => a - b);
-      const map = {}; let i = 0;
-      while (i < sorted.length) {
-        let j = i; while (j + 1 < sorted.length && sorted[j + 1] - sorted[i] <= tol) j++;
-        const mx = sorted[j]; for (let k = i; k <= j; k++) map[sorted[k]] = mx; i = j + 1;
-      }
-      return map;
-    };
-    const wm = clusterMax(items.map(it => it.w));
-    const hm = clusterMax(items.map(it => it.h));
+    const wm = clusterMaxMap(items.map(it => it.w), tol);
+    const hm = clusterMaxMap(items.map(it => it.h), tol);
     items.forEach(it => { it.gw = wm[it.w]; it.gh = hm[it.h]; it.gKey = (it.grain || '') + '|' + it.gw + '|' + it.gh; });
   }
 
@@ -396,8 +398,7 @@
           if (!best || area > best.area + 1e-6) best = { area, sheet: r.sheet, rest: r.rest };
         }
       }
-      if (!best || !best.placed && !best.sheet.placements.length) { unplaced.push.apply(unplaced, remaining); break; }
-      if (!best.sheet.placements.length) { unplaced.push.apply(unplaced, remaining); break; }
+      if (!best || !best.sheet.placements.length) { unplaced.push.apply(unplaced, remaining); break; }
       best.sheet.index = sheets.length + 1;
       best.sheet.free = guillotineOffcutsGreedy(best.sheet);
       best.sheet.cuts = countGuillotineCuts(best.sheet.W, best.sheet.H, best.sheet.placements);
@@ -606,18 +607,23 @@
     const k = o.kerf;
     const dimsOf = it => { let pw = it.w, ph = it.h; const g = grainOrient(it, o); if (g.swap) { const t = pw; pw = ph; ph = t; } return { pw, ph, allow: g.allowRotate }; };
     // cross = espessura da faixa; along = comprimento ao longo da faixa
-    const crossOf = it => { const d = dimsOf(it); return axis === 'h' ? d.ph : d.pw; };
+    const crossRaw = it => { const d = dimsOf(it); return axis === 'h' ? d.ph : d.pw; };
     const alongOf = it => { const d = dimsOf(it); return axis === 'h' ? d.pw : d.ph; };
     const ALONG = axis === 'h' ? W : H, CROSS = axis === 'h' ? H : W;
+    const base = (opts.order || items).slice();
+    // tol>0: agrupa espessuras de faixa próximas (<=tol) → faixas niveladas na
+    // MAIOR medida do cluster, concentrando o trim em poucas sobras grandes.
+    const crossMap = tol ? clusterMaxMap(base.map(crossRaw), tol) : null;
+    const crossOf = it => crossMap ? crossMap[crossRaw(it)] : crossRaw(it);
     // ordena por espessura desc (peça mais alta primeiro define a faixa), depois comprimento desc
-    let remaining = (opts.order || items.slice()).slice().sort((a, b) => crossOf(b) - crossOf(a) || alongOf(b) - alongOf(a));
+    let remaining = base.sort((a, b) => crossOf(b) - crossOf(a) || alongOf(b) - alongOf(a));
     const sheets = [], unplaced = [];
     let sheet = null, crossCursor = 0, guard = 0;
     const openSheet = () => { sheet = newSheet(remaining[0].__mat, W, H, sheets.length + 1); sheets.push(sheet); crossCursor = 0; };
     while (remaining.length && guard++ < 5000) {
       if (!sheet) openSheet();
       const head = remaining[0];
-      const bandCross = crossOf(head) + (tol ? 0 : 0); // a faixa tem a altura da peça mais alta restante
+      const bandCross = crossOf(head); // altura da faixa = (cluster da) peça mais alta restante
       if (crossCursor + bandCross > CROSS + 1e-6) {
         if (crossCursor < 1e-6) { unplaced.push(head); remaining.shift(); sheet = null; continue; } // peça maior que a chapa
         sheet = null; continue; // chapa cheia → abre outra

@@ -106,7 +106,7 @@
   const capFirst = s => { s = String(s == null ? '' : s); return s ? s.charAt(0).toUpperCase() + s.slice(1) : s; };
   // Seleciona todo o conteúdo ao focar (útil para editar campos numéricos).
   function selectAllOnFocus(inp) { inp.addEventListener('focus', () => { try { inp.select(); } catch (e) {} }); }
-  function attr(s) { return String(s == null ? '' : s).replace(/"/g, '&quot;'); }
+  function attr(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c])); }
   function el(tag, cls) { const e = document.createElement(tag); if (cls) e.className = cls; return e; }
 
@@ -463,6 +463,7 @@
       selected.forEach(q => { if (q !== p) applyPanelField(q, f, value); });
       save(); renderPanels();
     } else { save(); afterRowEdit('panels'); }
+    if (validPanels().length) markPlanStale();
   }
   function renderPanels() {
     ensureTrailingBlank(state.panels, isBlankPanel, blankPanel);
@@ -495,6 +496,7 @@
     else if (f === 'qty') s[f] = Math.max(1, Math.round(parseNum(value) || 1));
     else s[f] = parseNum(value);
     save(); afterRowEdit('stock');
+    if (validPanels().length) markPlanStale();
   }
   function renderStock() {
     ensureTrailingBlank(state.stock, isBlankStock, blankStock);
@@ -723,6 +725,7 @@
     if (breakdownEl) breakdownEl.innerHTML = '';
     if (sheetsEl)    sheetsEl.innerHTML    = '';
     if (emptyEl)     emptyEl.style.display = 'block';
+    planStale = false; updateStaleNotice();
   }
   function renderActive() {
     refreshOptionsUI(); updateProjectName();
@@ -877,30 +880,29 @@
     return result;
   }
 
-  // Cálculo é MANUAL: edições só marcam o plano como desatualizado; o usuário
-  // dispara o cálculo no botão "Calcular plano".
+  // O cálculo NÃO é automático: a busca só INICIA pelo botão "Calcular plano"
+  // (uma vez iniciada, roda continuamente melhorando o resultado). Edições não
+  // recalculam — apenas marcam o plano como desatualizado e exibem um aviso na
+  // aba Cortes (banner + ponto na aba), para o usuário recalcular quando quiser.
   let planStale = false;
   function markPlanStale() {
+    if (live) stopLiveSearch(); // busca rodava com dados velhos → para (sem reiniciar)
     planStale = true;
-    if (live) stopLiveSearch(); // para busca com dados velhos antes de reiniciar
-    startLiveSearch();
+    updateStaleNotice();
+  }
+  // Mostra/oculta o aviso de "alterações pendentes". Só aparece quando há um
+  // plano já calculado, ele ficou desatualizado e não há busca em andamento.
+  function updateStaleNotice() {
+    const hasPlan = !!(state.plan && state.plan.sheets && state.plan.sheets.length);
+    const show = planStale && hasPlan && !live;
+    const banner = $('#plan-stale'); if (banner) banner.hidden = !show;
+    const dot = $('#plan-tab-dot'); if (dot) dot.hidden = !show;
   }
   // Mostra o plano já salvo (sem recalcular) ou o aviso vazio.
   function showSavedPlan() {
     if (state.plan && state.plan.sheets && state.plan.sheets.length) { showResult(state.plan); planStale = false; }
     else renderPlanEmpty();
-  }
-
-  // Cálculo de uma só passada (usado nas atualizações automáticas/silenciosas).
-  function runPlan(silent) {
-    stopLiveSearch();
-    const inp = buildPlanInputs();
-    if (!inp) { if (!silent) toast('Importe um CSV ou adicione peças.'); return; }
-    const result = relabelResult(Optimizer.optimize(inp.gpanels, inp.gstock, inp.opts), inp.groupLabel);
-    state.plan = result;
-    showResult(result);
-    save();
-    if (!silent) toast('Plano calculado!');
+    updateStaleNotice();
   }
 
   // Atualiza métricas, tabela e desenho a partir de um resultado já rotulado.
@@ -966,6 +968,7 @@
     setRunButton(true);
     $('#plan-empty').style.display = 'none';
     setPlanStatus('Procurando o melhor aproveitamento…');
+    updateStaleNotice(); // busca em andamento → esconde o aviso de alterações
     tickLive();
   }
 
@@ -975,6 +978,7 @@
     live = null;
     setRunButton(false);
     setPlanStatus('');
+    updateStaleNotice();
   }
 
   function tickLive() {
