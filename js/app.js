@@ -992,6 +992,7 @@
   }
 
   function toggleLiveSearch() {
+    toast(live ? 'Parando…' : 'Iniciando cálculo…');
     if (live) {
       stopLiveSearch();
       toast('Usando o melhor plano encontrado.');
@@ -1144,8 +1145,16 @@
     safeCall('initProjects', initProjects);
     safeCall('renderStock', () => { updateProjectName(); renderStock(); renderPanels(); showSavedPlan(); });
     const runBtn = $('#run-plan');
-    if (runBtn) runBtn.addEventListener('click', toggleLiveSearch);
+    if (runBtn) { runBtn.addEventListener('click', toggleLiveSearch); runBtn._listenerOk = true; }
     safeCall('initShareHandlers', initShareHandlers);
   }
-  document.addEventListener('DOMContentLoaded', init);
+  // Garante que o botão funcione mesmo se init() falhou por algum motivo
+  document.addEventListener('DOMContentLoaded', () => {
+    init();
+    // Segundo registro defensivo: se o primeiro não colou, este cola
+    setTimeout(() => {
+      const b = document.querySelector('#run-plan');
+      if (b && !b._listenerOk) { b.addEventListener('click', toggleLiveSearch); b._listenerOk = true; }
+    }, 0);
+  });
 })();
