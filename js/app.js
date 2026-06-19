@@ -715,8 +715,14 @@
   function renderPlanEmpty() {
     stopLiveSearch();
     state.plan = null;
-    $('#plan-metrics').innerHTML = ''; $('#plan-breakdown').innerHTML = ''; $('#plan-sheets').innerHTML = '';
-    $('#plan-empty').style.display = 'block';
+    const metricsEl   = $('#plan-metrics');
+    const breakdownEl = $('#plan-breakdown');
+    const sheetsEl    = $('#plan-sheets');
+    const emptyEl     = $('#plan-empty');
+    if (metricsEl)   metricsEl.innerHTML   = '';
+    if (breakdownEl) breakdownEl.innerHTML = '';
+    if (sheetsEl)    sheetsEl.innerHTML    = '';
+    if (emptyEl)     emptyEl.style.display = 'block';
   }
   function renderActive() {
     refreshOptionsUI(); updateProjectName();
@@ -899,6 +905,14 @@
 
   // Atualiza métricas, tabela e desenho a partir de um resultado já rotulado.
   function showResult(result) {
+    // Cache refs before any innerHTML mutation — Android Chrome can orphan
+    // sibling elements when innerHTML is set on a node in the same subtree.
+    const emptyEl     = $('#plan-empty');
+    const metricsEl   = $('#plan-metrics');
+    const breakdownEl = $('#plan-breakdown');
+    const sheetsEl    = $('#plan-sheets');
+    if (!metricsEl || !breakdownEl || !sheetsEl) return;
+
     const pieces = result.sheets.reduce((a, s) => a + s.placements.length, 0);
     const cuts = result.sheets.reduce((a, s) => a + s.cuts, 0);
     const totalArea = result.sheets.reduce((a, s) => a + s.W * s.H, 0);
@@ -906,8 +920,8 @@
     const eff = totalArea ? (usedArea / totalArea * 100) : 0;
     const m = Budget.metricsFromPlan(result, 'cm');
 
-    $('#plan-empty').style.display = 'none';
-    $('#plan-metrics').innerHTML =
+    if (emptyEl) emptyEl.style.display = 'none';
+    metricsEl.innerHTML =
       metric('Chapas', result.sheets.length) + metric('Peças', pieces) + metric('Cortes', cuts) +
       metric('Fita (m)', numFmt(m.bandMeters)) + metric('Aproveit.', eff.toFixed(1) + '%') +
       metric('Não couberam', result.unplaced.length);
@@ -921,11 +935,11 @@
       rows += `<tr><td>${esc(mat)}</td><td>${d.sheets}</td><td>${minSheets}</td><td>${d.pieces}</td>` +
         `<td>${effMat.toFixed(1)}%</td><td>${optimal ? '<span class="ok">ótimo ✓</span>' : 'juntar'}</td></tr>`;
     });
-    $('#plan-breakdown').innerHTML =
+    breakdownEl.innerHTML =
       `<table class="grid compact breakdown"><thead><tr><th>Material</th><th>Chapas</th><th>Mín</th>` +
       `<th>Peças</th><th>Aprov.</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table>`;
 
-    Render.renderSheets($('#plan-sheets'), result, { showLabels: state.options.labels });
+    Render.renderSheets(sheetsEl, result, { showLabels: state.options.labels });
     Budget.applyMetrics(state.budgetItems, m);
   }
   function metric(k, v) { return `<div class="metric"><div class="v">${v}</div><div class="k">${k}</div></div>`; }
@@ -1140,7 +1154,20 @@
     initTabs(); initOptions(); initImport(); initSelect(); initBudgetCfg(); initBandModal(); initProjects();
     updateProjectName(); renderStock(); renderPanels();
     showSavedPlan(); // cálculo é manual
-    $('#run-plan').addEventListener('click', toggleLiveSearch);
+    // touchend + click ambos disparam num único toque no Android Chrome.
+    // O flag recentTouch impede que o click processe o mesmo toque.
+    let recentTouch = false;
+    const runBtn = $('#run-plan');
+    runBtn.addEventListener('touchend', function (e) {
+      recentTouch = true;
+      setTimeout(function () { recentTouch = false; }, 500);
+      e.preventDefault();
+      toggleLiveSearch();
+    }, { passive: false });
+    runBtn.addEventListener('click', function () {
+      if (recentTouch) return;
+      toggleLiveSearch();
+    });
     initShareHandlers();
   }
   document.addEventListener('DOMContentLoaded', init);
