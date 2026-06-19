@@ -930,19 +930,22 @@
     try {
       setPlanStatus('Verificando peças…');
       const panels = validPanels();
+      toast('DBG peças:' + panels.length);
       if (!panels.length) { setPlanStatus('Sem peças — importe um CSV ou preencha a tabela.'); return; }
       setPlanStatus('Montando dados (' + panels.length + ' peças)…');
       const inp = buildPlanInputs();
-      if (!inp) { setPlanStatus('Erro ao preparar dados.'); return; }
+      if (!inp) { toast('DBG buildPlanInputs null'); setPlanStatus('Erro ao preparar dados.'); return; }
+      toast('DBG criando busca…');
       setPlanStatus('Criando busca…');
       const search = Optimizer.createSearch(inp.gpanels, inp.gstock, inp.opts);
+      toast('DBG busca criada OK');
       live = { search, groupLabel: inp.groupLabel, raf: 0 };
       planStale = false;
       setRunButton(true);
       setPlanStatus('Procurando o melhor aproveitamento…');
       tickLive();
     } catch (err) {
-      console.error('startLiveSearch error:', err);
+      toast('ERRO: ' + err.message);
       setPlanStatus('Erro: ' + err.message);
       setRunButton(false);
     }
@@ -988,7 +991,7 @@
       }
       live.raf = requestAnimationFrame(tickLive);
     } catch (err) {
-      console.error('tickLive error:', err);
+      toast('ERRO tick: ' + err.message);
       setPlanStatus('Erro no cálculo: ' + err.message);
       stopLiveSearch();
     }
