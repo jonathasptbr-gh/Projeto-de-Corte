@@ -907,7 +907,8 @@
       `<table class="grid compact breakdown"><thead><tr><th>Material</th><th>Chapas</th><th>Mín</th>` +
       `<th>Peças</th><th>Aprov.</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table>`;
 
-    Render.renderSheets($('#plan-sheets'), result, { showLabels: state.options.labels });
+    const sheetsEl = $('#plan-sheets');
+    if (sheetsEl) Render.renderSheets(sheetsEl, result, { showLabels: state.options.labels });
     Budget.applyMetrics(state.budgetItems, m);
   }
   function metric(k, v) { return `<div class="metric"><div class="v">${v}</div><div class="k">${k}</div></div>`; }
@@ -926,14 +927,22 @@
   function setPlanStatus(txt) { const e = $('#plan-status'); if (e) { e.textContent = txt || ''; e.style.display = txt ? 'block' : 'none'; } }
 
   function startLiveSearch() {
-    const inp = buildPlanInputs();
-    if (!inp) { toast('Importe um CSV ou adicione peças.'); return; }
-    const search = Optimizer.createSearch(inp.gpanels, inp.gstock, inp.opts);
-    live = { search, groupLabel: inp.groupLabel, raf: 0 };
-    planStale = false;
-    setRunButton(true);
-    setPlanStatus('Procurando o melhor aproveitamento…');
-    tickLive();
+    try {
+      const panels = validPanels();
+      if (!panels.length) { setPlanStatus('Adicione peças com largura e comprimento.'); toast('Adicione peças com largura e comprimento.'); return; }
+      const inp = buildPlanInputs();
+      if (!inp) { setPlanStatus('Erro ao preparar os dados.'); return; }
+      const search = Optimizer.createSearch(inp.gpanels, inp.gstock, inp.opts);
+      live = { search, groupLabel: inp.groupLabel, raf: 0 };
+      planStale = false;
+      setRunButton(true);
+      setPlanStatus('Procurando o melhor aproveitamento…');
+      tickLive();
+    } catch (err) {
+      console.error('startLiveSearch error:', err);
+      setPlanStatus('Erro: ' + err.message);
+      setRunButton(false);
+    }
   }
 
   function stopLiveSearch() {
@@ -946,34 +955,40 @@
 
   function tickLive() {
     if (!live) return;
-    const search = live.search;
-    const t0 = performance.now();
-    let improved = false, info = null;
-    do {
-      info = search.step();
-      if (info.improved) improved = true;
-    } while (!info.converged && performance.now() - t0 < 14);
+    try {
+      const search = live.search;
+      const t0 = performance.now();
+      let improved = false, info = null;
+      do {
+        info = search.step();
+        if (info.improved) improved = true;
+      } while (!info.converged && performance.now() - t0 < 14);
 
-    if (improved) {
-      const result = relabelResult(search.result(), live.groupLabel);
-      state.plan = result;
-      showResult(result);
-      save();
-    }
-    const pct = Math.min(100, Math.round(info.det / info.totalDet * 100));
-    const phase = info.det < info.totalDet ? `Testando combinações… ${pct}%`
-      : (info.beam && info.beam.idx < info.beam.total) ? `Busca profunda (beam)… ${info.beam.idx}/${info.beam.total}`
-      : 'Refinando (reinícios aleatórios)…';
-    const ns = state.plan ? state.plan.sheets.length : 0;
-    setPlanStatus(`${phase} · melhor: ${ns} chapa(s) · ${info.step} tentativas — toque em “Pausar e usar este” quando quiser.`);
+      if (improved) {
+        const result = relabelResult(search.result(), live.groupLabel);
+        state.plan = result;
+        showResult(result);
+        save();
+      }
+      const pct = Math.min(100, Math.round(info.det / info.totalDet * 100));
+      const phase = info.det < info.totalDet ? `Testando combinações… ${pct}%`
+        : (info.beam && info.beam.idx < info.beam.total) ? `Busca profunda (beam)… ${info.beam.idx}/${info.beam.total}`
+        : 'Refinando (reinícios aleatórios)…';
+      const ns = state.plan ? state.plan.sheets.length : 0;
+      setPlanStatus(`${phase} · melhor: ${ns} chapa(s) · ${info.step} tentativas — toque em “Pausar e usar este” quando quiser.`);
 
-    if (info.converged) {
-      setPlanStatus('');
+      if (info.converged) {
+        setPlanStatus('');
+        stopLiveSearch();
+        toast('Otimização estabilizou — usando o melhor plano.');
+        return;
+      }
+      live.raf = requestAnimationFrame(tickLive);
+    } catch (err) {
+      console.error('tickLive error:', err);
+      setPlanStatus('Erro no cálculo: ' + err.message);
       stopLiveSearch();
-      toast('Otimização estabilizou — usando o melhor plano.');
-      return;
     }
-    live.raf = requestAnimationFrame(tickLive);
   }
 
   function toggleLiveSearch() {
