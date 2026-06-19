@@ -124,7 +124,7 @@
         if (e !== '' && !truthy(e)) continue;
       }
 
-      const qty = Math.max(1, Math.round(num(get(cols, map.qty)) || 1));
+      const qty = Math.min(999, Math.max(1, Math.round(num(get(cols, map.qty)) || 1))); // teto 999 (ver MAX_QTY no app.js)
       const material = (get(cols, map.material) || '').trim() || 'Padrão';
       const name = (get(cols, map.name) || '').trim() || 'Peça';
 

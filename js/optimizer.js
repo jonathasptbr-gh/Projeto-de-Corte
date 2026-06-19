@@ -21,6 +21,9 @@
 
   const EPS = 0.05;
 
+  // Teto de chapas por grupo de material (= qty do estoque). Sem limite → Infinity.
+  const sheetCap = o => (o && o.maxSheets != null && o.maxSheets > 0) ? o.maxSheets : Infinity;
+
   function expand(panels) {
     const items = [];
     panels.forEach((p, idx) => {
@@ -251,6 +254,7 @@
 
   function packOnce(list, W, H, o, splitPref, fitMode, placeMode, blockMode, gr) {
     let sheetIndex = 0;
+    const cap = sheetCap(o);
     const sheets = [];
     const unplaced = [];
     const done = new Array(list.length).fill(false);
@@ -285,6 +289,7 @@
       if (!target) {
         const cabe = (pw <= W + 1e-6 && ph <= H + 1e-6) || (allowRotate && ph <= W + 1e-6 && pw <= H + 1e-6);
         if (!cabe) { unplaced.push(it); continue; }
+        if (sheets.length >= cap) { unplaced.push(it); continue; } // estoque esgotado
         target = newSheet(it.__mat, W, H, ++sheetIndex);
         fit = findFit(target, pw, ph, allowRotate, fitMode);
         sheets.push(target);
@@ -387,8 +392,10 @@
   function packMaxFill(items, W, H, o) {
     let remaining = items.slice();
     const sheets = [], unplaced = [];
+    const cap = sheetCap(o);
     let guard = 0;
     while (remaining.length && guard++ < 300) {
+      if (sheets.length >= cap) { unplaced.push.apply(unplaced, remaining); break; } // estoque esgotado
       let best = null;
       for (const ok of Object.keys(ORDERS)) {
         const sorted = remaining.slice().sort(ORDERS[ok]);
@@ -421,6 +428,7 @@
     const maxCandRects = opts.maxCandRects || 6;
     const splitPrefs = opts.splitPrefs || ['maxrect', 'wide', 'tall'];
     const order = opts.order || items;
+    const cap = sheetCap(o);
     const k = o.kerf;
 
     const dimsOf = it => {
@@ -474,7 +482,7 @@
       });
       // abrir uma chapa nova (o guia penaliza +1 chapa, então só "vence" quando preciso)
       const fitsNew = (pw <= W + 1e-6 && ph <= H + 1e-6) || (allowRotate && ph <= W + 1e-6 && pw <= H + 1e-6);
-      if (fitsNew) {
+      if (fitsNew && st.sheets.length < cap) { // só abre chapa se houver estoque
         const ns = cloneState(st);
         const sheet = newSheet(it.__mat, W, H, ns.sheets.length + 1);
         const rot = !(pw <= W + 1e-6 && ph <= H + 1e-6);
@@ -484,7 +492,8 @@
         mergeFree(sheet.free);
         ns.sheets.push(sheet);
         children.push(ns);
-      } else if (children.length === 0) {
+      }
+      if (children.length === 0) { // não coube em nenhuma chapa aberta nem há estoque
         const ns = cloneState(st); ns.unplaced.push(it); children.push(ns);
       }
       return children;
@@ -579,8 +588,10 @@
   function packMaxFillBeam(items, W, H, o, opts) {
     let remaining = items.slice();
     const sheets = [], unplaced = [];
+    const cap = sheetCap(o);
     let guard = 0;
     while (remaining.length && guard++ < 300) {
+      if (sheets.length >= cap) { unplaced.push.apply(unplaced, remaining); break; } // estoque esgotado
       const r = fillOneSheetBeam(remaining, W, H, o, opts);
       if (!r.sheet.placements.length) { unplaced.push.apply(unplaced, remaining); break; }
       r.sheet.index = sheets.length + 1;
@@ -618,10 +629,14 @@
     // ordena por espessura desc (peça mais alta primeiro define a faixa), depois comprimento desc
     let remaining = base.sort((a, b) => crossOf(b) - crossOf(a) || alongOf(b) - alongOf(a));
     const sheets = [], unplaced = [];
+    const cap = sheetCap(o);
     let sheet = null, crossCursor = 0, guard = 0;
     const openSheet = () => { sheet = newSheet(remaining[0].__mat, W, H, sheets.length + 1); sheets.push(sheet); crossCursor = 0; };
     while (remaining.length && guard++ < 5000) {
-      if (!sheet) openSheet();
+      if (!sheet) {
+        if (sheets.length >= cap) { unplaced.push.apply(unplaced, remaining); break; } // estoque esgotado
+        openSheet();
+      }
       const head = remaining[0];
       const bandCross = crossOf(head); // altura da faixa = (cluster da) peça mais alta restante
       if (crossCursor + bandCross > CROSS + 1e-6) {
@@ -743,8 +758,9 @@
     sheets.forEach(s => { s.free = guillotineOffcuts(s); });
   }
 
-  function packGroup(items, W, H, o, matName) {
+  function packGroup(items, W, H, o, matName, maxSheets) {
     items.forEach(it => it.__mat = matName);
+    o.maxSheets = (maxSheets != null && maxSheets > 0) ? maxSheets : Infinity; // teto de chapas (estoque)
     annotateGroups(items, GROUP_TOL); // peças similares (<=5cm) usam a maior medida
     let best = null, bestScore = null;
     const consider = res => { const sc = score(res); if (better(sc, bestScore, o.weights)) { best = res; bestScore = sc; } };
@@ -792,7 +808,7 @@
       const stock = stockFor(material);
       const matName = o.considerMaterial ? material : 'Geral';
       groups[material].forEach(it => { it.__sg = stock.grain; }); // veio da chapa
-      const res = packGroup(groups[material], stock.width, stock.length, o, matName);
+      const res = packGroup(groups[material], stock.width, stock.length, o, matName, stock.qty);
       res.sheets.forEach((s, i) => { s.index = i + 1; sheets.push(s); });
       res.unplaced.forEach(u => unplaced.push(u));
     });
@@ -826,7 +842,8 @@
       const matName = o.considerMaterial ? material : 'Geral';
       groupsMap[material].forEach(it => { it.__mat = matName; it.__sg = stock.grain; });
       annotateGroups(groupsMap[material], GROUP_TOL);
-      return { items: groupsMap[material], W: stock.width, H: stock.length, best: null, bestScore: null };
+      const maxSheets = (stock.qty != null && stock.qty > 0) ? stock.qty : Infinity; // teto de chapas (estoque)
+      return { items: groupsMap[material], W: stock.width, H: stock.length, maxSheets, best: null, bestScore: null };
     });
 
     const orderKeys = Object.keys(ORDERS);
@@ -861,6 +878,7 @@
         // 1º passo: "encher ao máximo" + guilhotina em faixas (2 estágios)
         maxFillDone = true;
         for (const g of groups) {
+          o.maxSheets = g.maxSheets; // teto de chapas deste material (estoque)
           const tryRes = res => { const sc = score(res); if (better(sc, g.bestScore, o.weights)) { g.best = res; g.bestScore = sc; improved = true; } };
           tryRes(packMaxFill(g.items, g.W, g.H, o));
           for (const axis of ['v', 'h']) for (const gt of [0, GROUP_TOL]) for (const ok of Object.keys(ORDERS)) tryRes(packShelf(g.items, g.W, g.H, o, { axis, groupTol: gt, order: g.items.slice().sort(ORDERS[ok]) }));
@@ -872,6 +890,7 @@
       if (detIdx < combos.length) {
         const c = combos[detIdx++];
         for (const g of groups) {
+          o.maxSheets = g.maxSheets;
           const list = g.items.slice().sort(ORDERS[c.ok]);
           if (tryOn(g, list, c)) improved = true;
         }
@@ -879,6 +898,7 @@
         // fase BEAM: busca em árvore (uma passada por step)
         const job = beamSchedule[beamIdx++];
         for (const g of groups) {
+          o.maxSheets = g.maxSheets;
           const list = g.items.slice().sort(ORDERS[job.ok]);
           let r = packBeam(g.items, g.W, g.H, o, { order: list, beamWidth: job.wgt });
           let sc = score(r);
@@ -892,6 +912,7 @@
         const c = { pref: pick(prefs), mode: pick(modes), place: pick(places), block: rand() < 0.5, gr: rand() < 0.5 };
         const ok = pick(orderKeys);
         for (const g of groups) {
+          o.maxSheets = g.maxSheets;
           const base = g.items.slice().sort(ORDERS[ok]);
           const list = rand() < 0.75 ? shuffle(base) : base;
           if (tryOn(g, list, c)) improved = true;

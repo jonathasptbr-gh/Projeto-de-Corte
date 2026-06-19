@@ -4,7 +4,7 @@ PWA offline-first de plano de corte de chapas (MDF/madeira), com otimizador de a
 
 ## Versão
 
-A cada deploy deve-se incrementar `N` em **`sw.js`** (`const CACHE = 'projeto-corte-vN'`). Versão atual: **v44**.
+A cada deploy deve-se incrementar `N` em **`sw.js`** (`const CACHE = 'projeto-corte-vN'`). Versão atual: **v45**.
 
 Não há `package.json`, transpiler, nem bundler.
 
@@ -87,6 +87,32 @@ function materialGroupKey(name) {
 }
 ```
 Dois materiais com a mesma cor e espessura são tratados como intercambiáveis pelo otimizador.
+
+## Limite de estoque (qty das chapas)
+
+O campo **Qtd** de cada linha de estoque é um **teto real** de chapas para aquele
+material. O otimizador recebe esse teto como `o.maxSheets` por grupo de material
+(`stock.qty`); quando o limite é atingido, as peças excedentes vão para
+**"não couberam"** (`result.unplaced`) em vez de abrir mais chapas. O teto é
+respeitado por TODOS os empacotadores (`packOnce`, `packMaxFill`, `packShelf`,
+`packBeam`, `packMaxFillBeam`) via o helper `sheetCap(o)`. `qty` ausente/0 → sem
+limite (`Infinity`). Com `considerMaterial` desligado, vale a `qty` do primeiro
+estoque (grupo único `__all__`).
+
+## Ordenação de peças na importação (INTENCIONAL)
+
+`nameSortKey(name)` ordena as peças importadas pelo **ÚLTIMO caractere** do nome
+(depois pelo restante): `return n.slice(-1) + ' ' + n.slice(0, -1)`. Isso é
+**proposital** — agrupa peças por sufixo (ex.: "Lateral D"/"Lateral E",
+variações numeradas) para facilitar a conferência. **NÃO "corrigir" para ordem
+alfabética normal** achando que é bug; é o comportamento desejado.
+
+## Teto de quantidade (`MAX_QTY`)
+
+A `qty` por linha (peças e estoque) é limitada a **999** (`MAX_QTY` em `app.js`,
+via `clampQty`; o parser `csv.js` aplica o mesmo teto na importação). Evita que
+um valor enorme exploda `expand()` e trave a busca. Ao alterar o teto, mude nos
+dois lugares.
 
 ## Deploy
 

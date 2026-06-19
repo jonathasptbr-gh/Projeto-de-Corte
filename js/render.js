@@ -229,7 +229,7 @@
       warn.className = 'sheet-card';
       warn.style.borderColor = '#c0392b';
       warn.innerHTML = `<h3 style="color:#c0392b">⚠ ${result.unplaced.length} peça(s) não couberam</h3>` +
-        `<div class="sub">Verifique o tamanho da chapa (stock) ou a direção do grão.</div>`;
+        `<div class="sub">Verifique o tamanho da chapa, a <b>quantidade de chapas</b> no estoque ou a direção do grão.</div>`;
       container.appendChild(warn);
     }
   }

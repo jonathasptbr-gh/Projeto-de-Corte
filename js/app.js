@@ -25,6 +25,9 @@
   let db = { projects: [], activeId: null };
   const DB_KEY = 'projeto-corte-db-v1';
   const OLD_KEY = 'projeto-corte-v1';
+  const MAX_QTY = 999; // teto de quantidade por linha (peças/estoque) — evita travar a busca
+
+  const clampQty = v => Math.min(MAX_QTY, Math.max(1, Math.round(parseNum(v) || 1)));
 
   // seleção rápida
   let selectMode = false;
@@ -453,7 +456,7 @@
   }
   function applyPanelField(p, f, value) {
     if (f === 'length' || f === 'width') p[f] = parseNum(value);
-    else if (f === 'qty') p[f] = Math.max(1, Math.round(parseNum(value) || 1));
+    else if (f === 'qty') p[f] = clampQty(value);
     else p[f] = String(value).trim();
   }
   // Edita um campo; com seleção rápida ativa, replica para todas selecionadas.
@@ -493,7 +496,7 @@
   }
   function onStockField(s, f, value) {
     if (f === 'material') s[f] = String(value).trim();
-    else if (f === 'qty') s[f] = Math.max(1, Math.round(parseNum(value) || 1));
+    else if (f === 'qty') s[f] = clampQty(value);
     else s[f] = parseNum(value);
     save(); afterRowEdit('stock');
     if (validPanels().length) markPlanStale();
