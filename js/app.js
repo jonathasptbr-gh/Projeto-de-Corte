@@ -614,7 +614,7 @@
     $('#import-status').textContent = `${panels.length} peças · ${panels.reduce((a, p) => a + p.qty, 0)} un.`;
     gotoTab('plan');
     toast('Projeto: ' + proj.name);
-    startLiveSearch();
+    renderPlanEmpty();
   }
   // Exporta as peças atuais (com edições de medida/veio/material/fita) num CSV
   // re-importável. No celular abre o compartilhamento; no resto, baixa o arquivo.
@@ -856,13 +856,19 @@
     return result;
   }
 
-  // Cálculo é MANUAL: edições só marcam o plano como desatualizado; o usuário
-  // dispara o cálculo no botão "Calcular plano".
+  // Cálculo é MANUAL: edições apenas param a busca em andamento e marcam o
+  // plano como desatualizado. O usuário dispara o cálculo pelo botão.
   let planStale = false;
   function markPlanStale() {
     planStale = true;
-    if (live) stopLiveSearch(); // para busca com dados velhos antes de reiniciar
-    startLiveSearch();
+    if (live) stopLiveSearch();
+    showPlanStaleHint();
+  }
+  function showPlanStaleHint() {
+    const el = $('#plan-empty');
+    if (el && state.plan) el.style.display = 'block';
+    const hint = $('#plan-stale-hint');
+    if (hint) hint.style.display = 'block';
   }
   // Mostra o plano já salvo (sem recalcular) ou o aviso vazio.
   function showSavedPlan() {
@@ -892,6 +898,7 @@
     const m = Budget.metricsFromPlan(result, 'cm');
 
     $('#plan-empty').style.display = 'none';
+    const sh = $('#plan-stale-hint'); if (sh) sh.style.display = 'none';
     $('#plan-metrics').innerHTML =
       metric('Chapas', result.sheets.length) + metric('Peças', pieces) + metric('Cortes', cuts) +
       metric('Fita (m)', numFmt(m.bandMeters)) + metric('Aproveit.', eff.toFixed(1) + '%') +
