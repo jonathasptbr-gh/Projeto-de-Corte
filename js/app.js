@@ -1124,20 +1124,28 @@
   }
 
   // ---------- Init ----------
+  function safeCall(name, fn) {
+    try { fn(); } catch (e) { console.error('init error in ' + name + ':', e); }
+  }
   function init() {
-    load();
-    // seleciona todo o conteúdo de campos numéricos ao focar
+    safeCall('load', load);
     document.addEventListener('focusin', e => {
       const t = e.target;
       if (t && t.tagName === 'INPUT' && (t.inputMode === 'decimal' || t.inputMode === 'numeric' || t.type === 'number')) {
         setTimeout(() => { try { t.select(); } catch (err) {} }, 0);
       }
     });
-    initTabs(); initOptions(); initImport(); initSelect(); initBudgetCfg(); initBandModal(); initProjects();
-    updateProjectName(); renderStock(); renderPanels();
-    showSavedPlan(); // cálculo é manual
-    $('#run-plan').addEventListener('click', toggleLiveSearch);
-    initShareHandlers();
+    safeCall('initTabs', initTabs);
+    safeCall('initOptions', initOptions);
+    safeCall('initImport', initImport);
+    safeCall('initSelect', initSelect);
+    safeCall('initBudgetCfg', initBudgetCfg);
+    safeCall('initBandModal', initBandModal);
+    safeCall('initProjects', initProjects);
+    safeCall('renderStock', () => { updateProjectName(); renderStock(); renderPanels(); showSavedPlan(); });
+    const runBtn = $('#run-plan');
+    if (runBtn) runBtn.addEventListener('click', toggleLiveSearch);
+    safeCall('initShareHandlers', initShareHandlers);
   }
   document.addEventListener('DOMContentLoaded', init);
 })();
