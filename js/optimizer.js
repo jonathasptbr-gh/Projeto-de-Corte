@@ -699,8 +699,9 @@
     return {
       sheets: res.sheets.length,
       unplaced: res.unplaced.length,
-      // fração ocupada por chapa (área REAL das peças, não o slot), da mais cheia para a mais vazia
-      fills: res.sheets.map(s => s.placements.reduce((a, p) => a + (p.realW || p.w) * (p.realH || p.h), 0) / (s.W * s.H)).sort((a, b) => b - a),
+      // fração ocupada por chapa (área REAL das peças, não o slot), da MENOS cheia para a mais cheia:
+      // comparação ascendente → melhora primeiro a chapa mais vazia (evita 3ª chapa com 55%).
+      fills: res.sheets.map(s => s.placements.reduce((a, p) => a + (p.realW || p.w) * (p.realH || p.h), 0) / (s.W * s.H)).sort((a, b) => a - b),
       off: offAreas(res.sheets),
       cuts: res.sheets.reduce((a, s) => a + s.cuts, 0),
     };
@@ -757,14 +758,13 @@
     for (const axis of ['v', 'h']) for (const gt of [0, GROUP_TOL]) {
       for (const key of Object.keys(ORDERS)) consider(packShelf(items, W, H, o, { axis, groupTol: gt, order: items.slice().sort(ORDERS[key]) }));
     }
-    // busca em árvore (beam) — só quando pedida (o.beamWidth); o one-shot
-    // padrão fica instantâneo. Acha combinações que a gulosa não vê.
-    if (o.beamWidth) {
-      for (const key of Object.keys(ORDERS)) {
-        const list = items.slice().sort(ORDERS[key]);
-        consider(packBeam(items, W, H, o, { order: list, beamWidth: o.beamWidth }));
-        consider(packMaxFillBeam(list, W, H, o, { beamWidth: o.beamWidth }));
-      }
+    // busca em árvore (beam) — roda sempre com largura moderada; mais ampla se pedida.
+    // Acha combinações de encaixe que a heurística gulosa não encontra.
+    const bw = o.beamWidth || 160;
+    for (const key of Object.keys(ORDERS)) {
+      const list = items.slice().sort(ORDERS[key]);
+      consider(packBeam(items, W, H, o, { order: list, beamWidth: bw }));
+      consider(packMaxFillBeam(list, W, H, o, { beamWidth: bw }));
     }
     return best;
   }
@@ -832,7 +832,7 @@
     // a cada passada. Roda DEPOIS das combinações rápidas → o plano bom aparece
     // já; o beam só refina. Cada passada é um step() (a tela atualiza entre elas).
     const beamSchedule = [];
-    for (const wgt of [48, 128, 320, 700]) for (const ok of orderKeys) beamSchedule.push({ wgt, ok });
+    for (const wgt of [48, 128, 320, 700, 1200, 2000]) for (const ok of orderKeys) beamSchedule.push({ wgt, ok });
     let beamIdx = 0;
 
     let rng = 2463534242;
@@ -857,6 +857,7 @@
         for (const g of groups) {
           const tryRes = res => { const sc = score(res); if (better(sc, g.bestScore, o.weights)) { g.best = res; g.bestScore = sc; improved = true; } };
           tryRes(packMaxFill(g.items, g.W, g.H, o));
+          tryRes(packMaxFillBeam(g.items, g.W, g.H, o, { beamWidth: 280 }));
           for (const axis of ['v', 'h']) for (const gt of [0, GROUP_TOL]) for (const ok of Object.keys(ORDERS)) tryRes(packShelf(g.items, g.W, g.H, o, { axis, groupTol: gt, order: g.items.slice().sort(ORDERS[ok]) }));
         }
         stepCount++;
