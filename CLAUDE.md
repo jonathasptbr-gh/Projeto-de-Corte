@@ -4,7 +4,7 @@ PWA offline-first de plano de corte de chapas (MDF/madeira), com otimizador de a
 
 ## Versão
 
-A cada deploy deve-se incrementar `N` em **`sw.js`** (`const CACHE = 'projeto-corte-vN'`) **e** em **`app.js`** (`const APP_VERSION = 'vN'`, exibido no cabeçalho). Os dois devem ficar iguais. Versão atual: **v60**.
+A cada deploy deve-se incrementar `N` em **`sw.js`** (`const CACHE = 'projeto-corte-vN'`) **e** em **`app.js`** (`const APP_VERSION = 'vN'`, exibido no cabeçalho). Os dois devem ficar iguais. Versão atual: **v61**.
 
 O selo de versão no topo (`#app-version`) reflete o `app.js` que a tela carregou — serve para conferir, após um deploy, se o cache do Service Worker já atualizou (número novo) ou não (número antigo).
 
@@ -111,12 +111,16 @@ limite (`Infinity`).
 
 Um material (cor+espessura) pode ter **várias linhas de estoque com larguras/
 comprimentos diferentes**. `aggregateSizes()` agrupa as linhas por dimensão
-(soma a `qty` de tamanhos iguais) e ordena do MAIOR para o menor. `runCascade()`
-roda os empacotadores em **cascata**: empacota no maior tamanho (até a `qty`
-dele), o que **não couber cai no próximo tamanho**, e assim por diante — chapas
-grandes primeiro, sobrando para os retalhos menores. `optimize` e `createSearch`
-usam `sizesFor(material)` + `runCascade` (os empacotadores continuam recebendo um
-único `W,H` por passada; o veio da chapa `it.__sg` é setado por tamanho).
+(soma a `qty` de tamanhos iguais) e ordena do **MENOR para o maior** — chapas
+menores são sobras de outros cortes e devem ser usadas antes de gastar uma chapa
+nova. `runCascade()` roda os empacotadores em **cascata**: empacota no menor
+tamanho (até a `qty` dele), o que **não couber cai no próximo tamanho** (maior), e
+assim por diante. `optimize` e `createSearch` usam `sizesFor(material)` +
+`runCascade` (empacotadores recebem um único `W,H` por passada; `it.__sg` por tamanho).
+
+**Chapa com material vazio NÃO conta** (igual às peças vazias): `sizesFor` só
+considera chapas com o material do grupo, sem fallback para material vazio. Um
+material de peça sem nenhuma chapa correspondente → peças vão para "não couberam".
 
 ## Opções da UI
 

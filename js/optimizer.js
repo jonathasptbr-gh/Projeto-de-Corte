@@ -25,8 +25,8 @@
   const sheetCap = o => (o && o.maxSheets != null && o.maxSheets > 0) ? o.maxSheets : Infinity;
 
   // Agrega linhas de estoque por DIMENSÃO (largura×comprimento), somando as
-  // quantidades. Devolve os tamanhos do MAIOR para o menor (chapas grandes
-  // primeiro). Permite que um material tenha vários tamanhos de chapa.
+  // quantidades. Devolve os tamanhos do MENOR para o maior — chapas menores são
+  // sobras de outros cortes e devem ser usadas antes de gastar uma chapa nova.
   function aggregateSizes(rows) {
     const by = {};
     (rows || []).forEach(s => {
@@ -37,9 +37,8 @@
       by[k].qty += (s.qty > 0 ? s.qty : 0);
       if (by[k].grain == null) by[k].grain = s.grain;
     });
-    let arr = Object.values(by).filter(z => z.qty > 0);
-    if (!arr.length) arr = [{ W: 184, H: 274, qty: Infinity, grain: 'v' }];
-    arr.sort((a, b) => b.W * b.H - a.W * a.H);
+    const arr = Object.values(by).filter(z => z.qty > 0);
+    arr.sort((a, b) => (a.W * a.H) - (b.W * b.H)); // menores primeiro
     return arr;
   }
   // Roda um empacotador de 1 tamanho em CASCATA pelos tamanhos do grupo (maior
@@ -833,9 +832,8 @@
     items.forEach(it => { const key = o.considerMaterial ? it.material : '__all__'; (groups[key] = groups[key] || []).push(it); });
 
     function sizesFor(material) {
-      let rows = stockList.filter(s => o.considerMaterial && s.material && s.material === material);
-      if (!rows.length) rows = stockList.filter(s => !s.material);
-      if (!rows.length) rows = stockList.length ? [stockList[0]] : [];
+      // só chapas com ESTE material; material vazio não conta (fora do cálculo)
+      const rows = stockList.filter(s => o.considerMaterial && s.material && s.material === material);
       return aggregateSizes(rows);
     }
 
@@ -869,15 +867,14 @@
     const groupsMap = {};
     items.forEach(it => { const key = o.considerMaterial ? it.material : '__all__'; (groupsMap[key] = groupsMap[key] || []).push(it); });
     function sizesFor(material) {
-      let rows = stockList.filter(s => o.considerMaterial && s.material && s.material === material);
-      if (!rows.length) rows = stockList.filter(s => !s.material);
-      if (!rows.length) rows = stockList.length ? [stockList[0]] : [];
+      // só chapas com ESTE material; material vazio não conta (fora do cálculo)
+      const rows = stockList.filter(s => o.considerMaterial && s.material && s.material === material);
       return aggregateSizes(rows);
     }
     const groups = Object.keys(groupsMap).map(material => {
       const sizes = sizesFor(material); // 1+ tamanhos de chapa (maior primeiro)
       const matName = o.considerMaterial ? material : 'Geral';
-      groupsMap[material].forEach(it => { it.__mat = matName; it.__sg = sizes[0].grain; });
+      groupsMap[material].forEach(it => { it.__mat = matName; it.__sg = (sizes[0] && sizes[0].grain) || 'v'; });
       annotateGroups(groupsMap[material], GROUP_TOL);
       return { items: groupsMap[material], sizes, best: null, bestScore: null };
     });
