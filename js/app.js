@@ -30,7 +30,7 @@
   // Serve para desligar peças sem excluí-las.
   // Versão exibida no cabeçalho. Reflete o app.js carregado na tela (útil para
   // saber se o cache do Service Worker já atualizou). Manter igual ao N de sw.js.
-  const APP_VERSION = 'v54';
+  const APP_VERSION = 'v55';
 
   const clampQty = v => Math.min(MAX_QTY, Math.max(1, Math.round(parseNum(v) || 1)));
 
@@ -540,21 +540,24 @@
     b.addEventListener('click', () => openBandModal(p, b));
     return b;
   }
-  // Botão = retângulo (fundo cinza p/ ver fita branca); cada lado com fita ganha
-  // uma linha na sua cor — fina p/ 22, grossa p/ 45.
+  // Botão = retângulo da peça; cada lado com fita ganha uma linha EXTERNA, na
+  // cor da fita, com contorno preto fino (fina p/ 22, grossa p/ 45).
   function refreshFitaButton(b, p) {
     let any = false;
-    const W = 17, H = 28, m = 3;
-    const ln = (sp, x1, y1, x2, y2) => {
-      if (!sp) return `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="#aeb5b0" stroke-width="1" stroke-linecap="round"/>`;
+    const W = 22, H = 34, m = 6, gap = 2.6;
+    const seg = (sp, x1, y1, x2, y2) => {
+      if (!sp) return '';
       any = true;
-      const sw = sp.w === 45 ? 5 : 2.4;
-      return `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${sp.color}" stroke-width="${sw}" stroke-linecap="round"/>`;
+      const sw = sp.w === 45 ? 4.2 : 2.4;
+      return `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="#000" stroke-width="${sw + 1.3}" stroke-linecap="round"/>` +
+        `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${sp.color}" stroke-width="${sw}" stroke-linecap="round"/>`;
     };
     const body =
-      `<rect x="${m}" y="${m}" width="${W - 2 * m}" height="${H - 2 * m}" fill="#cfd5d1" stroke="#aeb5b0" stroke-width="0.8"/>` +
-      ln(bandSpecOf(p, 'top'), m, m, W - m, m) + ln(bandSpecOf(p, 'bottom'), m, H - m, W - m, H - m) +
-      ln(bandSpecOf(p, 'left'), m, m, m, H - m) + ln(bandSpecOf(p, 'right'), W - m, m, W - m, H - m);
+      `<rect x="${m}" y="${m}" width="${W - 2 * m}" height="${H - 2 * m}" fill="#eef0ed" stroke="#aeb5b0" stroke-width="0.8"/>` +
+      seg(bandSpecOf(p, 'top'), m, m - gap, W - m, m - gap) +
+      seg(bandSpecOf(p, 'bottom'), m, H - m + gap, W - m, H - m + gap) +
+      seg(bandSpecOf(p, 'left'), m - gap, m, m - gap, H - m) +
+      seg(bandSpecOf(p, 'right'), W - m + gap, m, W - m + gap, H - m);
     b.innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" aria-hidden="true">${body}</svg>`;
     b.classList.toggle('has', any);
     b.title = any ? 'Fita aplicada — toque para editar' : 'Sem fita — toque para aplicar';
