@@ -219,7 +219,7 @@
       const card = document.createElement('div');
       card.className = 'sheet-card';
       card.innerHTML =
-        `<h3>${esc(sheet.material)} — Chapa ${sheet.index}</h3>` +
+        `<h3>${esc(sheet.material)} — ${esc(sheet.stockName || 'Chapa')} ${sheet.index}</h3>` +
         `<div class="sub">${fmt(sheet.W)} × ${fmt(sheet.H)} · ${sheet.placements.length} peças · aproveit. ${eff.toFixed(1)}%</div>` +
         sheetLegend(sheet, colorMap) +
         sheetSVG(sheet, colorMap, opts.showLabels);

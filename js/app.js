@@ -11,7 +11,7 @@
   function emptyData() {
     return {
       panels: [],
-      stock: [{ width: 184, length: 274, qty: 5, material: '' }],
+      stock: [{ width: 184, length: 274, qty: 5, material: '', name: 'Chapa' }],
       options: { kerf: 0.8 }, // única opção ajustável (material/grão/labels/pesos fixos no padrão)
       materialColors: {},
       materialNames: {},
@@ -30,7 +30,7 @@
   // Serve para desligar peças sem excluí-las.
   // Versão exibida no cabeçalho. Reflete o app.js carregado na tela (útil para
   // saber se o cache do Service Worker já atualizou). Manter igual ao N de sw.js.
-  const APP_VERSION = 'v57';
+  const APP_VERSION = 'v58';
 
   const clampQty = v => Math.min(MAX_QTY, Math.max(1, Math.round(parseNum(v) || 1)));
 
@@ -244,7 +244,7 @@
   const validPanels = () => state.panels.filter(p => p.length > 0 && p.width > 0);
   const validStock = () => {
     const v = state.stock.filter(s => s.width > 0 && s.length > 0);
-    return v.length ? v : [{ width: 184, length: 274, qty: 999, material: '' }];
+    return v.length ? v : [{ width: 184, length: 274, qty: 999, material: '', name: 'Chapa' }];
   };
 
   // Lista de materiais em ordem de aparição (peças primeiro, depois estoques).
@@ -668,7 +668,7 @@
     const tdM = el('td', 'cell-mat'); tdM.appendChild(materialControl(s, v => onStockField(s, 'material', v))); tr.appendChild(tdM);
     // nome da chapa (texto livre) — diferencia chapas parecidas
     const tdNm = el('td', 'cell-name');
-    const nameInp = document.createElement('input'); nameInp.placeholder = 'nome'; nameInp.value = s.name || '';
+    const nameInp = document.createElement('input'); nameInp.placeholder = 'Chapa'; nameInp.value = s.name || '';
     nameInp.addEventListener('change', () => { const cap = capFirst(nameInp.value.trim()); nameInp.value = cap; onStockField(s, 'name', cap); });
     tdNm.appendChild(nameInp); tr.appendChild(tdNm);
     if (s.grain == null) s.grain = 'v'; // padrão: veio ao longo do comprimento
@@ -1066,6 +1066,11 @@
       return Object.assign({}, p, { material: materialGroupKey(p.material), bands });
     });
     const gstock = validStock().map(s => Object.assign({}, s, { material: materialGroupKey(s.material) }));
+    // nome da chapa por grupo de material (p/ rotular as chapas no plano)
+    const groupStock = {};
+    validStock().forEach(s => { const k = materialGroupKey(s.material); const nm = (s.name || '').trim(); if (nm && !(k in groupStock)) groupStock[k] = nm; });
+    const fb = validStock().find(s => !s.material);
+    const fallbackStock = (fb && (fb.name || '').trim()) || 'Chapa';
     const opts = {
       kerf: state.options.kerf,
       considerMaterial: true, // fixos (opções removidas da UI)
@@ -1073,12 +1078,15 @@
       allowRotate: true,
       weights: Optimizer.defaultWeights(),
     };
-    return { gpanels, gstock, groupLabel, opts };
+    return { gpanels, gstock, groupLabel, groupStock, fallbackStock, opts };
   }
 
-  // Re-rotula (chave de grupo → nome legível) para exibição.
-  function relabelResult(result, groupLabel) {
-    result.sheets.forEach(s => { s.material = groupLabel[s.material] || s.material; });
+  // Re-rotula (chave de grupo → nome legível) para exibição; define o nome da chapa.
+  function relabelResult(result, groupLabel, groupStock, fallbackStock) {
+    result.sheets.forEach(s => {
+      s.stockName = (groupStock && groupStock[s.material]) || fallbackStock || 'Chapa'; // antes de reatribuir s.material
+      s.material = groupLabel[s.material] || s.material;
+    });
     const bm2 = {};
     Object.keys(result.byMaterial).forEach(k => { bm2[groupLabel[k] || k] = result.byMaterial[k]; });
     result.byMaterial = bm2;
@@ -1209,7 +1217,7 @@
     const inp = buildPlanInputs();
     if (!inp) { toast('Importe um CSV ou adicione peças.'); return; }
     const search = Optimizer.createSearch(inp.gpanels, inp.gstock, inp.opts);
-    live = { search, groupLabel: inp.groupLabel, raf: 0 };
+    live = { search, groupLabel: inp.groupLabel, groupStock: inp.groupStock, fallbackStock: inp.fallbackStock, raf: 0 };
     planStale = false;
     setRunButton(true);
     $('#plan-empty').style.display = 'none';
@@ -1238,7 +1246,7 @@
     } while (!info.converged && performance.now() - t0 < 14);
 
     if (improved) {
-      const result = relabelResult(search.result(), live.groupLabel);
+      const result = relabelResult(search.result(), live.groupLabel, live.groupStock, live.fallbackStock);
       state.plan = result;
       showResult(result);
       save();
