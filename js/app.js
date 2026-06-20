@@ -30,7 +30,7 @@
   // Serve para desligar peças sem excluí-las.
   // Versão exibida no cabeçalho. Reflete o app.js carregado na tela (útil para
   // saber se o cache do Service Worker já atualizou). Manter igual ao N de sw.js.
-  const APP_VERSION = 'v55';
+  const APP_VERSION = 'v56';
 
   const clampQty = v => Math.min(MAX_QTY, Math.max(1, Math.round(parseNum(v) || 1)));
 
@@ -795,10 +795,9 @@
     save();
     refreshOptionsUI(); updateProjectName(); renderStock(); renderPanels();
     $('#import-status').textContent = `${panels.length} peças · ${panels.reduce((a, p) => a + p.qty, 0)} un.`;
-    gotoTab('plan');
+    gotoTab('panels'); // revisar as peças; o plano é calculado manualmente no botão
     toast('Projeto: ' + proj.name);
     resetHistory();
-    startLiveSearch();
   }
   // Exporta as peças atuais (com edições de medida/veio/material/fita) num CSV
   // re-importável. No celular abre o compartilhamento; no resto, baixa o arquivo.
