@@ -24,6 +24,41 @@
   // Teto de chapas por grupo de material (= qty do estoque). Sem limite → Infinity.
   const sheetCap = o => (o && o.maxSheets != null && o.maxSheets > 0) ? o.maxSheets : Infinity;
 
+  // Agrega linhas de estoque por DIMENSÃO (largura×comprimento), somando as
+  // quantidades. Devolve os tamanhos do MAIOR para o menor (chapas grandes
+  // primeiro). Permite que um material tenha vários tamanhos de chapa.
+  function aggregateSizes(rows) {
+    const by = {};
+    (rows || []).forEach(s => {
+      const W = s.width, H = s.length;
+      if (!(W > 0 && H > 0)) return;
+      const k = W + 'x' + H;
+      if (!by[k]) by[k] = { W, H, qty: 0, grain: s.grain };
+      by[k].qty += (s.qty > 0 ? s.qty : 0);
+      if (by[k].grain == null) by[k].grain = s.grain;
+    });
+    let arr = Object.values(by).filter(z => z.qty > 0);
+    if (!arr.length) arr = [{ W: 184, H: 274, qty: Infinity, grain: 'v' }];
+    arr.sort((a, b) => b.W * b.H - a.W * a.H);
+    return arr;
+  }
+  // Roda um empacotador de 1 tamanho em CASCATA pelos tamanhos do grupo (maior
+  // primeiro); o que não couber cai no próximo tamanho. runOnSize(items,W,H)
+  // devolve { sheets, unplaced } respeitando o.maxSheets (definido aqui por tamanho).
+  function runCascade(items, sizes, o, runOnSize) {
+    let remaining = items;
+    const sheets = [];
+    for (const sz of sizes) {
+      if (!remaining.length) break;
+      o.maxSheets = (sz.qty > 0 && sz.qty !== Infinity) ? sz.qty : Infinity;
+      remaining.forEach(it => { it.__sg = sz.grain; }); // veio da chapa deste tamanho
+      const res = runOnSize(remaining, sz.W, sz.H);
+      for (const s of res.sheets) sheets.push(s);
+      remaining = res.unplaced;
+    }
+    return { sheets, unplaced: remaining };
+  }
+
   function expand(panels) {
     const items = [];
     panels.forEach((p, idx) => {
@@ -797,18 +832,19 @@
     const groups = {};
     items.forEach(it => { const key = o.considerMaterial ? it.material : '__all__'; (groups[key] = groups[key] || []).push(it); });
 
-    function stockFor(material) {
-      let s = stockList.find(s => o.considerMaterial && s.material && s.material === material);
-      if (!s) s = stockList.find(s => !s.material) || stockList[0];
-      return s || { width: 184, length: 274, qty: 999 };
+    function sizesFor(material) {
+      let rows = stockList.filter(s => o.considerMaterial && s.material && s.material === material);
+      if (!rows.length) rows = stockList.filter(s => !s.material);
+      if (!rows.length) rows = stockList.length ? [stockList[0]] : [];
+      return aggregateSizes(rows);
     }
 
     const sheets = [], unplaced = [];
     Object.keys(groups).forEach(material => {
-      const stock = stockFor(material);
+      const sizes = sizesFor(material);
       const matName = o.considerMaterial ? material : 'Geral';
-      groups[material].forEach(it => { it.__sg = stock.grain; }); // veio da chapa
-      const res = packGroup(groups[material], stock.width, stock.length, o, matName, stock.qty);
+      // cascata: chapas maiores primeiro; o que sobra cai no próximo tamanho
+      const res = runCascade(groups[material], sizes, o, (items, W, H) => packGroup(items, W, H, o, matName, o.maxSheets));
       res.sheets.forEach((s, i) => { s.index = i + 1; sheets.push(s); });
       res.unplaced.forEach(u => unplaced.push(u));
     });
@@ -832,18 +868,18 @@
     const items = expand(panels);
     const groupsMap = {};
     items.forEach(it => { const key = o.considerMaterial ? it.material : '__all__'; (groupsMap[key] = groupsMap[key] || []).push(it); });
-    function stockFor(material) {
-      let s = stockList.find(s => o.considerMaterial && s.material && s.material === material);
-      if (!s) s = stockList.find(s => !s.material) || stockList[0];
-      return s || { width: 184, length: 274, qty: 999 };
+    function sizesFor(material) {
+      let rows = stockList.filter(s => o.considerMaterial && s.material && s.material === material);
+      if (!rows.length) rows = stockList.filter(s => !s.material);
+      if (!rows.length) rows = stockList.length ? [stockList[0]] : [];
+      return aggregateSizes(rows);
     }
     const groups = Object.keys(groupsMap).map(material => {
-      const stock = stockFor(material);
+      const sizes = sizesFor(material); // 1+ tamanhos de chapa (maior primeiro)
       const matName = o.considerMaterial ? material : 'Geral';
-      groupsMap[material].forEach(it => { it.__mat = matName; it.__sg = stock.grain; });
+      groupsMap[material].forEach(it => { it.__mat = matName; it.__sg = sizes[0].grain; });
       annotateGroups(groupsMap[material], GROUP_TOL);
-      const maxSheets = (stock.qty != null && stock.qty > 0) ? stock.qty : Infinity; // teto de chapas (estoque)
-      return { items: groupsMap[material], W: stock.width, H: stock.length, maxSheets, best: null, bestScore: null };
+      return { items: groupsMap[material], sizes, best: null, bestScore: null };
     });
 
     const orderKeys = Object.keys(ORDERS);
@@ -865,8 +901,9 @@
 
     let detIdx = 0, stepCount = 0, sinceImprove = 0, maxFillDone = false;
 
-    function tryOn(g, list, c) {
-      const res = packOnce(list, g.W, g.H, o, c.pref, c.mode, c.place, c.block, c.gr);
+    // Aplica um combo em CASCATA pelos tamanhos do grupo (packOnce por tamanho).
+    function tryOn(g, c) {
+      const res = runCascade(g.items, g.sizes, o, (it, W, H) => packOnce(it.slice().sort(ORDERS[c.ok]), W, H, o, c.pref, c.mode, c.place, c.block, c.gr));
       const sc = score(res);
       if (better(sc, g.bestScore, o.weights)) { g.best = res; g.bestScore = sc; return true; }
       return false;
@@ -878,10 +915,10 @@
         // 1º passo: "encher ao máximo" + guilhotina em faixas (2 estágios)
         maxFillDone = true;
         for (const g of groups) {
-          o.maxSheets = g.maxSheets; // teto de chapas deste material (estoque)
           const tryRes = res => { const sc = score(res); if (better(sc, g.bestScore, o.weights)) { g.best = res; g.bestScore = sc; improved = true; } };
-          tryRes(packMaxFill(g.items, g.W, g.H, o));
-          for (const axis of ['v', 'h']) for (const gt of [0, GROUP_TOL]) for (const ok of Object.keys(ORDERS)) tryRes(packShelf(g.items, g.W, g.H, o, { axis, groupTol: gt, order: g.items.slice().sort(ORDERS[ok]) }));
+          tryRes(runCascade(g.items, g.sizes, o, (it, W, H) => packMaxFill(it, W, H, o)));
+          for (const axis of ['v', 'h']) for (const gt of [0, GROUP_TOL]) for (const ok of Object.keys(ORDERS))
+            tryRes(runCascade(g.items, g.sizes, o, (it, W, H) => packShelf(it, W, H, o, { axis, groupTol: gt, order: it.slice().sort(ORDERS[ok]) })));
         }
         stepCount++;
         if (improved) sinceImprove = 0; else sinceImprove++;
@@ -889,33 +926,29 @@
       }
       if (detIdx < combos.length) {
         const c = combos[detIdx++];
-        for (const g of groups) {
-          o.maxSheets = g.maxSheets;
-          const list = g.items.slice().sort(ORDERS[c.ok]);
-          if (tryOn(g, list, c)) improved = true;
-        }
+        for (const g of groups) { if (tryOn(g, c)) improved = true; }
       } else if (beamIdx < beamSchedule.length) {
         // fase BEAM: busca em árvore (uma passada por step)
         const job = beamSchedule[beamIdx++];
         for (const g of groups) {
-          o.maxSheets = g.maxSheets;
-          const list = g.items.slice().sort(ORDERS[job.ok]);
-          let r = packBeam(g.items, g.W, g.H, o, { order: list, beamWidth: job.wgt });
+          let r = runCascade(g.items, g.sizes, o, (it, W, H) => packBeam(it, W, H, o, { order: it.slice().sort(ORDERS[job.ok]), beamWidth: job.wgt }));
           let sc = score(r);
           if (better(sc, g.bestScore, o.weights)) { g.best = r; g.bestScore = sc; improved = true; }
-          r = packMaxFillBeam(list, g.W, g.H, o, { beamWidth: job.wgt });
+          r = runCascade(g.items, g.sizes, o, (it, W, H) => packMaxFillBeam(it.slice().sort(ORDERS[job.ok]), W, H, o, { beamWidth: job.wgt }));
           sc = score(r);
           if (better(sc, g.bestScore, o.weights)) { g.best = r; g.bestScore = sc; improved = true; }
         }
       } else {
         // reinícios aleatórios: embaralha a ordem + combo aleatório
         const c = { pref: pick(prefs), mode: pick(modes), place: pick(places), block: rand() < 0.5, gr: rand() < 0.5 };
-        const ok = pick(orderKeys);
+        const ok = pick(orderKeys), useShuffle = rand() < 0.75;
         for (const g of groups) {
-          o.maxSheets = g.maxSheets;
-          const base = g.items.slice().sort(ORDERS[ok]);
-          const list = rand() < 0.75 ? shuffle(base) : base;
-          if (tryOn(g, list, c)) improved = true;
+          const res = runCascade(g.items, g.sizes, o, (it, W, H) => {
+            const base = it.slice().sort(ORDERS[ok]);
+            return packOnce(useShuffle ? shuffle(base) : base, W, H, o, c.pref, c.mode, c.place, c.block, c.gr);
+          });
+          const sc = score(res);
+          if (better(sc, g.bestScore, o.weights)) { g.best = res; g.bestScore = sc; improved = true; }
         }
       }
       stepCount++;

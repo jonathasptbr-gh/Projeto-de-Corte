@@ -30,7 +30,7 @@
   // Serve para desligar peças sem excluí-las.
   // Versão exibida no cabeçalho. Reflete o app.js carregado na tela (útil para
   // saber se o cache do Service Worker já atualizou). Manter igual ao N de sw.js.
-  const APP_VERSION = 'v59';
+  const APP_VERSION = 'v60';
 
   const clampQty = v => Math.min(MAX_QTY, Math.max(1, Math.round(parseNum(v) || 1)));
 
@@ -1065,20 +1065,9 @@
       BAND_SIDES.forEach(s => { const sp = bandSpecOf(p, s); if (sp) bands[s] = { w: sp.w, color: sp.color }; });
       return Object.assign({}, p, { material: materialGroupKey(p.material), bands });
     });
-    // Consolida linhas de estoque do MESMO grupo (cor+espessura): SOMA as
-    // quantidades e usa o maior tamanho. Assim duas chapas iguais combinam a
-    // capacidade (antes só a primeira era usada por grupo).
-    const stockByKey = {};
-    validStock().forEach(s => {
-      const k = materialGroupKey(s.material);
-      const area = (s.width || 0) * (s.length || 0);
-      let g = stockByKey[k];
-      if (!g) { g = stockByKey[k] = { width: s.width, length: s.length, qty: 0, grain: s.grain, material: k, _area: -1 }; }
-      g.qty += (s.qty || 0);
-      if (area > g._area) { g._area = area; g.width = s.width; g.length = s.length; }
-      if (g.grain == null && s.grain != null) g.grain = s.grain;
-    });
-    const gstock = Object.values(stockByKey).map(g => { delete g._area; return g; });
+    // Passa TODAS as linhas de estoque (o otimizador agrupa por material e usa
+    // múltiplos tamanhos de chapa do mesmo material, em cascata — maior primeiro).
+    const gstock = validStock().map(s => Object.assign({}, s, { material: materialGroupKey(s.material) }));
     // nome da chapa por grupo de material (p/ rotular as chapas no plano)
     const groupStock = {};
     validStock().forEach(s => { const k = materialGroupKey(s.material); const nm = (s.name || '').trim(); if (nm && !(k in groupStock)) groupStock[k] = nm; });
