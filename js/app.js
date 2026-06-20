@@ -30,7 +30,7 @@
   // Serve para desligar peças sem excluí-las.
   // Versão exibida no cabeçalho. Reflete o app.js carregado na tela (útil para
   // saber se o cache do Service Worker já atualizou). Manter igual ao N de sw.js.
-  const APP_VERSION = 'v65';
+  const APP_VERSION = 'v66';
 
   const clampQty = v => Math.min(MAX_QTY, Math.max(1, Math.round(parseNum(v) || 1)));
 
@@ -1130,7 +1130,7 @@
     const m = Budget.metricsFromPlan(result, 'cm'); // alimenta o orçamento
 
     if (emptyEl) emptyEl.style.display = 'none';
-    metricsEl.innerHTML = metric('Peças', pieces);
+    metricsEl.innerHTML = '';
 
     // Tabela POR CHAPA individual do estoque (1 linha por chapa usada).
     const typeCount = {};
@@ -1140,25 +1140,23 @@
       const u = s.placements.reduce((a, p) => a + (p.realW || p.w) * (p.realH || p.h), 0);
       const ef = s.W * s.H ? (u / (s.W * s.H) * 100) : 0;
       const nm = (s.stockName || 'Chapa') + (typeCount[s.material + '|' + (s.stockName || '')] > 1 ? ' ' + s.index : '');
-      srows += `<tr><td>${esc(nm)}</td><td>${esc(s.material)}</td><td>${numFmt(s.W)}×${numFmt(s.H)}</td>` +
-        `<td>${s.placements.length}</td><td>${ef.toFixed(1)}%</td></tr>`;
+      srows += `<tr><td>${esc(nm)}</td><td>${esc(s.material)}</td><td>${s.placements.length}</td><td>${ef.toFixed(1)}%</td></tr>`;
     });
     const perSheet =
-      `<table class="grid compact breakdown"><thead><tr><th>Chapa</th><th>Material</th><th>Tamanho</th>` +
+      `<table class="grid compact plan-tbl"><thead><tr><th>Chapa</th><th>Material</th>` +
       `<th>Peças</th><th>Aprov.</th></tr></thead><tbody>${srows}</tbody></table>`;
 
+    // Tabela POR MATERIAL (chapas/mín combinados na 1ª coluna, sem "status").
     const bm = result.byMaterial; let rows = '';
     Object.keys(bm).forEach(mat => {
       const d = bm[mat];
       const minSheets = Math.max(1, Math.ceil(d.usedArea / (d.area / d.sheets)));
       const effMat = d.area ? (d.usedArea / d.area * 100) : 0;
-      const optimal = d.sheets <= minSheets;
-      rows += `<tr><td>${esc(mat)}</td><td>${d.sheets}</td><td>${minSheets}</td><td>${d.pieces}</td>` +
-        `<td>${effMat.toFixed(1)}%</td><td>${optimal ? '<span class="ok">ótimo ✓</span>' : 'juntar'}</td></tr>`;
+      rows += `<tr><td>${d.sheets} / ${minSheets}</td><td>${esc(mat)}</td><td>${d.pieces}</td><td>${effMat.toFixed(1)}%</td></tr>`;
     });
     const perMat =
-      `<table class="grid compact breakdown"><thead><tr><th>Material</th><th>Chapas</th><th>Mín</th>` +
-      `<th>Peças</th><th>Aprov.</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table>`;
+      `<table class="grid compact plan-tbl"><thead><tr><th>Chapas/mín</th><th>Material</th>` +
+      `<th>Peças</th><th>Aprov.</th></tr></thead><tbody>${rows}</tbody></table>`;
     breakdownEl.innerHTML = perSheet + perMat;
 
     renderUnplaced(result);
