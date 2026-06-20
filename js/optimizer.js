@@ -33,9 +33,10 @@
       const W = s.width, H = s.length;
       if (!(W > 0 && H > 0)) return;
       const k = W + 'x' + H;
-      if (!by[k]) by[k] = { W, H, qty: 0, grain: s.grain };
+      if (!by[k]) by[k] = { W, H, qty: 0, grain: s.grain, name: (s.name || '').trim() };
       by[k].qty += (s.qty > 0 ? s.qty : 0);
       if (by[k].grain == null) by[k].grain = s.grain;
+      if (!by[k].name && (s.name || '').trim()) by[k].name = (s.name || '').trim();
     });
     const arr = Object.values(by).filter(z => z.qty > 0);
     arr.sort((a, b) => (a.W * a.H) - (b.W * b.H)); // menores primeiro
@@ -52,7 +53,7 @@
       o.maxSheets = (sz.qty > 0 && sz.qty !== Infinity) ? sz.qty : Infinity;
       remaining.forEach(it => { it.__sg = sz.grain; }); // veio da chapa deste tamanho
       const res = runOnSize(remaining, sz.W, sz.H);
-      for (const s of res.sheets) sheets.push(s);
+      for (const s of res.sheets) { s.stockName = sz.name || ''; sheets.push(s); } // nome do estoque de origem
       remaining = res.unplaced;
     }
     return { sheets, unplaced: remaining };
@@ -841,11 +842,15 @@
     Object.keys(groups).forEach(material => {
       const sizes = sizesFor(material);
       const matName = o.considerMaterial ? material : 'Geral';
-      // cascata: chapas maiores primeiro; o que sobra cai no próximo tamanho
+      // cascata: chapas menores primeiro; o que sobra cai no próximo tamanho
       const res = runCascade(groups[material], sizes, o, (items, W, H) => packGroup(items, W, H, o, matName, o.maxSheets));
-      res.sheets.forEach((s, i) => { s.index = i + 1; sheets.push(s); });
+      res.sheets.forEach(s => sheets.push(s));
       res.unplaced.forEach(u => unplaced.push(u));
     });
+    // numera por (material + nome do estoque)
+    const perKey = {};
+    sheets.forEach(s => { const k = s.material + '|' + (s.stockName || ''); (perKey[k] = perKey[k] || []).push(s); });
+    Object.keys(perKey).forEach(k => perKey[k].forEach((s, i) => { s.index = i + 1; }));
     refineOffcuts(sheets); // decomposição ótima das sobras (só no resultado final)
 
     const byMaterial = {};
@@ -960,7 +965,7 @@
       const sheets = [], unplaced = [];
       groups.forEach(g => { if (!g.best) return; g.best.sheets.forEach(s => sheets.push(s)); g.best.unplaced.forEach(u => unplaced.push(u)); });
       const perMat = {};
-      sheets.forEach(s => { (perMat[s.material] = perMat[s.material] || []).push(s); });
+      sheets.forEach(s => { const k = s.material + '|' + (s.stockName || ''); (perMat[k] = perMat[k] || []).push(s); });
       Object.keys(perMat).forEach(k => perMat[k].forEach((s, i) => { s.index = i + 1; }));
       refineOffcuts(sheets); // decomposição ótima das sobras (só no resultado mostrado)
       const byMaterial = {};

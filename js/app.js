@@ -30,7 +30,7 @@
   // Serve para desligar peças sem excluí-las.
   // Versão exibida no cabeçalho. Reflete o app.js carregado na tela (útil para
   // saber se o cache do Service Worker já atualizou). Manter igual ao N de sw.js.
-  const APP_VERSION = 'v61';
+  const APP_VERSION = 'v62';
 
   const clampQty = v => Math.min(MAX_QTY, Math.max(1, Math.round(parseNum(v) || 1)));
 
@@ -1068,11 +1068,6 @@
     // Passa TODAS as linhas de estoque (o otimizador agrupa por material e usa
     // múltiplos tamanhos de chapa do mesmo material, em cascata — maior primeiro).
     const gstock = validStock().map(s => Object.assign({}, s, { material: materialGroupKey(s.material) }));
-    // nome da chapa por grupo de material (p/ rotular as chapas no plano)
-    const groupStock = {};
-    validStock().forEach(s => { const k = materialGroupKey(s.material); const nm = (s.name || '').trim(); if (nm && !(k in groupStock)) groupStock[k] = nm; });
-    const fb = validStock().find(s => !s.material);
-    const fallbackStock = (fb && (fb.name || '').trim()) || 'Chapa';
     const opts = {
       kerf: state.options.kerf,
       considerMaterial: true, // fixos (opções removidas da UI)
@@ -1080,13 +1075,14 @@
       allowRotate: true,
       weights: Optimizer.defaultWeights(),
     };
-    return { gpanels, gstock, groupLabel, groupStock, fallbackStock, opts };
+    return { gpanels, gstock, groupLabel, opts };
   }
 
-  // Re-rotula (chave de grupo → nome legível) para exibição; define o nome da chapa.
-  function relabelResult(result, groupLabel, groupStock, fallbackStock) {
+  // Re-rotula (chave de grupo → nome legível) para exibição. O nome da chapa
+  // (s.stockName) já vem do otimizador por chapa (tamanho de estoque de origem).
+  function relabelResult(result, groupLabel) {
     result.sheets.forEach(s => {
-      s.stockName = (groupStock && groupStock[s.material]) || fallbackStock || 'Chapa'; // antes de reatribuir s.material
+      if (!s.stockName) s.stockName = 'Chapa'; // fallback p/ chapa sem nome
       s.material = groupLabel[s.material] || s.material;
     });
     const bm2 = {};
@@ -1219,7 +1215,7 @@
     const inp = buildPlanInputs();
     if (!inp) { toast('Importe um CSV ou adicione peças.'); return; }
     const search = Optimizer.createSearch(inp.gpanels, inp.gstock, inp.opts);
-    live = { search, groupLabel: inp.groupLabel, groupStock: inp.groupStock, fallbackStock: inp.fallbackStock, raf: 0 };
+    live = { search, groupLabel: inp.groupLabel, raf: 0 };
     planStale = false;
     setRunButton(true);
     $('#plan-empty').style.display = 'none';
@@ -1248,7 +1244,7 @@
     } while (!info.converged && performance.now() - t0 < 14);
 
     if (improved) {
-      const result = relabelResult(search.result(), live.groupLabel, live.groupStock, live.fallbackStock);
+      const result = relabelResult(search.result(), live.groupLabel);
       state.plan = result;
       showResult(result);
       save();
