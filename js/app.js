@@ -30,7 +30,7 @@
   // Serve para desligar peças sem excluí-las.
   // Versão exibida no cabeçalho. Reflete o app.js carregado na tela (útil para
   // saber se o cache do Service Worker já atualizou). Manter igual ao N de sw.js.
-  const APP_VERSION = 'v53';
+  const APP_VERSION = 'v54';
 
   const clampQty = v => Math.min(MAX_QTY, Math.max(1, Math.round(parseNum(v) || 1)));
 
@@ -237,9 +237,9 @@
 
   // ---------- Linhas em branco ----------
   function blankPanel() { return { length: 0, width: 0, qty: 1, material: '', name: '', grain: '', bands: {} }; }
-  function blankStock() { return { width: 0, length: 0, qty: 1, material: '' }; }
+  function blankStock() { return { width: 0, length: 0, qty: 1, material: '', name: '' }; }
   const isBlankPanel = p => !(p.length > 0) && !(p.width > 0) && !String(p.material || '').trim() && !String(p.name || '').trim();
-  const isBlankStock = s => !(s.width > 0) && !(s.length > 0) && !String(s.material || '').trim();
+  const isBlankStock = s => !(s.width > 0) && !(s.length > 0) && !String(s.material || '').trim() && !String(s.name || '').trim();
   function ensureTrailingBlank(arr, isBlank, mk) { if (!arr.length || !isBlank(arr[arr.length - 1])) arr.push(mk()); }
   const validPanels = () => state.panels.filter(p => p.length > 0 && p.width > 0);
   const validStock = () => {
@@ -663,11 +663,11 @@
     const tdL = el('td', 'cell-num'); tdL.appendChild(numInput(s.length, 'Compr.', 'decimal', v => onStockField(s, 'length', v))); tr.appendChild(tdL);
     const tdQ = el('td', 'cell-qty'); tdQ.appendChild(numInput(s.qty, '1', 'numeric', v => onStockField(s, 'qty', v))); tr.appendChild(tdQ);
     const tdM = el('td', 'cell-mat'); tdM.appendChild(materialControl(s, v => onStockField(s, 'material', v))); tr.appendChild(tdM);
-    // nome da chapa (material) — abre o mesmo seletor ao tocar
-    const tdMN = el('td', 'cell-matname');
-    const mn = el('span', 'matname-text'); mn.textContent = s.material ? matLabel(s.material) : '—';
-    mn.title = 'Escolher material'; mn.addEventListener('click', () => openMaterialPicker(s.material || '', v => onStockField(s, 'material', v)));
-    tdMN.appendChild(mn); tr.appendChild(tdMN);
+    // nome da chapa (texto livre) — diferencia chapas parecidas
+    const tdNm = el('td', 'cell-name');
+    const nameInp = document.createElement('input'); nameInp.placeholder = 'nome'; nameInp.value = s.name || '';
+    nameInp.addEventListener('change', () => { const cap = capFirst(nameInp.value.trim()); nameInp.value = cap; onStockField(s, 'name', cap); });
+    tdNm.appendChild(nameInp); tr.appendChild(tdNm);
     if (s.grain == null) s.grain = 'v'; // padrão: veio ao longo do comprimento
     const tdV = el('td', 'cell-veio'); tdV.appendChild(veioButton(s, { stock: true, onCycle: () => { save(); markPlanStale(); } })); tr.appendChild(tdV);
     const tdD = el('td', 'cell-act'); tdD.appendChild(iconBtn('del', 'delete', 'Excluir', () => deleteRow('stock', s))); tr.appendChild(tdD);
@@ -676,10 +676,11 @@
   function onStockField(s, f, value) {
     if (f === 'material') s[f] = String(value).trim();
     else if (f === 'qty') s[f] = clampQty(value);
+    else if (f === 'name') s[f] = String(value).trim();
     else s[f] = parseNum(value);
     if (f === 'material') { save(); renderStock(); renderPanels(); }
     else { save(); afterRowEdit('stock'); }
-    if (validPanels().length) markPlanStale();
+    if (f !== 'name' && validPanels().length) markPlanStale(); // nome não afeta o plano
   }
   function renderStock() {
     ensureTrailingBlank(state.stock, isBlankStock, blankStock);

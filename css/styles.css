@@ -206,9 +206,6 @@ table.grid.compact th, table.grid.compact td { padding: 7px 3px; } /* linhas mai
 .cell-qty { width: 2.1rem; }
 .cell-qty input { text-align: center; }
 .cell-mat { width: 1.9rem; min-width: 1.9rem; } /* só o símbolo (chip), comprimido */
-.cell-matname { width: 4.6rem; }
-.matname-text { display: inline-block; max-width: 5.4rem; overflow: hidden; text-overflow: ellipsis;
-  white-space: nowrap; font-weight: 600; cursor: pointer; vertical-align: middle; }
 /* centralização (especificidade alta p/ vencer "table.grid td{text-align:left}") */
 table.grid th.cell-qty, table.grid td.cell-qty,
 table.grid th.cell-mat, table.grid td.cell-mat,
