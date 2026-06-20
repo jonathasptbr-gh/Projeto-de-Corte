@@ -1,5 +1,5 @@
 /* Service Worker — cache do app shell + recepção de CSV compartilhado. */
-const CACHE = 'projeto-corte-v66';
+const CACHE = 'projeto-corte-v67';
 const SHARE_CACHE = 'projeto-corte-share';
 const FONT_CACHE = 'projeto-corte-fonts'; // ícones do Google (persiste entre versões)
 const FONT_HOSTS = ['fonts.googleapis.com', 'fonts.gstatic.com'];
