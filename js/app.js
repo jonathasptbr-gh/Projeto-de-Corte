@@ -30,7 +30,7 @@
   // Serve para desligar peças sem excluí-las.
   // Versão exibida no cabeçalho. Reflete o app.js carregado na tela (útil para
   // saber se o cache do Service Worker já atualizou). Manter igual ao N de sw.js.
-  const APP_VERSION = 'v56';
+  const APP_VERSION = 'v57';
 
   const clampQty = v => Math.min(MAX_QTY, Math.max(1, Math.round(parseNum(v) || 1)));
 
@@ -966,13 +966,10 @@
     const bands = {};
     BAND_SIDES.forEach(s => { const sp = bandSpecOf(p, s); bands[s] = sp ? { w: sp.w, color: sp.color } : false; });
     editing = { p, btn, bands, brush: { w: 22, color: bandFallbackColor(p) } };
-    $('#bm-title').textContent = p.name ? p.name : 'Peça';
-    $('#bm-hint').textContent = `${fmtNum(p.width) || '?'} × ${fmtNum(p.length) || '?'} · escolha a fita no quadro e toque nos lados (toque de novo para retirar)`;
-    drawBandEditor(); paintBandChipEl();
+    drawBandEditor(); renderBandPalette();
     $('#band-modal').hidden = false;
   }
   function closeBandModal() { $('#band-modal').hidden = true; editing = null; }
-  function paintBandChipEl() { const chip = $('#bm-band-chip'); if (chip && editing) paintBandChip(chip, editing.brush.color, editing.brush.w); }
   function drawBandEditor() {
     const p = editing.p;
     const L = p.width > 0 ? p.width : 60, C = p.length > 0 ? p.length : 40;
@@ -982,21 +979,28 @@
     if (rw / rh > maxRatio) rh = rw / maxRatio; else if (rh / rw > maxRatio) rw = rh / maxRatio;
     const maxPx = 168, scale = maxPx / Math.max(rw, rh);
     const w = Math.round(rw * scale), h = Math.round(rh * scale);
-    const pad = 30, x0 = pad, y0 = pad, x1 = pad + w, y1 = pad + h;
+    const pad = 34, x0 = pad, y0 = pad, x1 = pad + w, y1 = pad + h, gap = 5;
     const b = editing.bands;
-    const edge = (s, ax, ay, bx, by) => {
-      const sp = b[s];
-      if (!sp) return `<line x1="${ax}" y1="${ay}" x2="${bx}" y2="${by}" stroke="#9aa39d" stroke-width="3" stroke-linecap="round"/>`;
-      return `<line x1="${ax}" y1="${ay}" x2="${bx}" y2="${by}" stroke="${sp.color}" stroke-width="${sp.w === 45 ? 12 : 8}" stroke-linecap="round"/>`;
+    // fitas: linha EXTERNA ao retângulo, com contorno preto fino (igual ao ícone)
+    const seg = (s, ax, ay, bx, by) => {
+      const sp = b[s]; if (!sp) return '';
+      const sw = sp.w === 45 ? 9 : 5;
+      return `<line x1="${ax}" y1="${ay}" x2="${bx}" y2="${by}" stroke="#000" stroke-width="${sw + 2}" stroke-linecap="round"/>` +
+        `<line x1="${ax}" y1="${ay}" x2="${bx}" y2="${by}" stroke="${sp.color}" stroke-width="${sw}" stroke-linecap="round"/>`;
     };
     const hit = (s, x, y, ww, hh) => `<rect class="edge-hit" data-side="${s}" x="${x}" y="${y}" width="${ww}" height="${hh}"/>`;
+    const cx = x0 + w / 2, cy = y0 + h / 2;
+    const fsName = Math.max(7, Math.min(Math.min(w, h) * 0.2, 16));
     const svg =
       `<svg viewBox="0 0 ${w + pad * 2} ${h + pad * 2}">` +
-      `<rect x="${x0}" y="${y0}" width="${w}" height="${h}" fill="#f3f1e7" stroke="#9aa39d"/>` +
-      edge('top', x0, y0, x1, y0) + edge('bottom', x0, y1, x1, y1) + edge('left', x0, y0, x0, y1) + edge('right', x1, y0, x1, y1) +
-      hit('top', x0, y0 - 14, w, 28) + hit('bottom', x0, y1 - 14, w, 28) + hit('left', x0 - 14, y0, 28, h) + hit('right', x1 - 14, y0, 28, h) +
-      `<text x="${x0 + w / 2}" y="${y0 - 16}" text-anchor="middle" font-size="13" fill="#555">${fmtNum(L)}</text>` +
-      `<text x="${x0 - 16}" y="${y0 + h / 2}" text-anchor="middle" font-size="13" fill="#555" transform="rotate(-90 ${x0 - 16} ${y0 + h / 2})">${fmtNum(C)}</text>` +
+      `<rect x="${x0}" y="${y0}" width="${w}" height="${h}" fill="#f3f1e7" stroke="#9aa39d" stroke-width="1.4"/>` +
+      seg('top', x0, y0 - gap, x1, y0 - gap) + seg('bottom', x0, y1 + gap, x1, y1 + gap) +
+      seg('left', x0 - gap, y0, x0 - gap, y1) + seg('right', x1 + gap, y0, x1 + gap, y1) +
+      hit('top', x0, y0 - 16, w, 22) + hit('bottom', x0, y1 - 6, w, 22) +
+      hit('left', x0 - 16, y0, 22, h) + hit('right', x1 - 6, y0, 22, h) +
+      `<text x="${cx}" y="${cy}" text-anchor="middle" dominant-baseline="central" font-size="${fsName}" fill="#2a2a2a" font-weight="700">${esc(p.name || 'Peça')}</text>` +
+      `<text x="${cx}" y="${y0 - 22}" text-anchor="middle" font-size="12" fill="#555">${fmtNum(L)}</text>` +
+      `<text x="${x0 - 22}" y="${cy}" text-anchor="middle" font-size="12" fill="#555" transform="rotate(-90 ${x0 - 22} ${cy})">${fmtNum(C)}</text>` +
       `</svg>`;
     const c = $('#bm-canvas'); c.innerHTML = svg;
     c.querySelectorAll('[data-side]').forEach(el2 => el2.addEventListener('click', () => {
@@ -1005,52 +1009,25 @@
       drawBandEditor();
     }));
   }
-  // Popup: escolhe o "material da fita" (cor) em 22 ou 45 mm. Branco está
-  // sempre disponível, mesmo sem um material branco no projeto.
-  function openBandMatPicker(curColor, curWidth, onPick) {
-    const mats = [{ label: 'Branco (fita)', color: '#ffffff' }];
+  // Paleta SEMPRE visível na base: cores × {22,45}. Branco está sempre presente.
+  // A opção selecionada (pincel) recebe um destaque de moldura.
+  function renderBandPalette() {
+    const box = $('#bm-palette'); if (!box || !editing) return;
+    const mats = [{ label: 'Branco', color: '#ffffff' }];
     materialsOrdered().forEach(m => { const c = matColor(m); if (String(c).toLowerCase() !== '#ffffff') mats.push({ label: matLabel(m), color: c }); });
-    const ov = el('div', 'modal-overlay dialog-overlay');
-    const card = el('div', 'modal dialog');
-    const head = el('div', 'dialog-head'); head.textContent = 'Material da fita';
-    const body = el('div', 'dialog-body');
-    const pick = el('div', 'mat-pick');
-    mats.forEach(mt => {
-      const row = el('div', 'band-pick-row');
-      const name = el('span', 'mat-pick-name'); name.textContent = mt.label;
-      const widths = el('span', 'band-pick-widths');
-      BAND_WIDTHS.forEach(wd => {
-        const sel = (String(mt.color).toLowerCase() === String(curColor).toLowerCase() && wd === curWidth);
-        const c = el('button', 'mat-chip band-w' + (sel ? ' sel' : '')); c.type = 'button';
-        paintBandChip(c, mt.color, wd);
-        c.addEventListener('click', () => { ov.remove(); document.removeEventListener('keydown', onKey); onPick(mt.color, wd); });
-        widths.appendChild(c);
-      });
-      row.appendChild(name); row.appendChild(widths); pick.appendChild(row);
-    });
-    body.appendChild(pick);
-    const actions = el('div', 'modal-actions');
-    const cancelBtn = el('button', 'btn'); cancelBtn.textContent = 'Cancelar';
-    actions.appendChild(cancelBtn);
-    card.appendChild(head); card.appendChild(body); card.appendChild(actions); ov.appendChild(card);
-    document.body.appendChild(ov);
-    const close = () => { ov.remove(); document.removeEventListener('keydown', onKey); };
-    cancelBtn.addEventListener('click', close);
-    ov.addEventListener('click', e => { if (e.target === ov) close(); });
-    function onKey(e) { if (e.key === 'Escape') { e.preventDefault(); close(); } }
-    document.addEventListener('keydown', onKey);
+    box.innerHTML = '';
+    mats.forEach(mt => BAND_WIDTHS.forEach(wd => {
+      const sel = (String(mt.color).toLowerCase() === String(editing.brush.color).toLowerCase() && wd === editing.brush.w);
+      const c = el('button', 'mat-chip band-w' + (sel ? ' sel' : '')); c.type = 'button';
+      paintBandChip(c, mt.color, wd); c.title = `${mt.label} · ${wd}mm`;
+      c.addEventListener('click', () => { editing.brush = { w: wd, color: mt.color }; renderBandPalette(); });
+      box.appendChild(c);
+    }));
   }
   function initBandModal() {
     $('#bm-close').addEventListener('click', closeBandModal);
     $('#bm-cancel').addEventListener('click', closeBandModal);
     $('#band-modal').addEventListener('click', e => { if (e.target.id === 'band-modal') closeBandModal(); });
-    $('#bm-band-chip').addEventListener('click', () => {
-      if (!editing) return;
-      openBandMatPicker(editing.brush.color, editing.brush.w, (color, width) => {
-        editing.brush = { w: width, color: color };
-        paintBandChipEl();
-      });
-    });
     $('#bm-ok').addEventListener('click', () => {
       if (!editing) return;
       const snap = editing.bands;

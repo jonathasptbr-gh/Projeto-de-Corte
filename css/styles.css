@@ -385,14 +385,10 @@ table.conditions tr.total td:last-child { background: #cfe0f0; }
 .band-editor svg { width: 100%; max-width: 260px; max-height: 42vh; height: auto; touch-action: manipulation; }
 .band-editor .edge-hit { fill: transparent; cursor: pointer; }
 .band-editor .edge { stroke-linecap: round; }
-.bm-band { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 4px 0 14px; font-size: .9rem; font-weight: 600; }
-#bm-band-chip { width: 46px; height: 32px; border-radius: 7px; font-size: .85rem; }
-/* picker de material da fita: por material, larguras 22 e 45 */
-.band-pick-row { display: flex; align-items: center; justify-content: space-between; gap: 10px;
-  padding: 6px 4px; border-bottom: 1px solid var(--line); }
-.band-pick-widths { display: flex; gap: 8px; flex: 0 0 auto; }
+/* paleta de fitas sempre visível na base do modal (cores × 22/45) */
+.bm-palette { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin: 8px 0 14px; }
 .band-w { width: 40px; height: 30px; border-radius: 7px; }
-.band-w.sel { outline: 2px solid var(--green); outline-offset: 1px; }
+.band-w.sel { outline: 3px solid var(--green); outline-offset: 2px; box-shadow: 0 0 0 1px #fff; }
 .modal-actions { display: flex; gap: 10px; justify-content: flex-end; }
 
 /* diálogos temáticos (alert/confirm/prompt) */
