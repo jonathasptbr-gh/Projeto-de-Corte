@@ -30,7 +30,7 @@
   // Serve para desligar peças sem excluí-las.
   // Versão exibida no cabeçalho. Reflete o app.js carregado na tela (útil para
   // saber se o cache do Service Worker já atualizou). Manter igual ao N de sw.js.
-  const APP_VERSION = 'v63';
+  const APP_VERSION = 'v64';
 
   const clampQty = v => Math.min(MAX_QTY, Math.max(1, Math.round(parseNum(v) || 1)));
 
@@ -1132,12 +1132,18 @@
     const usedArea = result.sheets.reduce((a, s) => a + s.placements.reduce((b, p) => b + (p.realW || p.w) * (p.realH || p.h), 0), 0);
     const eff = totalArea ? (usedArea / totalArea * 100) : 0;
     const m = Budget.metricsFromPlan(result, 'cm');
+    // chapas "ideais": se toda a área usada fosse compactada, quantas chapas dariam
+    let idealSheets = 0;
+    Object.keys(result.byMaterial).forEach(mat => {
+      const d = result.byMaterial[mat];
+      if (d.sheets > 0) idealSheets += Math.max(1, Math.ceil(d.usedArea / (d.area / d.sheets)));
+    });
 
     if (emptyEl) emptyEl.style.display = 'none';
     metricsEl.innerHTML =
-      metric('Chapas', result.sheets.length) + metric('Peças', pieces) + metric('Cortes', cuts) +
-      metric('Fita (m)', numFmt(m.bandMeters)) + metric('Aproveit.', eff.toFixed(1) + '%') +
-      metric('Não couberam', result.unplaced.length);
+      metric('Chapas', result.sheets.length) + metric('Ideal', idealSheets) +
+      metric('Peças', pieces) + metric('Aproveit.', eff.toFixed(1) + '%') +
+      metric('Fita (m)', numFmt(m.bandMeters)) + metric('Não couberam', result.unplaced.length);
 
     const bm = result.byMaterial; let rows = '';
     Object.keys(bm).forEach(mat => {
@@ -1177,25 +1183,40 @@
     box.hidden = false;
     const total = items.length;
     const head = el('div', 'unplaced-head');
-    head.innerHTML = `<span class="material-symbols-outlined">warning</span>` +
-      `<b>${total} peça(s) não couberam.</b> Ajuste medidas, quantidade, material ou veio aqui — ou aumente o estoque — e recalcule.`;
+    head.innerHTML = `<span class="material-symbols-outlined">warning</span><b>${total} peça(s) não couberam</b>`;
     box.appendChild(head);
-    if (!order.length) return; // não achou correspondência (peças editadas após o cálculo)
-    const table = el('table', 'grid compact');
-    table.innerHTML =
-      `<thead><tr><th class="cell-act"></th><th class="cell-num">Larg.</th><th class="cell-num">Compr.</th>` +
-      `<th class="cell-qty">Qtd</th><th class="cell-mat">Mat</th><th class="cell-name">Nome</th>` +
-      `<th class="cell-veio">Veio</th><th class="cell-fita">Fita</th><th class="cell-act">Faltou</th></tr></thead>`;
-    const tbody = el('tbody');
-    order.forEach(p => {
-      const tr = makePanelRow(p);
-      // troca o último botão (excluir) por um marcador de quantas unidades faltaram
-      const last = tr.lastChild; if (last) { last.textContent = count.get(p) + '×'; last.className = 'cell-act unplaced-count'; }
-      tbody.appendChild(tr);
-    });
-    table.appendChild(tbody);
-    const wrap = el('div', 'table-wrap'); wrap.appendChild(table);
-    box.appendChild(wrap);
+    if (order.length) {
+      const table = el('table', 'grid compact');
+      table.innerHTML =
+        `<thead><tr><th class="cell-act"></th><th class="cell-num">Larg.</th><th class="cell-num">Compr.</th>` +
+        `<th class="cell-qty">Qtd</th><th class="cell-mat">Mat</th><th class="cell-name">Nome</th>` +
+        `<th class="cell-veio">Veio</th><th class="cell-fita">Fita</th><th class="cell-act">Faltou</th></tr></thead>`;
+      const tbody = el('tbody');
+      order.forEach(p => {
+        const tr = makePanelRow(p);
+        const last = tr.lastChild; if (last) { last.textContent = count.get(p) + '×'; last.className = 'cell-act unplaced-count'; }
+        tbody.appendChild(tr);
+      });
+      table.appendChild(tbody);
+      const wrap = el('div', 'table-wrap'); wrap.appendChild(table);
+      box.appendChild(wrap);
+    }
+    // Estoque (chapas) editável — mudar o estoque também pode resolver
+    const stock = state.stock.filter(s => s.width > 0 && s.length > 0);
+    if (stock.length) {
+      const lbl = el('div', 'unplaced-sub'); lbl.textContent = 'Estoque (chapas) — ajuste se quiser';
+      box.appendChild(lbl);
+      const st = el('table', 'grid compact');
+      st.innerHTML =
+        `<thead><tr><th class="cell-act"></th><th class="cell-num">Larg.</th><th class="cell-num">Compr.</th>` +
+        `<th class="cell-qty">Qtd</th><th class="cell-mat">Mat</th><th class="cell-name">Nome</th>` +
+        `<th class="cell-veio">Veio</th><th class="cell-act"></th></tr></thead>`;
+      const sb = el('tbody');
+      stock.forEach(s => sb.appendChild(makeStockRow(s)));
+      st.appendChild(sb);
+      const sw = el('div', 'table-wrap'); sw.appendChild(st);
+      box.appendChild(sw);
+    }
   }
 
   // ---------- Busca contínua (testa e melhora ao vivo) ----------

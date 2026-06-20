@@ -149,7 +149,10 @@ details.opt-details .options-grid { padding: 6px 0 10px; }
 .plan-unplaced[hidden] { display: none; }
 .unplaced-head { display: flex; align-items: center; gap: 8px; color: #c0392b; font-size: .9rem; margin-bottom: 8px; }
 .unplaced-head .material-symbols-outlined { font-size: 20px; flex: 0 0 auto; }
-.unplaced-count { color: #c0392b; font-weight: 800; font-size: .8rem; text-align: center; white-space: nowrap; }
+.unplaced-sub { font-size: .8rem; font-weight: 700; color: var(--muted); margin: 12px 0 6px; }
+/* fundo branco nas tabelas (senão o vermelho do bloco vaza nas linhas ímpares) */
+.plan-unplaced table.grid { background: #fff; border-radius: 6px; overflow: hidden; }
+table.grid td.unplaced-count { color: #c0392b; font-weight: 800; font-size: .8rem; text-align: center; white-space: nowrap; }
 .btn.searching { background: #b9521a; border-color: #b9521a; color: #fff; }
 .btn.searching:hover { filter: brightness(1.05); }
 @keyframes livepulse { 0%,100% { opacity: 1; } 50% { opacity: .55; } }
