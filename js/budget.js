@@ -57,7 +57,10 @@
     let b22w = 0, b45w = 0, b22c = 0, b45c = 0; // comprimento por largura/cor
 
     result.sheets.forEach(s => {
-      if (isWhite(s.material)) sheetsWhite++; else sheetsColor++;
+      // materialWhite é gravado por relabelResult (cor hex do grupo) antes de
+      // substituir a chave pelo rótulo; evita depender do nome editável pelo usuário.
+      const white = s.materialWhite !== undefined ? s.materialWhite : isWhite(s.material);
+      if (white) sheetsWhite++; else sheetsColor++;
       cuts += s.cuts;
       s.placements.forEach(p => {
         pieces++;
