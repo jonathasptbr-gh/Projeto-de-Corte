@@ -32,7 +32,7 @@
   // Serve para desligar peças sem excluí-las.
   // Versão exibida no cabeçalho. Reflete o app.js carregado na tela (útil para
   // saber se o cache do Service Worker já atualizou). Manter igual ao N de sw.js.
-  const APP_VERSION = 'v83';
+  const APP_VERSION = 'v84';
 
   const clampQty = v => Math.min(MAX_QTY, Math.max(1, Math.round(parseNum(v) || 1)));
 
@@ -86,12 +86,14 @@
       materials: Array.isArray(d.materials) ? d.materials.slice() : [],
       budgetQtys,
       budgetCfg: {
-        laborPct:       dc.laborPct       != null ? dc.laborPct       : e.budgetCfg.laborPct,
-        complexidade:   dc.complexidade   != null ? dc.complexidade   : e.budgetCfg.complexidade,
-        daysPerPiece:   dc.daysPerPiece   != null ? dc.daysPerPiece   : e.budgetCfg.daysPerPiece,
-        creditVistaFee: dc.creditVistaFee != null ? dc.creditVistaFee : e.budgetCfg.creditVistaFee,
-        credit6xFee:    dc.credit6xFee    != null ? dc.credit6xFee    : e.budgetCfg.credit6xFee,
-        credit12xFee:   dc.credit12xFee   != null ? dc.credit12xFee   : e.budgetCfg.credit12xFee,
+        laborPct:     dc.laborPct     != null ? dc.laborPct     : e.budgetCfg.laborPct,
+        complexidade: dc.complexidade != null ? dc.complexidade : e.budgetCfg.complexidade,
+        // daysPerPiece (v83) migra para daysPerUnit
+        daysPerUnit:  dc.daysPerUnit  != null ? dc.daysPerUnit  : (dc.daysPerPiece != null ? dc.daysPerPiece : e.budgetCfg.daysPerUnit),
+        fixacaoRate:  dc.fixacaoRate  != null ? dc.fixacaoRate  : e.budgetCfg.fixacaoRate,
+        entradaPct:   dc.entradaPct   != null ? dc.entradaPct   : e.budgetCfg.entradaPct,
+        credit6xFee:  dc.credit6xFee  != null ? dc.credit6xFee  : e.budgetCfg.credit6xFee,
+        credit12xFee: dc.credit12xFee != null ? dc.credit12xFee : e.budgetCfg.credit12xFee,
       },
       budgetDescription: d.budgetDescription || '',
       budgetPhoto: d.budgetPhoto || '',
@@ -1326,7 +1328,9 @@
 
   // ---------- Orçamento ----------
   function getBudgetMetrics() {
-    return state.plan ? Budget.metricsFromPlan(state.plan, 'cm') : {};
+    const m = state.plan ? Budget.metricsFromPlan(state.plan, 'cm') : {};
+    m.fixacaoAuto = Math.round((m.totalN || 0) * (state.budgetCfg.fixacaoRate || 0) * 100) / 100;
+    return m;
   }
 
   function renderBudget() {
@@ -1343,14 +1347,14 @@
     const body = $('#budget-body'); if (!body) return;
     body.innerHTML = '';
     items.forEach(it => {
-      const auto = it.type === 'auto';
+      const auto = it.type === 'auto' || it.type === 'auto-value';
       const qty  = auto ? (metrics[it.src] != null ? metrics[it.src] : 0) : (qtys[it.key] || 0);
       const sub  = Budget.subtotalItem(it, qty);
       const tr = el('tr');
       const qtyTd = auto
         ? `<td class="bgt-qty auto">${numFmt(qty)}</td>`
         : `<td class="bgt-qty"><input class="qty-inp" inputmode="decimal" value="${qty}" data-k="${it.key}"></td>`;
-      const unitTd = it.type === 'value'
+      const unitTd = (it.type === 'value' || it.type === 'auto-value')
         ? `<td class="bgt-unit">—</td>`
         : `<td class="bgt-unit">${brl(it.price)}</td>`;
       tr.innerHTML = `<td class="bgt-name">${esc(it.label)}</td>${qtyTd}${unitTd}<td class="bgt-sub">${brl(sub)}</td>`;
@@ -1372,7 +1376,8 @@
     // Subtotais na tabela
     $$('#budget-body tr').forEach((tr, i) => {
       const it  = items[i]; if (!it) return;
-      const qty = it.type === 'auto'
+      const auto = it.type === 'auto' || it.type === 'auto-value';
+      const qty = auto
         ? (metrics[it.src] != null ? metrics[it.src] : 0)
         : (qtys[it.key] || 0);
       const subEl = tr.querySelector('.bgt-sub');
@@ -1395,18 +1400,23 @@
       }
     }
 
-    // Condições de pagamento
     const t = Budget.totals(items, qtys, metrics, state.budgetCfg);
+
+    // Custos do serviço
+    const costsEl = $('#costs-table');
+    if (costsEl) {
+      costsEl.innerHTML =
+        row('Tempo de produção', (Math.round(t.days * 10) / 10).toLocaleString('pt-BR') + ' Dias') +
+        row('Mão de obra', brl(t.labor)) +
+        (t.complexTotal > 0 ? row('Complexidade', brl(t.complexTotal)) : '');
+    }
+
+    // Condições para o cliente
     const condEl = $('#conditions-table');
     if (condEl) {
       condEl.innerHTML =
-        row('Tempo de produção', (Math.round(t.days * 10) / 10).toLocaleString('pt-BR') + ' Dias') +
-        row('Valor de Entrada', brl(t.entrada)) +
-        row('Mão de obra', brl(t.labor)) +
-        (t.complexTotal > 0 ? row('Complexidade', brl(t.complexTotal)) : '') +
-        `<tr class="cond-pix">${cell('Valor no Pix')}${cell(brl(t.pix))}</tr>` +
-        `<tr class="cond-credit">${cell('Crédito à vista')}${cell(brl(t.creditVista))}</tr>` +
-        `<tr class="cond-credit">${cell('Crédito até 6x')}${cell(brl(t.credit6x) + '<span class="cond-sub">' + brl(t.credit6x / 6) + '/mês</span>')}</tr>` +
+        `<tr class="cond-pix">${cell('Pix')}${cell(brl(t.pix))}</tr>` +
+        `<tr class="cond-credit">${cell('Entrada + Entrega')}${cell(brl(t.entradaVal) + ' + ' + brl(t.entregaVal))}</tr>` +
         `<tr class="cond-credit">${cell('Crédito até 12x')}${cell(brl(t.credit12x) + '<span class="cond-sub">' + brl(t.credit12x / 12) + '/mês</span>')}</tr>`;
     }
 
@@ -1504,9 +1514,13 @@
   function openConditionsGearModal() {
     const c = state.budgetCfg;
     const sv = (id, v) => { const e = $(id); if (e) e.value = v; };
-    sv('#cfg-labor', c.laborPct); sv('#cfg-complexidade', c.complexidade);
-    sv('#cfg-days', c.daysPerPiece); sv('#cfg-credit-vista', c.creditVistaFee);
-    sv('#cfg-credit-6x', c.credit6xFee); sv('#cfg-credit-12x', c.credit12xFee);
+    sv('#cfg-labor', c.laborPct);
+    sv('#cfg-complexidade', c.complexidade);
+    sv('#cfg-fixacao-rate', c.fixacaoRate);
+    sv('#cfg-days', c.daysPerUnit);
+    sv('#cfg-entrada-pct', c.entradaPct);
+    sv('#cfg-credit-6x', c.credit6xFee);
+    sv('#cfg-credit-12x', c.credit12xFee);
     $('#conditions-cfg-modal').hidden = false;
   }
 
@@ -1549,8 +1563,9 @@
     };
     bindCfg('#cfg-labor', 'laborPct');
     bindCfg('#cfg-complexidade', 'complexidade');
-    bindCfg('#cfg-days', 'daysPerPiece');
-    bindCfg('#cfg-credit-vista', 'creditVistaFee');
+    bindCfg('#cfg-fixacao-rate', 'fixacaoRate');
+    bindCfg('#cfg-days', 'daysPerUnit');
+    bindCfg('#cfg-entrada-pct', 'entradaPct');
     bindCfg('#cfg-credit-6x', 'credit6xFee');
     bindCfg('#cfg-credit-12x', 'credit12xFee');
   }

@@ -29,7 +29,7 @@
       { key: 'puxador',       label: 'Puxador',            type: 'manual', price: 39.00   },
       { key: 'cabideiro',     label: 'Cabideiro',          type: 'manual', price: 30.00   },
       { key: 'eletrica',      label: 'Elétrica',           type: 'value',  price: 1.00    },
-      { key: 'fixacao',       label: 'Fixação',            type: 'value',  price: 1.00    },
+      { key: 'fixacao',       label: 'Fixação',            type: 'auto-value', src: 'fixacaoAuto', price: 1.00 },
       { key: 'frete',         label: 'Frete (KM)',         type: 'manual', price: 6.00    },
       { key: 'extras',        label: 'Extras',             type: 'value',  price: 1.00    },
     ];
@@ -38,12 +38,13 @@
   // Configuração padrão por projeto.
   function defaultCfg() {
     return {
-      laborPct:       80,
-      complexidade:   0,
-      daysPerPiece:   0.105,
-      creditVistaFee: 5,
-      credit6xFee:    10,
-      credit12xFee:   15,
+      laborPct:     80,
+      complexidade: 0,
+      daysPerUnit:  0.105,
+      fixacaoRate:  0,
+      entradaPct:   50,
+      credit6xFee:  10,
+      credit12xFee: 15,
     };
   }
 
@@ -88,33 +89,36 @@
     const band22Color = m(b22c), band45Color = m(b45c / 2);
     const bandMeters  = Math.round((band22White + band45White + band22Color + band45Color) * 10) / 10;
     const fitasTotal  = Math.round((band22White + band22Color + (band45White + band45Color) * 2) * 10) / 10;
-    return { sheetsWhite, sheetsColor, pieces, cuts, band22White, band45White, band22Color, band45Color, bandMeters, fitasTotal };
+    const totalN      = Math.round((pieces + fitasTotal + cuts) * 10) / 10;
+    return { sheetsWhite, sheetsColor, pieces, cuts, band22White, band45White, band22Color, band45Color, bandMeters, fitasTotal, totalN };
   }
 
   // Subtotal de um item dado sua quantidade.
   function subtotalItem(it, qty) {
-    if (it.type === 'value') return qty || 0;
+    if (it.type === 'value' || it.type === 'auto-value') return qty || 0;
     return (qty || 0) * it.price;
   }
 
   // Totais do orçamento.
   // items: definição global; qtys: {key:qty} por projeto; metrics: do plano; cfg: por projeto.
   function totals(items, qtys, metrics, cfg) {
-    const getQty = it => it.type === 'auto'
+    const getQty = it => (it.type === 'auto' || it.type === 'auto-value')
       ? (metrics && metrics[it.src] != null ? metrics[it.src] : 0)
       : (qtys[it.key] || 0);
-    const entrada = items.reduce((a, it) => a + subtotalItem(it, getQty(it)), 0);
-    const labor   = entrada * ((cfg.laborPct || 0) / 100);
-    const fitas   = (metrics && metrics.fitasTotal) || 0;
-    const pieces  = (metrics && metrics.pieces)     || 0;
-    const cuts    = (metrics && metrics.cuts)       || 0;
-    const complexTotal = (cfg.complexidade || 0) * (pieces + fitas + cuts);
-    const pix         = entrada + labor + complexTotal;
-    const creditVista = pix * (1 + (cfg.creditVistaFee || 0) / 100);
-    const credit6x    = pix * (1 + (cfg.credit6xFee    || 0) / 100);
-    const credit12x   = pix * (1 + (cfg.credit12xFee   || 0) / 100);
-    const days        = pieces * (cfg.daysPerPiece || 0);
-    return { entrada, labor, complexTotal, pix, creditVista, credit6x, credit12x, days, pieces, fitas, cuts };
+    const entrada    = items.reduce((a, it) => a + subtotalItem(it, getQty(it)), 0);
+    const labor      = entrada * ((cfg.laborPct || 0) / 100);
+    const totalN     = (metrics && metrics.totalN) || 0;
+    const pieces     = (metrics && metrics.pieces) || 0;
+    const fitas      = (metrics && metrics.fitasTotal) || 0;
+    const cuts       = (metrics && metrics.cuts) || 0;
+    const complexTotal = (cfg.complexidade || 0) * totalN;
+    const pix        = entrada + labor + complexTotal;
+    const credit6x   = pix * (1 + (cfg.credit6xFee  || 0) / 100);
+    const credit12x  = pix * (1 + (cfg.credit12xFee || 0) / 100);
+    const entradaVal = credit6x * ((cfg.entradaPct || 0) / 100);
+    const entregaVal = credit6x - entradaVal;
+    const days       = totalN * (cfg.daysPerUnit || 0);
+    return { entrada, labor, complexTotal, pix, credit6x, credit12x, entradaVal, entregaVal, days, totalN, pieces, fitas, cuts };
   }
 
   global.Budget = { defaultItems, defaultCfg, metricsFromPlan, subtotalItem, totals, isWhite };
