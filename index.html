@@ -131,13 +131,13 @@
       <div class="card budget-hdr">
         <div class="budget-photo-area" id="budget-photo-area">
           <img id="budget-photo-img" class="budget-photo-img" hidden alt="" />
-          <label class="budget-photo-placeholder" for="budget-photo-input" id="budget-photo-placeholder">
+          <div class="budget-photo-placeholder" id="budget-photo-placeholder">
             <span class="material-symbols-outlined">add_photo_alternate</span>
             <span>Foto</span>
-          </label>
-          <label class="budget-photo-edit" for="budget-photo-input" id="budget-photo-edit" hidden>
+          </div>
+          <div class="budget-photo-edit" id="budget-photo-edit" hidden>
             <span class="material-symbols-outlined">photo_camera</span>
-          </label>
+          </div>
           <button class="budget-photo-del" id="budget-photo-del" type="button" hidden>
             <span class="material-symbols-outlined">close</span>
           </button>
@@ -288,10 +288,10 @@
     <div class="photo-viewer-inner">
       <img id="photo-viewer-img" alt="" />
       <div class="photo-viewer-actions">
-        <label class="btn primary" for="budget-photo-input">
+        <button class="btn primary" id="photo-viewer-replace" type="button">
           <span class="material-symbols-outlined">photo_camera</span>Substituir
-        </label>
-        <button class="btn" id="photo-viewer-close">
+        </button>
+        <button class="btn" id="photo-viewer-close" type="button">
           <span class="material-symbols-outlined">close</span>Fechar
         </button>
       </div>
