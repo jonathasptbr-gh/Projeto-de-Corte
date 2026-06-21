@@ -133,15 +133,16 @@
       const dw = p.realW || p.w, dh = p.realH || p.h; // medida REAL no rótulo (slot pode ser maior)
       const small = Math.min(p.w, p.h);
       const cx = x + p.w / 2, cy = y + p.h / 2;
-      // fonte proporcional à MENOR medida da peça, piso menor p/ peças pequenas
-      const fsDim = Math.max(1.6, Math.min(small * 0.2, 7));
-      // largura: 30% acima do centro; comprimento: 30% à esquerda do centro
-      const mxW = cx,              myW = cy - p.h * 0.30;
-      const mxH = cx - p.w * 0.30, myH = cy;
-      parts.push(`<text x="${mxW}" y="${myW}" font-size="${fsDim}" text-anchor="middle" dominant-baseline="central" fill="#555">${fmt(dw)}</text>`);
+      // fonte proporcional à MENOR medida da peça; mínimo dobrado para peças pequenas
+      const fsDim = Math.max(3.2, Math.min(small * 0.2, 7));
+      // largura: colada na borda SUPERIOR, deslocada 30% para a esquerda ao longo dela
+      const mxW = cx - p.w * 0.30, myW = y + fsDim * 1.05;
+      // comprimento: colado na borda ESQUERDA, deslocado 30% para cima ao longo dela
+      const mxH = x + fsDim * 1.05, myH = cy - p.h * 0.30;
+      parts.push(`<text x="${mxW}" y="${myW}" font-size="${fsDim}" text-anchor="middle" fill="#555">${fmt(dw)}</text>`);
       parts.push(`<text x="${mxH}" y="${myH}" font-size="${fsDim}" text-anchor="middle" dominant-baseline="central" fill="#555" transform="rotate(-90 ${mxH} ${myH})">${fmt(dh)}</text>`);
-      // nome centralizado na peça — fica entre as duas medidas deslocadas
-      const fsName = Math.max(1.6, Math.min(small * 0.2, 8));
+      // nome centralizado na peça — afastado das medidas que ficam no canto sup-esq
+      const fsName = Math.max(3.2, Math.min(small * 0.2, 8));
       parts.push(`<text x="${cx}" y="${cy}" font-size="${fsName}" text-anchor="middle" dominant-baseline="central" fill="#2a2a2a" font-weight="600">${esc(p.name)}</text>`);
     });
 
