@@ -32,7 +32,7 @@
   // Serve para desligar peças sem excluí-las.
   // Versão exibida no cabeçalho. Reflete o app.js carregado na tela (útil para
   // saber se o cache do Service Worker já atualizou). Manter igual ao N de sw.js.
-  const APP_VERSION = 'v88';
+  const APP_VERSION = 'v89';
 
   const clampQty = v => Math.min(MAX_QTY, Math.max(1, Math.round(parseNum(v) || 1)));
 
@@ -1410,7 +1410,7 @@
         row('Tempo de produção', (Math.round(t.days * 10) / 10).toLocaleString('pt-BR') + ' Dias') +
         row('Materiais', brl(t.entrada)) +
         row('Mão de obra', brl(t.labor)) +
-        (t.totalN > 0 ? row('Complexidade (IC: ' + numFmt(t.totalN) + ')', brl(t.complexTotal)) : '') +
+        (t.totalN > 0 ? row('Complexidade (' + numFmt(t.totalN) + ')', brl(t.complexTotal)) : '') +
         `<tr class="costs-total"><td>Total</td><td>${brl(t.pix)}</td></tr>`;
     }
 
