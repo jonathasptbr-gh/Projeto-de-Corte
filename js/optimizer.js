@@ -890,7 +890,112 @@
     return sheets;
   }
 
-  // Tenta unir duas chapas do mesmo material e mesmas dimensões re-empacotando
+  // Verifica se um conjunto de placements em W×H é compatível com corte
+  // guilhotinado puro: existe alguma sequência de cortes de lado a lado que
+  // os separa recursivamente. Diferente de guillotineOffcuts (que decompõe a
+  // SOBRA), esta função decide se o layout COMPLETO é guilhotinável.
+  function isGuillotineFeasible(W, H, placements) {
+    if (placements.length <= 1) return true;
+    const memo = new Map();
+    const key = ps => ps.map(p => p.x.toFixed(1) + ',' + p.y.toFixed(1)).sort().join('|');
+    function ok(x, y, w, h, items) {
+      if (items.length <= 1) return true;
+      const k = x.toFixed(1) + '|' + y.toFixed(1) + '|' + w.toFixed(1) + '|' + h.toFixed(1) + '|' + key(items);
+      if (memo.has(k)) return memo.get(k);
+      let res = false;
+      const xs = new Set(), ys = new Set();
+      items.forEach(p => { xs.add(p.x); xs.add(p.x + p.w); ys.add(p.y); ys.add(p.y + p.h); });
+      outer: {
+        for (const X of xs) {
+          if (X <= x + EPS || X >= x + w - EPS) continue;
+          if (items.every(p => p.x + p.w <= X + EPS || p.x >= X - EPS)) {
+            const L = items.filter(p => p.x + p.w <= X + EPS);
+            const R = items.filter(p => p.x >= X - EPS);
+            if (L.length && R.length && ok(x, y, X - x, h, L) && ok(X, y, x + w - X, h, R)) {
+              res = true; break outer;
+            }
+          }
+        }
+        for (const Y of ys) {
+          if (Y <= y + EPS || Y >= y + h - EPS) continue;
+          if (items.every(p => p.y + p.h <= Y + EPS || p.y >= Y - EPS)) {
+            const T = items.filter(p => p.y + p.h <= Y + EPS);
+            const B = items.filter(p => p.y >= Y - EPS);
+            if (T.length && B.length && ok(x, y, w, Y - y, T) && ok(x, Y, w, y + h - Y, B)) {
+              res = true; break outer;
+            }
+          }
+        }
+      }
+      memo.set(k, res);
+      return res;
+    }
+    return ok(0, 0, W, H, placements.slice());
+  }
+
+  // Tenta mover peças da chapa menos cheia para chapas mais cheias testando
+  // QUALQUER posição na área livre (não apenas slots da decomposição guilhotinada).
+  // Para cada posição candidata: (1) verifica não-sobreposição com peças existentes;
+  // (2) verifica se o layout completo resultante ainda admite corte guilhotinado puro.
+  // Captura o caso em que a sobra é irregular (L, T, dentes, etc.) e nenhum
+  // retângulo isolado é grande o suficiente, mas a UNIÃO da sobra tem espaço.
+  function consolidateByFreeArea(sheets, o) {
+    if (sheets.length < 2) return;
+    const fillRate = s => s.placements.length
+      ? s.placements.reduce((a, p) => a + (p.realW || p.w) * (p.realH || p.h), 0) / (s.W * s.H)
+      : 0;
+    let madeProgress = true;
+    while (madeProgress) {
+      madeProgress = false;
+      let srcIdx = -1, minFill = Infinity;
+      for (let i = 0; i < sheets.length; i++) {
+        const f = fillRate(sheets[i]);
+        if (f < minFill) { minFill = f; srcIdx = i; }
+      }
+      if (srcIdx < 0 || sheets.length < 2) break;
+      const src = sheets[srcIdx];
+      if (!src.placements.length) { sheets.splice(srcIdx, 1); madeProgress = true; continue; }
+      const targets = sheets
+        .filter((_, i) => i !== srcIdx && sheets[i].material === src.material)
+        .sort((a, b) => fillRate(b) - fillRate(a));
+      if (!targets.length) break;
+      for (let pi = src.placements.length - 1; pi >= 0; pi--) {
+        const p = src.placements[pi];
+        for (const tgt of targets) {
+          // Posições candidatas: coordenadas de bordas das peças existentes
+          const xs = new Set([0]), ys = new Set([0]);
+          tgt.placements.forEach(q => { xs.add(q.x); xs.add(q.x + q.w); ys.add(q.y); ys.add(q.y + q.h); });
+          const xArr = Array.from(xs).sort((a, b) => a - b);
+          const yArr = Array.from(ys).sort((a, b) => a - b);
+          let placed = false;
+          xloop: for (const x of xArr) {
+            if (x + p.w > tgt.W + EPS) continue;
+            for (const y of yArr) {
+              if (y + p.h > tgt.H + EPS) continue;
+              // 1. Sem sobreposição com peças existentes
+              if (tgt.placements.some(q =>
+                x < q.x + q.w - EPS && x + p.w > q.x + EPS &&
+                y < q.y + q.h - EPS && y + p.h > q.y + EPS)) continue;
+              // 2. Layout completo (peças antigas + nova) ainda é guilhotinável
+              if (!isGuillotineFeasible(tgt.W, tgt.H, tgt.placements.concat([{ x, y, w: p.w, h: p.h }]))) continue;
+              tgt.placements.push({ ...p, x, y });
+              src.placements.splice(pi, 1);
+              madeProgress = true;
+              placed = true;
+              break xloop;
+            }
+          }
+          if (placed) break;
+        }
+      }
+    }
+    for (let i = sheets.length - 1; i >= 0; i--) {
+      if (!sheets[i].placements.length) sheets.splice(i, 1);
+    }
+    sheets.forEach(s => { s.free = guillotineOffcuts(s); s.cuts = countGuillotineCuts(s.W, s.H, s.placements); });
+  }
+
+
   // todas as suas peças numa única. Quando consolidateSheets falha porque não
   // existe espaço contíguo suficiente no layout atual, um re-empacotamento
   // completo deste subconjunto de peças pode descobrir um arranjo que cabe numa
@@ -993,6 +1098,7 @@
     });
     const finalUnplaced = backfillUnplaced(sheets, unplaced, o);
     consolidateSheets(sheets, o);
+    consolidateByFreeArea(sheets, o);
     let _rLen;
     do { _rLen = sheets.length; repackMerge(sheets, o); } while (sheets.length < _rLen);
     // numera por (material + nome do estoque) após consolidação
@@ -1119,6 +1225,7 @@
       });
       const unplaced = backfillUnplaced(sheets, rawUnplaced, o);
       consolidateSheets(sheets, o);
+      consolidateByFreeArea(sheets, o);
       // Tenta fundir chapas pouco cheias num único re-empacotamento
       let _prevLen;
       do { _prevLen = sheets.length; repackMerge(sheets, o); } while (sheets.length < _prevLen);
