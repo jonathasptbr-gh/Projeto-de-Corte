@@ -135,14 +135,14 @@
       const cx = x + p.w / 2, cy = y + p.h / 2;
       // fonte proporcional à MENOR medida da peça, piso menor p/ peças pequenas
       const fsDim = Math.max(1.6, Math.min(small * 0.2, 7));
-      // largura na lateral superior (centro); comprimento na lateral esquerda (centro)
-      parts.push(`<text x="${cx}" y="${y + fsDim * 1.05}" font-size="${fsDim}" text-anchor="middle" fill="#555">${fmt(dw)}</text>`);
-      parts.push(`<text x="${x + fsDim * 1.05}" y="${cy}" font-size="${fsDim}" text-anchor="middle" dominant-baseline="central" fill="#555" transform="rotate(-90 ${x + fsDim * 1.05} ${cy})">${fmt(dh)}</text>`);
-      // nome deslocado para o quadrante superior-esquerdo — fora das linhas
-      // centrais (onde ficam os números das bordas), então nunca os cobre.
+      // largura: 30% acima do centro; comprimento: 30% à esquerda do centro
+      const mxW = cx,              myW = cy - p.h * 0.30;
+      const mxH = cx - p.w * 0.30, myH = cy;
+      parts.push(`<text x="${mxW}" y="${myW}" font-size="${fsDim}" text-anchor="middle" dominant-baseline="central" fill="#555">${fmt(dw)}</text>`);
+      parts.push(`<text x="${mxH}" y="${myH}" font-size="${fsDim}" text-anchor="middle" dominant-baseline="central" fill="#555" transform="rotate(-90 ${mxH} ${myH})">${fmt(dh)}</text>`);
+      // nome centralizado na peça — fica entre as duas medidas deslocadas
       const fsName = Math.max(1.6, Math.min(small * 0.2, 8));
-      const nx = x + p.w * 0.25, ny = y + p.h * 0.25;
-      parts.push(`<text x="${nx}" y="${ny}" font-size="${fsName}" text-anchor="middle" dominant-baseline="central" fill="#2a2a2a" font-weight="600">${esc(p.name)}</text>`);
+      parts.push(`<text x="${cx}" y="${cy}" font-size="${fsName}" text-anchor="middle" dominant-baseline="central" fill="#2a2a2a" font-weight="600">${esc(p.name)}</text>`);
     });
 
     // sobras reaproveitáveis — sem preenchimento; medidas nas BORDAS (igual às peças)
@@ -170,7 +170,7 @@
     const hFull = cuts.filter(c => c.orient === 'h' && c.a <= EPS && c.b >= W - EPS).map(c => c.pos);
     const colsX = Array.from(new Set([0, ...vFull, W])).sort((a, b) => a - b);
     const rowsY = Array.from(new Set([0, ...hFull, H])).sort((a, b) => a - b);
-    const ruler = '#444';
+    const ruler = '#cc2200'; // vermelho para diferenciar cortes guilhotinados dos contornos
     // topo (medidas paralelas dos cortes verticais)
     const ty = oy - 5.5;
     parts.push(`<line x1="${ox}" y1="${ty}" x2="${ox + W}" y2="${ty}" stroke="${ruler}" stroke-width="0.4"/>`);
