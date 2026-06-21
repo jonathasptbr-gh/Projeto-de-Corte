@@ -32,7 +32,7 @@
   // Serve para desligar peças sem excluí-las.
   // Versão exibida no cabeçalho. Reflete o app.js carregado na tela (útil para
   // saber se o cache do Service Worker já atualizou). Manter igual ao N de sw.js.
-  const APP_VERSION = 'v90';
+  const APP_VERSION = 'v91';
 
   const clampQty = v => Math.min(MAX_QTY, Math.max(1, Math.round(parseNum(v) || 1)));
 
@@ -1367,8 +1367,10 @@
       const qtyTd = auto
         ? `<td class="bgt-qty auto">${numFmt(qty)}</td>`
         : `<td class="bgt-qty"><input class="qty-inp" inputmode="decimal" value="${qty}" data-k="${it.key}"></td>`;
-      const unitTd = (it.type === 'value' || it.type === 'auto-value')
+      const unitTd = it.type === 'value'
         ? `<td class="bgt-unit">—</td>`
+        : it.type === 'auto-value'
+        ? `<td class="bgt-unit">${brl(state.budgetCfg.fixacaoRate || 0)}</td>`
         : `<td class="bgt-unit">${brl(it.price)}</td>`;
       tr.innerHTML = `<td class="bgt-name">${esc(it.label)}</td>${qtyTd}${unitTd}<td class="bgt-sub">${brl(sub)}</td>`;
       body.appendChild(tr);
@@ -1473,8 +1475,8 @@
     const items = db.budgetGlobal.items;
     items.forEach((it, i) => {
       const div = el('div');
-      div.className = 'budget-cfg-item type-' + it.type;
-      const badge = `<span class="cfg-type-badge ${it.type}">${it.type === 'auto' ? 'auto' : it.type === 'value' ? 'valor' : 'manual'}</span>`;
+      div.className = 'budget-cfg-item type-' + (it.type === 'auto-value' ? 'auto' : it.type);
+      const badge = `<span class="cfg-type-badge ${it.type === 'auto-value' ? 'auto' : it.type}">${it.type === 'auto' || it.type === 'auto-value' ? 'auto' : it.type === 'value' ? 'valor' : 'manual'}</span>`;
       div.innerHTML =
         `<div class="cfg-reorder">` +
           `<button data-mv="up" data-i="${i}" title="Subir">▲</button>` +
