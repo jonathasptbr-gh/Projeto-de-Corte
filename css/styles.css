@@ -348,13 +348,13 @@ table.grid.breakdown .ok { color: var(--green); font-weight: 700; }
 
 /* ---------- Budget (orçamento) ---------- */
 
-/* Cabeçalho foto + descrição */
-.budget-hdr { display: flex; overflow: hidden; min-height: 130px; }
-.budget-photo-wrap { flex: 0 0 130px; }
+/* Cabeçalho: foto full-width landscape no topo, descrição abaixo */
+.budget-hdr { overflow: hidden; }
 .budget-photo-area {
-  position: relative; width: 100%; height: 100%; min-height: 130px;
+  position: relative; width: 100%;
+  height: 40vw; min-height: 140px; max-height: 260px;
   background: #f0f3f1; display: flex; align-items: center; justify-content: center;
-  border-right: 1px solid var(--line);
+  border-bottom: 1px solid var(--line); overflow: hidden;
 }
 .budget-photo-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
 .budget-photo-placeholder {
@@ -378,18 +378,16 @@ table.grid.breakdown .ok { color: var(--green); font-weight: 700; }
 }
 .budget-photo-del .material-symbols-outlined { font-size: 14px; }
 .budget-photo-del[hidden] { display: none; }
-.budget-desc-wrap { flex: 1; padding: 10px; display: flex; flex-direction: column; min-width: 0; }
+.budget-desc-wrap { padding: 10px; }
 .budget-description {
-  flex: 1; width: 100%; min-height: 90px; resize: vertical;
+  width: 100%; min-height: 72px; resize: vertical;
   border: 1px solid var(--line); border-radius: 8px;
   font: inherit; font-size: .88rem; padding: 8px; color: var(--text); background: #fafbfa;
 }
 .budget-description:focus { outline: 2px solid var(--green-light); border-color: transparent; }
-@media (max-width: 400px) {
-  .budget-hdr { flex-direction: column; }
-  .budget-photo-wrap { flex: 0 0 auto; height: 130px; width: 100%; border-right: none; }
-  .budget-photo-area { border-right: none; border-bottom: 1px solid var(--line); }
-}
+
+/* Wrapper com margem para a tabela de orçamento */
+.budget-wrap { padding: 8px 8px 0; overflow-x: auto; }
 
 /* Tabela de orçamento — colunas */
 .bgt-name { }
@@ -428,10 +426,13 @@ table.conditions td:last-child { background: #dce8f4; color: #1c3a5e; text-align
 table.conditions tr.cond-pix td { font-size: 1.05rem; }
 table.conditions tr.cond-pix td:first-child { background: #1a5a38; font-weight: 800; }
 table.conditions tr.cond-pix td:last-child { background: #d4eada; color: #1c4a2a; font-weight: 800; font-style: normal; }
-/* Linhas de crédito */
+/* Linhas de crédito / entrada+entrega */
 table.conditions tr.cond-credit td:first-child { background: #3a7fc1; }
 table.conditions tr.cond-credit td:last-child { background: #dce8f4; }
 .cond-sub { font-size: .77rem; font-weight: 400; color: var(--muted); font-style: normal; display: block; }
+
+/* Gráfico dentro do card de custos */
+.budget-chart-wrap { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); }
 
 /* Configurações das condições (dentro do modal) */
 .conditions-config { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; padding-top: 8px; }

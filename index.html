@@ -127,23 +127,21 @@
     <!-- ===================== ABA: ORÇAMENTO ===================== -->
     <section class="view" id="view-budget">
 
-      <!-- Cabeçalho: foto + descrição -->
+      <!-- Foto do projeto: full-width landscape + descrição abaixo -->
       <div class="card budget-hdr">
-        <div class="budget-photo-wrap">
-          <div class="budget-photo-area" id="budget-photo-area">
-            <img id="budget-photo-img" class="budget-photo-img" hidden alt="" />
-            <label class="budget-photo-placeholder" for="budget-photo-input" id="budget-photo-placeholder">
-              <span class="material-symbols-outlined">add_photo_alternate</span>
-              <span>Foto</span>
-            </label>
-            <label class="budget-photo-edit" for="budget-photo-input" id="budget-photo-edit" hidden>
-              <span class="material-symbols-outlined">photo_camera</span>
-            </label>
-            <button class="budget-photo-del" id="budget-photo-del" type="button" hidden>
-              <span class="material-symbols-outlined">close</span>
-            </button>
-            <input type="file" id="budget-photo-input" accept="image/*" hidden />
-          </div>
+        <div class="budget-photo-area" id="budget-photo-area">
+          <img id="budget-photo-img" class="budget-photo-img" hidden alt="" />
+          <label class="budget-photo-placeholder" for="budget-photo-input" id="budget-photo-placeholder">
+            <span class="material-symbols-outlined">add_photo_alternate</span>
+            <span>Foto</span>
+          </label>
+          <label class="budget-photo-edit" for="budget-photo-input" id="budget-photo-edit" hidden>
+            <span class="material-symbols-outlined">photo_camera</span>
+          </label>
+          <button class="budget-photo-del" id="budget-photo-del" type="button" hidden>
+            <span class="material-symbols-outlined">close</span>
+          </button>
+          <input type="file" id="budget-photo-input" accept="image/*" hidden />
         </div>
         <div class="budget-desc-wrap">
           <textarea id="budget-description" class="budget-description" placeholder="Descrição do projeto..."></textarea>
@@ -158,7 +156,7 @@
             <span class="material-symbols-outlined">settings</span>
           </button>
         </div>
-        <div class="card-body table-wrap">
+        <div class="card-body budget-wrap">
           <table class="grid budget compact" id="budget-table">
             <thead>
               <tr>
@@ -174,25 +172,30 @@
         <div class="budget-summary" id="budget-summary"></div>
       </div>
 
-      <!-- Condições -->
+      <!-- Custos do serviço (tempo, mão de obra, complexidade + gráfico) -->
       <div class="card">
         <div class="card-head">
-          <h2>Condições</h2>
+          <h2>Custos do serviço</h2>
           <button class="icon-btn" id="conditions-cfg-btn" title="Configurar taxas e condições">
             <span class="material-symbols-outlined">settings</span>
           </button>
         </div>
         <div class="card-body">
-          <table class="conditions" id="conditions-table"></table>
+          <table class="conditions" id="costs-table"></table>
+          <div class="budget-chart-wrap chart-wrap">
+            <canvas id="chart" width="600" height="320"></canvas>
+            <div class="legend" id="chart-legend"></div>
+          </div>
         </div>
       </div>
 
-      <!-- Gráfico -->
+      <!-- Condições para o cliente (pix, entrada+entrega, 12x) -->
       <div class="card">
-        <div class="card-head"><h2>Material (custo)</h2></div>
-        <div class="card-body chart-wrap">
-          <canvas id="chart" width="600" height="320"></canvas>
-          <div class="legend" id="chart-legend"></div>
+        <div class="card-head">
+          <h2>Condições para o cliente</h2>
+        </div>
+        <div class="card-body">
+          <table class="conditions" id="conditions-table"></table>
         </div>
       </div>
     </section>
@@ -256,14 +259,17 @@
         <label>Mão de obra (% sobre materiais)
           <input type="number" id="cfg-labor" step="1" value="80" />
         </label>
-        <label>Complexidade (R$ por peça/fita/corte)
+        <label>Complexidade (R$ por N)
           <input type="number" id="cfg-complexidade" step="0.5" value="0" />
         </label>
-        <label>Dias por peça
+        <label>Fixação (R$ por N)
+          <input type="number" id="cfg-fixacao-rate" step="0.1" value="0" />
+        </label>
+        <label>Dias por N
           <input type="number" id="cfg-days" step="0.001" value="0.105" />
         </label>
-        <label>Taxa crédito à vista (%)
-          <input type="number" id="cfg-credit-vista" step="0.5" value="5" />
+        <label>Proporção de entrada (%)
+          <input type="number" id="cfg-entrada-pct" step="5" value="50" />
         </label>
         <label>Taxa crédito até 6x (%)
           <input type="number" id="cfg-credit-6x" step="0.5" value="10" />
