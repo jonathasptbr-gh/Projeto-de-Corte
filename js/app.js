@@ -30,7 +30,7 @@
   // Serve para desligar peças sem excluí-las.
   // Versão exibida no cabeçalho. Reflete o app.js carregado na tela (útil para
   // saber se o cache do Service Worker já atualizou). Manter igual ao N de sw.js.
-  const APP_VERSION = 'v67';
+  const APP_VERSION = 'v68';
 
   const clampQty = v => Math.min(MAX_QTY, Math.max(1, Math.round(parseNum(v) || 1)));
 
@@ -1132,32 +1132,26 @@
     if (emptyEl) emptyEl.style.display = 'none';
     metricsEl.innerHTML = '';
 
-    // Tabela POR CHAPA individual do estoque (1 linha por chapa usada).
+    // Tabela ÚNICA: resumo por material (geral, destacado) no topo + detalhe por chapa.
     const typeCount = {};
     result.sheets.forEach(s => { const k = s.material + '|' + (s.stockName || ''); typeCount[k] = (typeCount[k] || 0) + 1; });
-    let srows = '';
-    result.sheets.forEach(s => {
-      const u = s.placements.reduce((a, p) => a + (p.realW || p.w) * (p.realH || p.h), 0);
-      const ef = s.W * s.H ? (u / (s.W * s.H) * 100) : 0;
-      const nm = (s.stockName || 'Chapa') + (typeCount[s.material + '|' + (s.stockName || '')] > 1 ? ' ' + s.index : '');
-      srows += `<tr><td>${esc(nm)}</td><td>${esc(s.material)}</td><td>${s.placements.length}</td><td>${ef.toFixed(1)}%</td></tr>`;
-    });
-    const perSheet =
-      `<table class="grid compact plan-tbl"><thead><tr><th>Chapa</th><th>Material</th>` +
-      `<th>Peças</th><th>Aprov.</th></tr></thead><tbody>${srows}</tbody></table>`;
-
-    // Tabela POR MATERIAL (chapas/mín combinados na 1ª coluna, sem "status").
-    const bm = result.byMaterial; let rows = '';
+    const bm = result.byMaterial;
+    let rows = '';
     Object.keys(bm).forEach(mat => {
       const d = bm[mat];
       const minSheets = Math.max(1, Math.ceil(d.usedArea / (d.area / d.sheets)));
       const effMat = d.area ? (d.usedArea / d.area * 100) : 0;
-      rows += `<tr><td>${d.sheets} / ${minSheets}</td><td>${esc(mat)}</td><td>${d.pieces}</td><td>${effMat.toFixed(1)}%</td></tr>`;
+      rows += `<tr class="tbl-geral"><td>${d.sheets} / ${minSheets}</td><td>${esc(mat)}</td><td>${d.pieces}</td><td>${effMat.toFixed(1)}%</td></tr>`;
     });
-    const perMat =
+    result.sheets.forEach(s => {
+      const u = s.placements.reduce((a, p) => a + (p.realW || p.w) * (p.realH || p.h), 0);
+      const ef = s.W * s.H ? (u / (s.W * s.H) * 100) : 0;
+      const nm = (s.stockName || 'Chapa') + (typeCount[s.material + '|' + (s.stockName || '')] > 1 ? ' ' + s.index : '');
+      rows += `<tr><td>${esc(nm)}</td><td>${esc(s.material)}</td><td>${s.placements.length}</td><td>${ef.toFixed(1)}%</td></tr>`;
+    });
+    breakdownEl.innerHTML =
       `<table class="grid compact plan-tbl"><thead><tr><th>Chapas/mín</th><th>Material</th>` +
       `<th>Peças</th><th>Aprov.</th></tr></thead><tbody>${rows}</tbody></table>`;
-    breakdownEl.innerHTML = perSheet + perMat;
 
     renderUnplaced(result);
     Render.renderSheets(sheetsEl, result, { showLabels: true });
@@ -1186,7 +1180,26 @@
     const head = el('div', 'unplaced-head');
     head.innerHTML = `<span class="material-symbols-outlined">warning</span><b>${total} peça(s) não couberam</b>`;
     box.appendChild(head);
+    // Estoque PRIMEIRO (mudar o estoque também pode resolver)
+    const stock = state.stock.filter(s => s.width > 0 && s.length > 0);
+    if (stock.length) {
+      const lbl = el('div', 'unplaced-sub'); lbl.textContent = 'Estoque';
+      box.appendChild(lbl);
+      const st = el('table', 'grid compact');
+      st.innerHTML =
+        `<thead><tr><th class="cell-act"></th><th class="cell-num">Larg.</th><th class="cell-num">Compr.</th>` +
+        `<th class="cell-qty">Qtd</th><th class="cell-mat">Mat</th><th class="cell-name">Nome</th>` +
+        `<th class="cell-veio">Veio</th><th class="cell-act"></th></tr></thead>`;
+      const sb = el('tbody');
+      stock.forEach(s => sb.appendChild(makeStockRow(s)));
+      st.appendChild(sb);
+      const sw = el('div', 'table-wrap'); sw.appendChild(st);
+      box.appendChild(sw);
+    }
+    // Peças (não couberam) — editáveis
     if (order.length) {
+      const lbl2 = el('div', 'unplaced-sub'); lbl2.textContent = 'Peças';
+      box.appendChild(lbl2);
       const table = el('table', 'grid compact');
       table.innerHTML =
         `<thead><tr><th class="cell-act"></th><th class="cell-num">Larg.</th><th class="cell-num">Compr.</th>` +
@@ -1201,22 +1214,6 @@
       table.appendChild(tbody);
       const wrap = el('div', 'table-wrap'); wrap.appendChild(table);
       box.appendChild(wrap);
-    }
-    // Estoque (chapas) editável — mudar o estoque também pode resolver
-    const stock = state.stock.filter(s => s.width > 0 && s.length > 0);
-    if (stock.length) {
-      const lbl = el('div', 'unplaced-sub'); lbl.textContent = 'Estoque (chapas) — ajuste se quiser';
-      box.appendChild(lbl);
-      const st = el('table', 'grid compact');
-      st.innerHTML =
-        `<thead><tr><th class="cell-act"></th><th class="cell-num">Larg.</th><th class="cell-num">Compr.</th>` +
-        `<th class="cell-qty">Qtd</th><th class="cell-mat">Mat</th><th class="cell-name">Nome</th>` +
-        `<th class="cell-veio">Veio</th><th class="cell-act"></th></tr></thead>`;
-      const sb = el('tbody');
-      stock.forEach(s => sb.appendChild(makeStockRow(s)));
-      st.appendChild(sb);
-      const sw = el('div', 'table-wrap'); sw.appendChild(st);
-      box.appendChild(sw);
     }
   }
 
