@@ -752,7 +752,7 @@
     return a;
   }
   function defaultWeights() {
-    return { unplaced: 10, sheets: 10, fill: 5, offcut: 5, cuts: 5 };
+    return { unplaced: 10, sheets: 10, fill: 10, offcut: 1, cuts: 3 };
   }
   // tol opcional: substitui o padrão 1e-4 quando o chamador passa um peso customizado
   function cmpFills(a, b, tol) {
