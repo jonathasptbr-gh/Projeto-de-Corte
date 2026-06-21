@@ -126,48 +126,68 @@
 
     <!-- ===================== ABA: ORÇAMENTO ===================== -->
     <section class="view" id="view-budget">
-      <div class="card">
-        <div class="card-head"><h2>Resumo do corte</h2></div>
-        <div class="card-body">
-          <div class="badges" id="budget-badges"></div>
+
+      <!-- Cabeçalho: foto + descrição -->
+      <div class="card budget-hdr">
+        <div class="budget-photo-wrap">
+          <div class="budget-photo-area" id="budget-photo-area">
+            <img id="budget-photo-img" class="budget-photo-img" hidden alt="" />
+            <label class="budget-photo-placeholder" for="budget-photo-input" id="budget-photo-placeholder">
+              <span class="material-symbols-outlined">add_photo_alternate</span>
+              <span>Foto</span>
+            </label>
+            <label class="budget-photo-edit" for="budget-photo-input" id="budget-photo-edit" hidden>
+              <span class="material-symbols-outlined">photo_camera</span>
+            </label>
+            <button class="budget-photo-del" id="budget-photo-del" type="button" hidden>
+              <span class="material-symbols-outlined">close</span>
+            </button>
+            <input type="file" id="budget-photo-input" accept="image/*" hidden />
+          </div>
+        </div>
+        <div class="budget-desc-wrap">
+          <textarea id="budget-description" class="budget-description" placeholder="Descrição do projeto..."></textarea>
         </div>
       </div>
 
+      <!-- Orçamento -->
       <div class="card">
-        <div class="card-head"><h2>Orçamento</h2>
-          <span class="muted small">Quantidades em <b>cinza</b> vêm do plano de corte.</span>
+        <div class="card-head">
+          <h2>Orçamento</h2>
+          <button class="icon-btn" id="budget-cfg-btn" title="Configurar itens do orçamento">
+            <span class="material-symbols-outlined">settings</span>
+          </button>
         </div>
         <div class="card-body table-wrap">
           <table class="grid budget compact" id="budget-table">
             <thead>
-              <tr><th>Material</th><th>Quant.</th><th>Valor Und.</th><th>Sub. Total</th></tr>
+              <tr>
+                <th class="bgt-name">Material</th>
+                <th class="bgt-qty">Qtd.</th>
+                <th class="bgt-unit">Und.</th>
+                <th class="bgt-sub">Sub Total</th>
+              </tr>
             </thead>
             <tbody id="budget-body"></tbody>
           </table>
         </div>
+        <div class="budget-summary" id="budget-summary"></div>
       </div>
 
+      <!-- Condições -->
       <div class="card">
-        <div class="card-head"><h2>Condições</h2></div>
+        <div class="card-head">
+          <h2>Condições</h2>
+          <button class="icon-btn" id="conditions-cfg-btn" title="Configurar taxas e condições">
+            <span class="material-symbols-outlined">settings</span>
+          </button>
+        </div>
         <div class="card-body">
-          <div class="conditions-config">
-            <label>Mão de obra (% sobre materiais)
-              <input type="number" id="cfg-labor" step="1" value="80" />
-            </label>
-            <label>Margem / impostos (%)
-              <input type="number" id="cfg-markup" step="1" value="10" />
-            </label>
-            <label>Desconto Pix (%)
-              <input type="number" id="cfg-pix" step="1" value="10" />
-            </label>
-            <label>Dias por peça
-              <input type="number" id="cfg-days" step="0.001" value="0.105" />
-            </label>
-          </div>
           <table class="conditions" id="conditions-table"></table>
         </div>
       </div>
 
+      <!-- Gráfico -->
       <div class="card">
         <div class="card-head"><h2>Material (custo)</h2></div>
         <div class="card-body chart-wrap">
@@ -206,6 +226,51 @@
       <div class="modal-actions">
         <button class="btn" id="bm-cancel">Cancelar</button>
         <button class="btn primary" id="bm-ok"><span class="material-symbols-outlined">check</span>Confirmar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: configuração de itens do orçamento (global — afeta todos os projetos) -->
+  <div class="modal-overlay" id="budget-cfg-modal" hidden>
+    <div class="modal modal-lg">
+      <div class="modal-head">
+        <b>Itens do Orçamento</b>
+        <button class="icon-btn" id="budget-cfg-close"><span class="material-symbols-outlined">close</span></button>
+      </div>
+      <p class="modal-hint">Preços e itens editados aqui valem para todos os projetos.</p>
+      <div id="budget-cfg-list" class="budget-cfg-list"></div>
+      <button class="btn" id="budget-cfg-add" style="width:100%;justify-content:center;margin-top:8px">
+        <span class="material-symbols-outlined">add</span>Adicionar item
+      </button>
+    </div>
+  </div>
+
+  <!-- Modal: configuração de condições e taxas (por projeto) -->
+  <div class="modal-overlay" id="conditions-cfg-modal" hidden>
+    <div class="modal">
+      <div class="modal-head">
+        <b>Taxas e Condições</b>
+        <button class="icon-btn" id="conditions-cfg-close"><span class="material-symbols-outlined">close</span></button>
+      </div>
+      <div class="conditions-config">
+        <label>Mão de obra (% sobre materiais)
+          <input type="number" id="cfg-labor" step="1" value="80" />
+        </label>
+        <label>Complexidade (R$ por peça/fita/corte)
+          <input type="number" id="cfg-complexidade" step="0.5" value="0" />
+        </label>
+        <label>Dias por peça
+          <input type="number" id="cfg-days" step="0.001" value="0.105" />
+        </label>
+        <label>Taxa crédito à vista (%)
+          <input type="number" id="cfg-credit-vista" step="0.5" value="5" />
+        </label>
+        <label>Taxa crédito até 6x (%)
+          <input type="number" id="cfg-credit-6x" step="0.5" value="10" />
+        </label>
+        <label>Taxa crédito até 12x (%)
+          <input type="number" id="cfg-credit-12x" step="0.5" value="15" />
+        </label>
       </div>
     </div>
   </div>

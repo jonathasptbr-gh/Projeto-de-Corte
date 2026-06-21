@@ -16,13 +16,15 @@
       materialColors: {},
       materialNames: {},
       materials: [],
-      budgetItems: Budget.defaultItems(),
-      budgetCfg: { laborPct: 80, markupPct: 10, pixPct: 10, daysPerPiece: 0.105 },
+      budgetQtys: {},
+      budgetCfg: Budget.defaultCfg(),
+      budgetDescription: '',
+      budgetPhoto: '',
       plan: null,
     };
   }
   let state = emptyData();                 // dados do projeto ativo (referência viva)
-  let db = { projects: [], activeId: null };
+  let db = { projects: [], activeId: null, budgetGlobal: { items: Budget.defaultItems() } };
   const DB_KEY = 'projeto-corte-db-v1';
   const OLD_KEY = 'projeto-corte-v1';
   const MAX_QTY = 999; // teto de quantidade por linha (peças/estoque) — evita travar a busca
@@ -30,7 +32,7 @@
   // Serve para desligar peças sem excluí-las.
   // Versão exibida no cabeçalho. Reflete o app.js carregado na tela (útil para
   // saber se o cache do Service Worker já atualizou). Manter igual ao N de sw.js.
-  const APP_VERSION = 'v82';
+  const APP_VERSION = 'v83';
 
   const clampQty = v => Math.min(MAX_QTY, Math.max(1, Math.round(parseNum(v) || 1)));
 
@@ -67,6 +69,13 @@
       delete p.bandColor; delete p.bandWidth;
     });
     if (Array.isArray(d.stock)) d.stock.forEach(s => { if (s && s.material === 'Nenhum') s.material = ''; });
+    // Migrar quantidades do formato antigo (budgetItems.qty → budgetQtys).
+    const budgetQtys = d.budgetQtys ? Object.assign({}, d.budgetQtys) : {};
+    if (Array.isArray(d.budgetItems) && !d.budgetQtys) {
+      d.budgetItems.forEach(it => { if (it.key && it.type !== 'auto' && it.qty) budgetQtys[it.key] = it.qty; });
+    }
+    // Migrar budgetCfg: campos antigos (markupPct/pixPct) são descartados.
+    const dc = d.budgetCfg || {};
     const out = {
       panels: Array.isArray(d.panels) ? d.panels : e.panels,
       stock: Array.isArray(d.stock) && d.stock.length ? d.stock : e.stock,
@@ -75,16 +84,19 @@
       materialColors: (d.materialColors && typeof d.materialColors === 'object') ? d.materialColors : {},
       materialNames: coerceNames(d.materialNames),
       materials: Array.isArray(d.materials) ? d.materials.slice() : [],
-      budgetCfg: Object.assign(e.budgetCfg, d.budgetCfg || {}),
-      budgetItems: e.budgetItems,
+      budgetQtys,
+      budgetCfg: {
+        laborPct:       dc.laborPct       != null ? dc.laborPct       : e.budgetCfg.laborPct,
+        complexidade:   dc.complexidade   != null ? dc.complexidade   : e.budgetCfg.complexidade,
+        daysPerPiece:   dc.daysPerPiece   != null ? dc.daysPerPiece   : e.budgetCfg.daysPerPiece,
+        creditVistaFee: dc.creditVistaFee != null ? dc.creditVistaFee : e.budgetCfg.creditVistaFee,
+        credit6xFee:    dc.credit6xFee    != null ? dc.credit6xFee    : e.budgetCfg.credit6xFee,
+        credit12xFee:   dc.credit12xFee   != null ? dc.credit12xFee   : e.budgetCfg.credit12xFee,
+      },
+      budgetDescription: d.budgetDescription || '',
+      budgetPhoto: d.budgetPhoto || '',
       plan: null,
     };
-    if (Array.isArray(d.budgetItems)) {
-      out.budgetItems = Budget.defaultItems().map(def => {
-        const f = d.budgetItems.find(i => i.key === def.key);
-        return f ? Object.assign(def, { price: f.price, qty: f.qty }) : def;
-      });
-    }
     return out;
   }
   function makeProject(name, data) {
@@ -96,12 +108,25 @@
     try { parsed = JSON.parse(localStorage.getItem(DB_KEY) || 'null'); } catch (e) {}
     if (parsed && Array.isArray(parsed.projects) && parsed.projects.length) {
       db = parsed;
+      if (!db.budgetGlobal) {
+        // Migração: herdar preços do primeiro projeto com budgetItems salvo.
+        const items = Budget.defaultItems();
+        for (const p of db.projects) {
+          if (Array.isArray(p.data && p.data.budgetItems)) {
+            items.forEach(def => { const f = p.data.budgetItems.find(i => i.key === def.key); if (f && f.price != null) def.price = f.price; });
+            break;
+          }
+        }
+        db.budgetGlobal = { items };
+      } else {
+        db.budgetGlobal.items = db.budgetGlobal.items || Budget.defaultItems();
+      }
       db.projects.forEach(p => { p.data = normalizeData(p.data); });
     } else {
       let old = null;
       try { old = JSON.parse(localStorage.getItem(OLD_KEY) || 'null'); } catch (e) {}
       const proj = makeProject('Projeto 1', old);
-      db = { projects: [proj], activeId: proj.id };
+      db = { projects: [proj], activeId: proj.id, budgetGlobal: { items: Budget.defaultItems() } };
     }
     if (!db.projects.find(p => p.id === db.activeId)) db.activeId = db.projects[0].id;
     state = activeProject().data;
@@ -111,6 +136,7 @@
     try {
       const slim = {
         activeId: db.activeId,
+        budgetGlobal: db.budgetGlobal,
         projects: db.projects.map(p => ({
           id: p.id, name: p.name, createdAt: p.createdAt, updatedAt: p.updatedAt,
           data: Object.assign({}, p.data, { plan: null }) // plano não é persistido (recalculado ao abrir)
@@ -774,10 +800,10 @@
   function importAsProject(text, fileName) {
     const { panels, warnings } = CSV.parse(text);
     if (!panels.length) { toast(warnings[0] || 'CSV sem peças válidas.'); return; }
-    // novo projeto herdando opções/preços do projeto atual
+    // novo projeto herdando opções do projeto atual
     const base = activeProject() ? activeProject().data : emptyData();
     const proj = makeProject(projectNameFromFile(fileName),
-      { options: base.options, budgetItems: base.budgetItems, budgetCfg: base.budgetCfg });
+      { options: base.options, budgetCfg: base.budgetCfg });
     db.projects.unshift(proj); db.activeId = proj.id; state = proj.data;
     selected.clear();
 
@@ -945,7 +971,7 @@
   function newProject() {
     const base = activeProject() ? activeProject().data : emptyData();
     const proj = makeProject(projectNameFromFile('Projeto'),
-      { options: base.options, budgetItems: base.budgetItems, budgetCfg: base.budgetCfg });
+      { options: base.options, budgetCfg: base.budgetCfg });
     db.projects.unshift(proj); db.activeId = proj.id; state = proj.data; saveDb();
     selected.clear(); closeProjects(); renderActive(); gotoTab('panels'); resetHistory();
   }
@@ -1131,7 +1157,6 @@
     if (!metricsEl || !breakdownEl || !sheetsEl) return;
 
     const pieces = result.sheets.reduce((a, s) => a + s.placements.length, 0);
-    const m = Budget.metricsFromPlan(result, 'cm'); // alimenta o orçamento
 
     if (emptyEl) emptyEl.style.display = 'none';
     metricsEl.innerHTML = '';
@@ -1159,7 +1184,6 @@
 
     renderUnplaced(result);
     Render.renderSheets(sheetsEl, result, { showLabels: true });
-    Budget.applyMetrics(state.budgetItems, m);
   }
   function metric(k, v) { return `<div class="metric"><div class="v">${v}</div><div class="k">${k}</div></div>`; }
 
@@ -1301,61 +1325,234 @@
   }
 
   // ---------- Orçamento ----------
+  function getBudgetMetrics() {
+    return state.plan ? Budget.metricsFromPlan(state.plan, 'cm') : {};
+  }
+
   function renderBudget() {
-    const m = state.plan ? Budget.metricsFromPlan(state.plan, 'cm') : { bandMeters: 0 };
-    if (state.plan) Budget.applyMetrics(state.budgetItems, m);
-    const pieces = state.plan ? state.plan.sheets.reduce((a, s) => a + s.placements.length, 0) : 0;
-    const cuts = state.plan ? state.plan.sheets.reduce((a, s) => a + s.cuts, 0) : 0;
+    const metrics = getBudgetMetrics();
+    const items   = db.budgetGlobal.items;
+    const qtys    = state.budgetQtys;
 
-    $('#budget-badges').innerHTML =
-      `<div class="badge b1"><div class="v">${pieces}</div><div class="k">N- peças</div></div>` +
-      `<div class="badge b2"><div class="v">${numFmt(m.bandMeters)}</div><div class="k">M - FITA</div></div>` +
-      `<div class="badge b3"><div class="v">${cuts}</div><div class="k">C - CORTE</div></div>`;
+    // Foto e descrição
+    renderBudgetPhoto();
+    const descEl = $('#budget-description');
+    if (descEl) descEl.value = state.budgetDescription || '';
 
-    const body = $('#budget-body'); body.innerHTML = '';
-    state.budgetItems.forEach((it, i) => {
-      const tr = el('tr');
+    // Tabela de itens
+    const body = $('#budget-body'); if (!body) return;
+    body.innerHTML = '';
+    items.forEach(it => {
       const auto = it.type === 'auto';
-      const qtyCell = auto
-        ? `<td class="auto" style="text-align:right">${numFmt(it.qty)}</td>`
-        : `<td><input inputmode="decimal" value="${it.qty}" data-q="${i}"></td>`;
-      tr.innerHTML = `<td>${it.label}</td>` + qtyCell +
-        `<td><input inputmode="decimal" value="${it.price}" data-p="${i}" style="text-align:right"></td>` +
-        `<td class="subtotal">${brl(Budget.subtotal(it))}</td>`;
+      const qty  = auto ? (metrics[it.src] != null ? metrics[it.src] : 0) : (qtys[it.key] || 0);
+      const sub  = Budget.subtotalItem(it, qty);
+      const tr = el('tr');
+      const qtyTd = auto
+        ? `<td class="bgt-qty auto">${numFmt(qty)}</td>`
+        : `<td class="bgt-qty"><input class="qty-inp" inputmode="decimal" value="${qty}" data-k="${it.key}"></td>`;
+      const unitTd = it.type === 'value'
+        ? `<td class="bgt-unit">—</td>`
+        : `<td class="bgt-unit">${brl(it.price)}</td>`;
+      tr.innerHTML = `<td class="bgt-name">${esc(it.label)}</td>${qtyTd}${unitTd}<td class="bgt-sub">${brl(sub)}</td>`;
       body.appendChild(tr);
     });
-    body.querySelectorAll('[data-q]').forEach(inp => inp.addEventListener('input', () => {
-      state.budgetItems[+inp.dataset.q].qty = parseNum(inp.value); updateBudgetTotals(); save();
-    }));
-    body.querySelectorAll('[data-p]').forEach(inp => inp.addEventListener('input', () => {
-      state.budgetItems[+inp.dataset.p].price = parseNum(inp.value); updateBudgetTotals(); save();
+    body.querySelectorAll('[data-k]').forEach(inp => inp.addEventListener('input', () => {
+      state.budgetQtys[inp.dataset.k] = parseNum(inp.value);
+      updateBudgetTotals(); save();
     }));
 
-    const c = state.budgetCfg;
-    $('#cfg-labor').value = c.laborPct; $('#cfg-markup').value = c.markupPct;
-    $('#cfg-pix').value = c.pixPct; $('#cfg-days').value = c.daysPerPiece;
     updateBudgetTotals();
   }
+
   function updateBudgetTotals() {
-    $$('#budget-body tr').forEach((tr, i) => { tr.querySelector('.subtotal').textContent = brl(Budget.subtotal(state.budgetItems[i])); });
-    const t = Budget.totals(state.budgetItems, state.budgetCfg);
-    const pieces = state.plan ? state.plan.sheets.reduce((a, s) => a + s.placements.length, 0) : 0;
-    const days = pieces * state.budgetCfg.daysPerPiece;
-    $('#conditions-table').innerHTML =
-      row('Tempo de produção', (Math.round(days * 10) / 10).toLocaleString('pt-BR') + ' Dias') +
-      row('Valor de Entrada', brl(t.entrada)) + row('Mão de obra', brl(t.labor)) +
-      `<tr class="total">${cell('Valor total')}${cell(brl(t.total))}</tr>` +
-      `<tr class="total">${cell('Valor Pix')}${cell(brl(t.pix))}</tr>`;
+    const metrics = getBudgetMetrics();
+    const items   = db.budgetGlobal.items;
+    const qtys    = state.budgetQtys;
+
+    // Subtotais na tabela
+    $$('#budget-body tr').forEach((tr, i) => {
+      const it  = items[i]; if (!it) return;
+      const qty = it.type === 'auto'
+        ? (metrics[it.src] != null ? metrics[it.src] : 0)
+        : (qtys[it.key] || 0);
+      const subEl = tr.querySelector('.bgt-sub');
+      if (subEl) subEl.textContent = brl(Budget.subtotalItem(it, qty));
+    });
+
+    // Resumo compacto do corte (base da tabela)
+    const sumEl = $('#budget-summary');
+    if (sumEl) {
+      if (state.plan) {
+        const p = metrics.pieces || 0;
+        const f = metrics.fitasTotal || 0;
+        const c = metrics.cuts || 0;
+        sumEl.innerHTML =
+          `<span><b>${p}</b> peças</span>` +
+          `<span><b>${numFmt(f)}</b> m fita</span>` +
+          `<span><b>${c}</b> cortes</span>`;
+      } else {
+        sumEl.innerHTML = '<span class="budget-summary-empty">Calcule o plano para ver as métricas do corte.</span>';
+      }
+    }
+
+    // Condições de pagamento
+    const t = Budget.totals(items, qtys, metrics, state.budgetCfg);
+    const condEl = $('#conditions-table');
+    if (condEl) {
+      condEl.innerHTML =
+        row('Tempo de produção', (Math.round(t.days * 10) / 10).toLocaleString('pt-BR') + ' Dias') +
+        row('Valor de Entrada', brl(t.entrada)) +
+        row('Mão de obra', brl(t.labor)) +
+        (t.complexTotal > 0 ? row('Complexidade', brl(t.complexTotal)) : '') +
+        `<tr class="cond-pix">${cell('Valor no Pix')}${cell(brl(t.pix))}</tr>` +
+        `<tr class="cond-credit">${cell('Crédito à vista')}${cell(brl(t.creditVista))}</tr>` +
+        `<tr class="cond-credit">${cell('Crédito até 6x')}${cell(brl(t.credit6x) + '<span class="cond-sub">' + brl(t.credit6x / 6) + '/mês</span>')}</tr>` +
+        `<tr class="cond-credit">${cell('Crédito até 12x')}${cell(brl(t.credit12x) + '<span class="cond-sub">' + brl(t.credit12x / 12) + '/mês</span>')}</tr>`;
+    }
+
     renderChart();
   }
+
   function row(k, v) { return `<tr>${cell(k)}${cell(v)}</tr>`; }
-  function cell(v) { return `<td>${v}</td>`; }
-  function initBudgetCfg() {
-    const bind = (id, key) => $(id).addEventListener('input', e => {
-      state.budgetCfg[key] = parseFloat(e.target.value) || 0; updateBudgetTotals(); save();
+  function cell(v)    { return `<td>${v}</td>`; }
+
+  function renderBudgetPhoto() {
+    const img  = $('#budget-photo-img');
+    const plh  = $('#budget-photo-placeholder');
+    const edit = $('#budget-photo-edit');
+    const del  = $('#budget-photo-del');
+    if (!img) return;
+    const has = !!state.budgetPhoto;
+    img.hidden  = !has; plh.hidden  = has;
+    edit.hidden = !has; del.hidden  = !has;
+    if (has) img.src = state.budgetPhoto;
+  }
+
+  function compressPhoto(file, cb) {
+    const reader = new FileReader();
+    reader.onload = evt => {
+      const image = new Image();
+      image.onload = () => {
+        const maxW = 800, maxH = 600;
+        let w = image.width, h = image.height;
+        if (w > maxW) { h = Math.round(h * maxW / w); w = maxW; }
+        if (h > maxH) { w = Math.round(w * maxH / h); h = maxH; }
+        const canvas = document.createElement('canvas');
+        canvas.width = w; canvas.height = h;
+        canvas.getContext('2d').drawImage(image, 0, 0, w, h);
+        cb(canvas.toDataURL('image/jpeg', 0.80));
+      };
+      image.src = evt.target.result;
+    };
+    reader.readAsDataURL(file);
+  }
+
+  function openBudgetGearModal() {
+    renderBudgetGearList();
+    $('#budget-cfg-modal').hidden = false;
+  }
+
+  function renderBudgetGearList() {
+    const list = $('#budget-cfg-list'); if (!list) return;
+    list.innerHTML = '';
+    const items = db.budgetGlobal.items;
+    items.forEach((it, i) => {
+      const div = el('div');
+      div.className = 'budget-cfg-item type-' + it.type;
+      const badge = `<span class="cfg-type-badge ${it.type}">${it.type === 'auto' ? 'auto' : it.type === 'value' ? 'valor' : 'manual'}</span>`;
+      div.innerHTML =
+        `<div class="cfg-reorder">` +
+          `<button data-mv="up" data-i="${i}" title="Subir">▲</button>` +
+          `<button data-mv="dn" data-i="${i}" title="Descer">▼</button>` +
+        `</div>` +
+        `<div class="cfg-item-body">` +
+          `<input class="cfg-item-label" type="text" value="${attr(it.label)}" data-lbl="${i}" placeholder="Nome do item" />` +
+          `<div class="cfg-item-meta">${badge}<span class="cfg-price-wrap">R$ <input class="cfg-item-price" type="number" step="0.01" min="0" value="${it.price}" data-prc="${i}" /></span></div>` +
+        `</div>` +
+        `<button class="icon-btn del" data-del="${i}" title="Remover"><span class="material-symbols-outlined">delete</span></button>`;
+      list.appendChild(div);
     });
-    bind('#cfg-labor', 'laborPct'); bind('#cfg-markup', 'markupPct');
-    bind('#cfg-pix', 'pixPct'); bind('#cfg-days', 'daysPerPiece');
+
+    list.querySelectorAll('[data-mv]').forEach(btn => btn.addEventListener('click', () => {
+      const i = +btn.dataset.i, up = btn.dataset.mv === 'up';
+      const j = up ? i - 1 : i + 1;
+      if (j < 0 || j >= items.length) return;
+      [items[i], items[j]] = [items[j], items[i]];
+      saveDb(); renderBudgetGearList();
+      if ($('#view-budget').classList.contains('active')) renderBudget();
+    }));
+    list.querySelectorAll('[data-lbl]').forEach(inp => inp.addEventListener('input', () => {
+      items[+inp.dataset.lbl].label = inp.value;
+      saveDb();
+      if ($('#view-budget').classList.contains('active')) renderBudget();
+    }));
+    list.querySelectorAll('[data-prc]').forEach(inp => inp.addEventListener('input', () => {
+      items[+inp.dataset.prc].price = parseFloat(inp.value) || 0;
+      saveDb();
+      if ($('#view-budget').classList.contains('active')) updateBudgetTotals();
+    }));
+    list.querySelectorAll('[data-del]').forEach(btn => btn.addEventListener('click', async () => {
+      const i = +btn.dataset.del;
+      const ok = await ui.confirm(`Remover "${items[i].label}"? Esta ação afeta todos os projetos.`, { danger: true, okText: 'Remover' });
+      if (!ok) return;
+      items.splice(i, 1);
+      saveDb(); renderBudgetGearList();
+      if ($('#view-budget').classList.contains('active')) renderBudget();
+    }));
+  }
+
+  function openConditionsGearModal() {
+    const c = state.budgetCfg;
+    const sv = (id, v) => { const e = $(id); if (e) e.value = v; };
+    sv('#cfg-labor', c.laborPct); sv('#cfg-complexidade', c.complexidade);
+    sv('#cfg-days', c.daysPerPiece); sv('#cfg-credit-vista', c.creditVistaFee);
+    sv('#cfg-credit-6x', c.credit6xFee); sv('#cfg-credit-12x', c.credit12xFee);
+    $('#conditions-cfg-modal').hidden = false;
+  }
+
+  function initBudget() {
+    // Foto do projeto
+    $('#budget-photo-input').addEventListener('change', e => {
+      const f = e.target.files[0]; if (!f) return;
+      compressPhoto(f, dataUrl => { state.budgetPhoto = dataUrl; save(); renderBudgetPhoto(); });
+      e.target.value = ''; // permite re-selecionar o mesmo arquivo
+    });
+    $('#budget-photo-del').addEventListener('click', () => {
+      state.budgetPhoto = ''; save(); renderBudgetPhoto();
+    });
+
+    // Descrição
+    $('#budget-description').addEventListener('input', e => {
+      state.budgetDescription = e.target.value; save();
+    });
+
+    // Gear: itens do orçamento (global)
+    $('#budget-cfg-btn').addEventListener('click', openBudgetGearModal);
+    $('#budget-cfg-close').addEventListener('click', () => { $('#budget-cfg-modal').hidden = true; });
+    $('#budget-cfg-modal').addEventListener('click', e => { if (e.target === $('#budget-cfg-modal')) $('#budget-cfg-modal').hidden = true; });
+    $('#budget-cfg-add').addEventListener('click', () => {
+      db.budgetGlobal.items.push({ key: 'item_' + Date.now(), label: 'Novo item', type: 'manual', price: 0 });
+      saveDb(); renderBudgetGearList();
+    });
+
+    // Gear: condições (por projeto)
+    $('#conditions-cfg-btn').addEventListener('click', openConditionsGearModal);
+    $('#conditions-cfg-close').addEventListener('click', () => { $('#conditions-cfg-modal').hidden = true; });
+    $('#conditions-cfg-modal').addEventListener('click', e => { if (e.target === $('#conditions-cfg-modal')) $('#conditions-cfg-modal').hidden = true; });
+
+    const bindCfg = (id, key) => {
+      const inp = $(id); if (!inp) return;
+      inp.addEventListener('input', () => {
+        state.budgetCfg[key] = parseFloat(inp.value) || 0;
+        updateBudgetTotals(); save();
+      });
+    };
+    bindCfg('#cfg-labor', 'laborPct');
+    bindCfg('#cfg-complexidade', 'complexidade');
+    bindCfg('#cfg-days', 'daysPerPiece');
+    bindCfg('#cfg-credit-vista', 'creditVistaFee');
+    bindCfg('#cfg-credit-6x', 'credit6xFee');
+    bindCfg('#cfg-credit-12x', 'credit12xFee');
   }
 
   // ---------- Gráfico ----------
@@ -1363,8 +1560,13 @@
     const canvas = $('#chart'); if (!canvas) return;
     const ctx = canvas.getContext('2d'); const W = canvas.width, H = canvas.height;
     ctx.clearRect(0, 0, W, H);
-    const data = state.budgetItems.map(it => ({ label: it.label, val: Budget.subtotal(it) }))
-      .filter(d => d.val > 0).sort((a, b) => b.val - a.val);
+    const metrics = getBudgetMetrics();
+    const data = db.budgetGlobal.items.map(it => {
+      const qty = it.type === 'auto'
+        ? (metrics[it.src] != null ? metrics[it.src] : 0)
+        : (state.budgetQtys[it.key] || 0);
+      return { label: it.label, val: Budget.subtotalItem(it, qty) };
+    }).filter(d => d.val > 0).sort((a, b) => b.val - a.val);
     const total = data.reduce((a, d) => a + d.val, 0);
     const legend = $('#chart-legend'); legend.innerHTML = '';
     if (!total) { ctx.fillStyle = '#999'; ctx.font = '16px sans-serif'; ctx.fillText('Sem dados de custo ainda.', 20, 40); return; }
@@ -1434,7 +1636,7 @@
         setTimeout(() => { try { t.select(); } catch (err) {} }, 0);
       }
     });
-    initTabs(); initOptions(); initImport(); initSelect(); initBudgetCfg(); initBandModal(); initProjects();
+    initTabs(); initOptions(); initImport(); initSelect(); initBudget(); initBandModal(); initProjects();
     updateProjectName(); renderStock(); renderPanels();
     showSavedPlan(); // cálculo é manual
     // touchend + click ambos disparam num único toque no Android Chrome.
