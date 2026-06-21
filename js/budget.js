@@ -21,6 +21,7 @@
       { key: 'chapasCor',     label: 'Chapas de Cor',      type: 'auto',   price: 419.00, src: 'sheetsColor' },
       { key: 'fitaCor',       label: 'Fita de Cor 22',     type: 'auto',   price: 1.99,   src: 'band22Color' },
       { key: 'fitaCor45',     label: 'Fita de Cor 45',     type: 'auto',   price: 3.80,   src: 'band45Color' },
+      { key: 'fixacao',       label: 'Fixação',            type: 'auto-value', src: 'fixacaoAuto', price: 1.00 },
       { key: 'fundo6mm',      label: 'Fundo 6mm',          type: 'manual', price: 139.00  },
       { key: 'pes',           label: 'Pés',                type: 'manual', price: 15.00   },
       { key: 'dobradicas',    label: 'Dobradiças',         type: 'manual', price: 9.00    },
@@ -29,7 +30,6 @@
       { key: 'puxador',       label: 'Puxador',            type: 'manual', price: 39.00   },
       { key: 'cabideiro',     label: 'Cabideiro',          type: 'manual', price: 30.00   },
       { key: 'eletrica',      label: 'Elétrica',           type: 'value',  price: 1.00    },
-      { key: 'fixacao',       label: 'Fixação',            type: 'auto-value', src: 'fixacaoAuto', price: 1.00 },
       { key: 'frete',         label: 'Frete (KM)',         type: 'manual', price: 6.00    },
       { key: 'extras',        label: 'Extras',             type: 'value',  price: 1.00    },
     ];
