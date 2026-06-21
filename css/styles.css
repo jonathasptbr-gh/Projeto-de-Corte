@@ -346,31 +346,131 @@ table.grid.breakdown .ok { color: var(--green); font-weight: 700; }
 .sheet-legend .sw { width: 11px; height: 11px; border-radius: 3px; border: 1px solid rgba(0,0,0,.25); flex: none; }
 .sheet-legend .lt { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-/* ---------- Budget ---------- */
-.badges { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
-.badge { text-align: center; border-radius: 10px; padding: 10px; color: #fff; }
-.badge.b1 { background: var(--green-soft); }
-.badge.b2 { background: var(--green); }
-.badge.b3 { background: #6aa84f; }
-.badge .v { font-size: 1.5rem; font-weight: 800; }
-.badge .k { font-size: .78rem; opacity: .95; }
+/* ---------- Budget (orçamento) ---------- */
 
-table.grid.budget td:nth-child(2) input { text-align: right; }
-table.grid.budget .auto { background: var(--gray-cell); }
-table.grid.budget .subtotal { text-align: right; font-variant-numeric: tabular-nums; }
-table.grid.budget tr.head-band td { background: var(--green-soft); color: #fff; font-weight: 700; text-align: center; }
+/* Cabeçalho foto + descrição */
+.budget-hdr { display: flex; overflow: hidden; min-height: 130px; }
+.budget-photo-wrap { flex: 0 0 130px; }
+.budget-photo-area {
+  position: relative; width: 100%; height: 100%; min-height: 130px;
+  background: #f0f3f1; display: flex; align-items: center; justify-content: center;
+  border-right: 1px solid var(--line);
+}
+.budget-photo-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
+.budget-photo-placeholder {
+  display: flex; flex-direction: column; align-items: center; gap: 5px;
+  cursor: pointer; color: var(--muted); font-size: .72rem; padding: 10px; text-align: center;
+}
+.budget-photo-placeholder .material-symbols-outlined { font-size: 32px; }
+.budget-photo-placeholder[hidden] { display: none; }
+.budget-photo-edit {
+  position: absolute; bottom: 5px; right: 5px;
+  width: 30px; height: 30px; background: rgba(0,0,0,.52); border-radius: 50%;
+  display: flex; align-items: center; justify-content: center; cursor: pointer; color: #fff;
+}
+.budget-photo-edit .material-symbols-outlined { font-size: 16px; }
+.budget-photo-edit[hidden] { display: none; }
+.budget-photo-del {
+  position: absolute; top: 4px; right: 4px;
+  width: 24px; height: 24px; background: rgba(0,0,0,.52); border-radius: 50%;
+  border: none; display: flex; align-items: center; justify-content: center;
+  cursor: pointer; color: #fff; padding: 0;
+}
+.budget-photo-del .material-symbols-outlined { font-size: 14px; }
+.budget-photo-del[hidden] { display: none; }
+.budget-desc-wrap { flex: 1; padding: 10px; display: flex; flex-direction: column; min-width: 0; }
+.budget-description {
+  flex: 1; width: 100%; min-height: 90px; resize: vertical;
+  border: 1px solid var(--line); border-radius: 8px;
+  font: inherit; font-size: .88rem; padding: 8px; color: var(--text); background: #fafbfa;
+}
+.budget-description:focus { outline: 2px solid var(--green-light); border-color: transparent; }
+@media (max-width: 400px) {
+  .budget-hdr { flex-direction: column; }
+  .budget-photo-wrap { flex: 0 0 auto; height: 130px; width: 100%; border-right: none; }
+  .budget-photo-area { border-right: none; border-bottom: 1px solid var(--line); }
+}
 
-.conditions-config { display: grid; grid-template-columns: repeat(auto-fill,minmax(180px,1fr)); gap: 10px; margin-bottom: 14px; }
-.conditions-config label { display: flex; flex-direction: column; gap: 4px; font-size: .82rem; font-weight: 600; color: var(--muted); }
-.conditions-config input { padding: 7px; border: 1px solid var(--line); border-radius: 8px; font: inherit; }
+/* Tabela de orçamento — colunas */
+.bgt-name { }
+.bgt-qty  { width: 14%; min-width: 44px; text-align: right !important; white-space: nowrap; }
+.bgt-unit { width: 16%; min-width: 52px; text-align: right !important; }
+.bgt-sub  { width: 22%; min-width: 70px; text-align: right !important; }
+table.grid.budget th.bgt-qty,
+table.grid.budget th.bgt-unit,
+table.grid.budget th.bgt-sub { text-align: right; }
+table.grid.budget td.bgt-unit { color: var(--muted); font-size: .77rem; text-align: right; }
+table.grid.budget td.bgt-sub  { text-align: right; font-weight: 600; font-variant-numeric: tabular-nums; }
+table.grid.budget td.bgt-qty  { text-align: right; }
+table.grid.budget td.auto      { background: var(--gray-cell); }
+table.grid.budget input.qty-inp {
+  width: 100%; text-align: right; border: none; background: transparent;
+  font: inherit; padding: 0; color: var(--text);
+}
+table.grid.budget input.qty-inp:focus { outline: 2px solid var(--green-light); border-radius: 3px; }
 
+/* Resumo compacto do corte — base da tabela de orçamento */
+.budget-summary {
+  padding: 8px 12px; border-top: 1px solid var(--line);
+  font-size: .8rem; color: var(--muted);
+  display: flex; gap: 16px; flex-wrap: wrap; align-items: center;
+}
+.budget-summary:empty { display: none; }
+.budget-summary b { color: var(--text); }
+.budget-summary-empty { font-style: italic; }
+
+/* Tabela de condições */
 table.conditions { width: 100%; border-collapse: collapse; }
 table.conditions td { padding: 10px 14px; border: 2px solid #fff; font-weight: 700; }
 table.conditions td:first-child { background: var(--green-soft); color: #fff; }
 table.conditions td:last-child { background: #dce8f4; color: #1c3a5e; text-align: right; font-style: italic; }
-table.conditions tr.total td { font-size: 1.1rem; }
-table.conditions tr.total td:first-child { background: #6aa84f; }
-table.conditions tr.total td:last-child { background: #cfe0f0; }
+/* Linha do Pix — preço base destacado */
+table.conditions tr.cond-pix td { font-size: 1.05rem; }
+table.conditions tr.cond-pix td:first-child { background: #1a5a38; font-weight: 800; }
+table.conditions tr.cond-pix td:last-child { background: #d4eada; color: #1c4a2a; font-weight: 800; font-style: normal; }
+/* Linhas de crédito */
+table.conditions tr.cond-credit td:first-child { background: #3a7fc1; }
+table.conditions tr.cond-credit td:last-child { background: #dce8f4; }
+.cond-sub { font-size: .77rem; font-weight: 400; color: var(--muted); font-style: normal; display: block; }
+
+/* Configurações das condições (dentro do modal) */
+.conditions-config { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; padding-top: 8px; }
+.conditions-config label { display: flex; flex-direction: column; gap: 4px; font-size: .82rem; font-weight: 600; color: var(--muted); }
+.conditions-config input { padding: 7px; border: 1px solid var(--line); border-radius: 8px; font: inherit; }
+
+/* Modal de itens do orçamento (gear global) */
+.modal-lg { max-width: 480px; }
+.modal-hint { font-size: .8rem; color: var(--muted); margin: 2px 0 10px; }
+.budget-cfg-list { display: flex; flex-direction: column; gap: 6px; max-height: 55vh; overflow-y: auto; padding-right: 2px; }
+.budget-cfg-item {
+  display: flex; align-items: center; gap: 8px;
+  border: 1px solid var(--line); border-radius: 9px; padding: 8px; background: var(--card);
+}
+.budget-cfg-item.type-auto { background: #f4f7f5; }
+.cfg-reorder { display: flex; flex-direction: column; gap: 2px; flex-shrink: 0; }
+.cfg-reorder button {
+  width: 22px; height: 20px; border: 1px solid var(--line); border-radius: 4px;
+  background: #fff; cursor: pointer; padding: 0; font-size: .7rem; line-height: 1;
+  display: flex; align-items: center; justify-content: center;
+}
+.cfg-reorder button:hover { background: #eee; }
+.cfg-item-body { flex: 1; display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.cfg-item-label {
+  width: 100%; border: 1px solid var(--line); border-radius: 6px;
+  padding: 5px 8px; font: inherit; font-size: .85rem; font-weight: 600;
+}
+.cfg-item-label:focus { outline: 2px solid var(--green-light); border-color: transparent; }
+.cfg-item-meta { display: flex; align-items: center; gap: 8px; }
+.cfg-type-badge { font-size: .68rem; font-weight: 700; text-transform: uppercase; padding: 2px 7px; border-radius: 99px; flex-shrink: 0; }
+.cfg-type-badge.auto   { background: #e8f0fe; color: #1a3a6e; }
+.cfg-type-badge.manual { background: #e8f5e8; color: #1a4a1a; }
+.cfg-type-badge.value  { background: #fff3e0; color: #5a3a00; }
+.cfg-price-wrap { display: flex; align-items: center; gap: 4px; font-size: .82rem; color: var(--muted); }
+.cfg-item-price {
+  width: 72px; text-align: right; border: 1px solid var(--line); border-radius: 6px;
+  padding: 4px 6px; font: inherit; font-size: .82rem;
+}
+.cfg-item-price:focus { outline: 2px solid var(--green-light); border-color: transparent; }
 
 .chart-wrap { display: flex; flex-wrap: wrap; gap: 16px; align-items: center; justify-content: center; }
 #chart { max-width: 100%; }
@@ -423,7 +523,3 @@ table.conditions tr.total td:last-child { background: #cfe0f0; }
 .btn.danger { background: #c0392b; color: #fff; border-color: #c0392b; }
 .btn.danger:hover { filter: brightness(1.06); }
 
-@media (max-width: 560px) {
-  .badges { grid-template-columns: repeat(3, 1fr); }
-  .badge .v { font-size: 1.15rem; }
-}
