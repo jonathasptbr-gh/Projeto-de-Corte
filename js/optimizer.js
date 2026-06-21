@@ -752,7 +752,7 @@
     return a;
   }
   function defaultWeights() {
-    return { unplaced: 10, sheets: 10, fill: 10, offcut: 3, cuts: 3 };
+    return { unplaced: 10, sheets: 10, fill: 5, offcut: 5, cuts: 5 };
   }
   // tol opcional: substitui o padrão 1e-4 quando o chamador passa um peso customizado
   function cmpFills(a, b, tol) {
@@ -765,19 +765,11 @@
     return 0;
   }
   function score(res) {
-    // Aproveitamento TOTAL = área real das peças / área total das chapas abertas.
-    // Usar a taxa cumulativa (e não por-chapa lexicográfico) evita que o algoritmo
-    // prefira [92%+80%] sobre [90%+85%]: ambas têm a chapa 1 mais cheia no primeiro
-    // caso, mas o segundo aproveita mais material no total (87,5% vs 86%).
-    let totalPiece = 0, totalSheet = 0;
-    res.sheets.forEach(s => {
-      totalSheet += s.W * s.H;
-      s.placements.forEach(p => { totalPiece += (p.realW || p.w) * (p.realH || p.h); });
-    });
     return {
       sheets: res.sheets.length,
       unplaced: res.unplaced.length,
-      fills: totalSheet > 0 ? [totalPiece / totalSheet] : [0],
+      // fração ocupada por chapa (área REAL das peças, não o slot), da mais cheia para a mais vazia
+      fills: res.sheets.map(s => s.placements.reduce((a, p) => a + (p.realW || p.w) * (p.realH || p.h), 0) / (s.W * s.H)).sort((a, b) => b - a),
       off: offAreas(res.sheets),
       cuts: res.sheets.reduce((a, s) => a + s.cuts, 0),
     };
