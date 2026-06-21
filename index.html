@@ -183,7 +183,7 @@
         <div class="card-body">
           <table class="conditions" id="costs-table"></table>
           <div class="budget-chart-wrap chart-wrap">
-            <canvas id="chart" width="600" height="320"></canvas>
+            <canvas id="chart" width="280" height="280"></canvas>
             <div class="legend" id="chart-legend"></div>
           </div>
         </div>
@@ -276,6 +276,9 @@
         </label>
         <label>Taxa crédito até 12x (%)
           <input type="number" id="cfg-credit-12x" step="0.5" value="15" />
+        </label>
+        <label>Desconto Pix (% sobre crédito 6x)
+          <input type="number" id="cfg-pix-discount" step="0.5" value="10" />
         </label>
       </div>
     </div>

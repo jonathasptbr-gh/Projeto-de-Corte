@@ -431,8 +431,13 @@ table.conditions tr.cond-credit td:first-child { background: #3a7fc1; }
 table.conditions tr.cond-credit td:last-child { background: #dce8f4; }
 .cond-sub { font-size: .77rem; font-weight: 400; color: var(--muted); font-style: normal; display: block; }
 
+/* Linha de total nos custos do serviço */
+table.conditions tr.costs-total td { font-size: 1.05rem; font-weight: 800; }
+table.conditions tr.costs-total td:first-child { background: #1a5a38; color: #fff; }
+table.conditions tr.costs-total td:last-child { background: #d4eada; color: #1c4a2a; font-style: normal; }
+
 /* Gráfico dentro do card de custos */
-.budget-chart-wrap { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); }
+.budget-chart-wrap { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); display: flex; flex-direction: column; align-items: center; }
 
 /* Configurações das condições (dentro do modal) */
 .conditions-config { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; padding-top: 8px; }

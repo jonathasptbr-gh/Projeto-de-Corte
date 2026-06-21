@@ -38,13 +38,14 @@
   // Configuração padrão por projeto.
   function defaultCfg() {
     return {
-      laborPct:     80,
-      complexidade: 0,
-      daysPerUnit:  0.105,
-      fixacaoRate:  0,
-      entradaPct:   50,
-      credit6xFee:  10,
-      credit12xFee: 15,
+      laborPct:       80,
+      complexidade:   0,
+      daysPerUnit:    0.105,
+      fixacaoRate:    0,
+      entradaPct:     50,
+      credit6xFee:    10,
+      credit12xFee:   15,
+      pixDiscountPct: 10,
     };
   }
 
@@ -115,10 +116,11 @@
     const pix        = entrada + labor + complexTotal;
     const credit6x   = pix * (1 + (cfg.credit6xFee  || 0) / 100);
     const credit12x  = pix * (1 + (cfg.credit12xFee || 0) / 100);
-    const entradaVal = credit6x * ((cfg.entradaPct || 0) / 100);
-    const entregaVal = credit6x - entradaVal;
-    const days       = totalN * (cfg.daysPerUnit || 0);
-    return { entrada, labor, complexTotal, pix, credit6x, credit12x, entradaVal, entregaVal, days, totalN, pieces, fitas, cuts };
+    const entradaVal  = credit6x * ((cfg.entradaPct || 0) / 100);
+    const entregaVal  = credit6x - entradaVal;
+    const pixClient   = credit6x * (1 - (cfg.pixDiscountPct || 0) / 100);
+    const days        = totalN * (cfg.daysPerUnit || 0);
+    return { entrada, labor, complexTotal, pix, credit6x, credit12x, entradaVal, entregaVal, pixClient, days, totalN, pieces, fitas, cuts };
   }
 
   global.Budget = { defaultItems, defaultCfg, metricsFromPlan, subtotalItem, totals, isWhite };

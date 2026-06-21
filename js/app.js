@@ -32,7 +32,7 @@
   // Serve para desligar peças sem excluí-las.
   // Versão exibida no cabeçalho. Reflete o app.js carregado na tela (útil para
   // saber se o cache do Service Worker já atualizou). Manter igual ao N de sw.js.
-  const APP_VERSION = 'v84';
+  const APP_VERSION = 'v85';
 
   const clampQty = v => Math.min(MAX_QTY, Math.max(1, Math.round(parseNum(v) || 1)));
 
@@ -92,8 +92,9 @@
         daysPerUnit:  dc.daysPerUnit  != null ? dc.daysPerUnit  : (dc.daysPerPiece != null ? dc.daysPerPiece : e.budgetCfg.daysPerUnit),
         fixacaoRate:  dc.fixacaoRate  != null ? dc.fixacaoRate  : e.budgetCfg.fixacaoRate,
         entradaPct:   dc.entradaPct   != null ? dc.entradaPct   : e.budgetCfg.entradaPct,
-        credit6xFee:  dc.credit6xFee  != null ? dc.credit6xFee  : e.budgetCfg.credit6xFee,
-        credit12xFee: dc.credit12xFee != null ? dc.credit12xFee : e.budgetCfg.credit12xFee,
+        credit6xFee:    dc.credit6xFee    != null ? dc.credit6xFee    : e.budgetCfg.credit6xFee,
+        credit12xFee:   dc.credit12xFee   != null ? dc.credit12xFee   : e.budgetCfg.credit12xFee,
+        pixDiscountPct: dc.pixDiscountPct != null ? dc.pixDiscountPct : e.budgetCfg.pixDiscountPct,
       },
       budgetDescription: d.budgetDescription || '',
       budgetPhoto: d.budgetPhoto || '',
@@ -1402,22 +1403,26 @@
 
     const t = Budget.totals(items, qtys, metrics, state.budgetCfg);
 
-    // Custos do serviço
+    // Custos do serviço: materiais + mão de obra + complexidade + total
     const costsEl = $('#costs-table');
     if (costsEl) {
       costsEl.innerHTML =
         row('Tempo de produção', (Math.round(t.days * 10) / 10).toLocaleString('pt-BR') + ' Dias') +
+        row('Materiais', brl(t.entrada)) +
         row('Mão de obra', brl(t.labor)) +
-        (t.complexTotal > 0 ? row('Complexidade', brl(t.complexTotal)) : '');
+        (t.complexTotal > 0 ? row('Complexidade', brl(t.complexTotal)) : '') +
+        `<tr class="costs-total"><td>Total</td><td>${brl(t.pix)}</td></tr>`;
     }
 
-    // Condições para o cliente
+    // Condições para o cliente: entrada+entrega, 6x, 12x, pix (desconto)
     const condEl = $('#conditions-table');
     if (condEl) {
+      const disc = state.budgetCfg.pixDiscountPct || 0;
       condEl.innerHTML =
-        `<tr class="cond-pix">${cell('Pix')}${cell(brl(t.pix))}</tr>` +
         `<tr class="cond-credit">${cell('Entrada + Entrega')}${cell(brl(t.entradaVal) + ' + ' + brl(t.entregaVal))}</tr>` +
-        `<tr class="cond-credit">${cell('Crédito até 12x')}${cell(brl(t.credit12x) + '<span class="cond-sub">' + brl(t.credit12x / 12) + '/mês</span>')}</tr>`;
+        `<tr class="cond-credit">${cell('Crédito até 6x')}${cell(brl(t.credit6x) + '<span class="cond-sub">' + brl(t.credit6x / 6) + '/mês</span>')}</tr>` +
+        `<tr class="cond-credit">${cell('Crédito até 12x')}${cell(brl(t.credit12x) + '<span class="cond-sub">' + brl(t.credit12x / 12) + '/mês</span>')}</tr>` +
+        `<tr class="cond-pix">${cell('Pix')}${cell(brl(t.pixClient) + `<span class="cond-sub">−${disc}% do crédito 6x</span>`)}</tr>`;
     }
 
     renderChart();
@@ -1521,6 +1526,7 @@
     sv('#cfg-entrada-pct', c.entradaPct);
     sv('#cfg-credit-6x', c.credit6xFee);
     sv('#cfg-credit-12x', c.credit12xFee);
+    sv('#cfg-pix-discount', c.pixDiscountPct);
     $('#conditions-cfg-modal').hidden = false;
   }
 
@@ -1568,6 +1574,7 @@
     bindCfg('#cfg-entrada-pct', 'entradaPct');
     bindCfg('#cfg-credit-6x', 'credit6xFee');
     bindCfg('#cfg-credit-12x', 'credit12xFee');
+    bindCfg('#cfg-pix-discount', 'pixDiscountPct');
   }
 
   // ---------- Gráfico ----------
@@ -1577,7 +1584,8 @@
     ctx.clearRect(0, 0, W, H);
     const metrics = getBudgetMetrics();
     const data = db.budgetGlobal.items.map(it => {
-      const qty = it.type === 'auto'
+      const isAuto = it.type === 'auto' || it.type === 'auto-value';
+      const qty = isAuto
         ? (metrics[it.src] != null ? metrics[it.src] : 0)
         : (state.budgetQtys[it.key] || 0);
       return { label: it.label, val: Budget.subtotalItem(it, qty) };
@@ -1586,7 +1594,7 @@
     const legend = $('#chart-legend'); legend.innerHTML = '';
     if (!total) { ctx.fillStyle = '#999'; ctx.font = '16px sans-serif'; ctx.fillText('Sem dados de custo ainda.', 20, 40); return; }
     const colors = ['#4a90d9', '#e74c3c', '#f1c40f', '#2ecc71', '#9b59b6', '#e67e22', '#1abc9c', '#34495e', '#95a5a6', '#d35400', '#16a085', '#c0392b'];
-    const cx = H / 2, cy = H / 2, r = H / 2 - 16; let start = -Math.PI / 2;
+    const cx = W / 2, cy = H / 2, r = Math.min(W, H) / 2 - 16; let start = -Math.PI / 2;
     data.forEach((d, i) => {
       const ang = (d.val / total) * Math.PI * 2;
       ctx.beginPath(); ctx.moveTo(cx, cy); ctx.arc(cx, cy, r, start, start + ang); ctx.closePath();
