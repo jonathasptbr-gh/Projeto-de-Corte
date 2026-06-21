@@ -30,7 +30,7 @@
   // Serve para desligar peças sem excluí-las.
   // Versão exibida no cabeçalho. Reflete o app.js carregado na tela (útil para
   // saber se o cache do Service Worker já atualizou). Manter igual ao N de sw.js.
-  const APP_VERSION = 'v69';
+  const APP_VERSION = 'v70';
 
   const clampQty = v => Math.min(MAX_QTY, Math.max(1, Math.round(parseNum(v) || 1)));
 
@@ -1242,7 +1242,7 @@
     planStale = false;
     setRunButton(true);
     const emptyEl = $('#plan-empty'); if (emptyEl) emptyEl.style.display = 'none';
-    setPlanStatus('Procurando o melhor aproveitamento…');
+    setPlanStatus('Calculando…');
     updateStaleNotice(); // busca em andamento → esconde o aviso de alterações
     tickLive();
   }
@@ -1272,12 +1272,15 @@
       showResult(result);
       save();
     }
-    const pct = Math.min(100, Math.round(info.det / info.totalDet * 100));
-    const phase = info.det < info.totalDet ? `Testando combinações… ${pct}%`
-      : (info.beam && info.beam.idx < info.beam.total) ? `Busca profunda (beam)… ${info.beam.idx}/${info.beam.total}`
-      : 'Refinando (reinícios aleatórios)…';
-    const ns = state.plan ? state.plan.sheets.length : 0;
-    setPlanStatus(`${phase} · melhor: ${ns} chapa(s) · ${info.step} tentativas — toque em “Pausar e usar este” quando quiser.`);
+    let status;
+    if (info.det < info.totalDet) {
+      status = `Calculando… ${Math.min(99, Math.round(info.det / info.totalDet * 100))}%`;
+    } else if (info.beam && info.beam.idx < info.beam.total) {
+      status = `Calculando… ${Math.round(info.beam.idx / info.beam.total * 100)}%`;
+    } else {
+      status = `${info.step} tentativas`;
+    }
+    setPlanStatus(status);
 
     if (info.converged) {
       setPlanStatus('');
