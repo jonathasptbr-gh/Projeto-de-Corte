@@ -32,7 +32,7 @@
   // Serve para desligar peças sem excluí-las.
   // Versão exibida no cabeçalho. Reflete o app.js carregado na tela (útil para
   // saber se o cache do Service Worker já atualizou). Manter igual ao N de sw.js.
-  const APP_VERSION = 'v89';
+  const APP_VERSION = 'v90';
 
   const clampQty = v => Math.min(MAX_QTY, Math.max(1, Math.round(parseNum(v) || 1)));
 
@@ -1579,29 +1579,25 @@
 
   // ---------- Gráfico ----------
   function renderChart() {
-    const canvas = $('#chart'); if (!canvas) return;
-    const ctx = canvas.getContext('2d'); const W = canvas.width, H = canvas.height;
-    ctx.clearRect(0, 0, W, H);
+    const legend = $('#chart-legend'); if (!legend) return;
     const metrics = getBudgetMetrics();
     const data = db.budgetGlobal.items.map(it => {
       const isAuto = it.type === 'auto' || it.type === 'auto-value';
-      const qty = isAuto
-        ? (metrics[it.src] != null ? metrics[it.src] : 0)
-        : (state.budgetQtys[it.key] || 0);
+      const qty = isAuto ? (metrics[it.src] != null ? metrics[it.src] : 0) : (state.budgetQtys[it.key] || 0);
       return { label: it.label, val: Budget.subtotalItem(it, qty) };
     }).filter(d => d.val > 0).sort((a, b) => b.val - a.val);
     const total = data.reduce((a, d) => a + d.val, 0);
-    const legend = $('#chart-legend'); legend.innerHTML = '';
-    if (!total) { ctx.fillStyle = '#999'; ctx.font = '16px sans-serif'; ctx.fillText('Sem dados de custo ainda.', 20, 40); return; }
+    legend.innerHTML = '';
+    if (!total) { legend.innerHTML = '<span class="budget-summary-empty">Sem dados de custo ainda.</span>'; return; }
     const colors = ['#4a90d9', '#e74c3c', '#f1c40f', '#2ecc71', '#9b59b6', '#e67e22', '#1abc9c', '#34495e', '#95a5a6', '#d35400', '#16a085', '#c0392b'];
-    const cx = W / 2, cy = H / 2, r = Math.min(W, H) / 2 - 16; let start = -Math.PI / 2;
     data.forEach((d, i) => {
-      const ang = (d.val / total) * Math.PI * 2;
-      ctx.beginPath(); ctx.moveTo(cx, cy); ctx.arc(cx, cy, r, start, start + ang); ctx.closePath();
-      ctx.fillStyle = colors[i % colors.length]; ctx.fill(); start += ang;
-      const item = el('div', 'item');
-      item.innerHTML = `<span class="sw" style="background:${colors[i % colors.length]}"></span><span>${d.label} — ${(d.val / total * 100).toFixed(1)}% (${brl(d.val)})</span>`;
-      legend.appendChild(item);
+      const pct = d.val / total * 100;
+      const row = el('div', 'chart-bar-row');
+      row.innerHTML =
+        `<div class="chart-bar-label">${esc(d.label)}</div>` +
+        `<div class="chart-bar-track"><div class="chart-bar-fill" style="width:${pct.toFixed(2)}%;background:${colors[i % colors.length]}"></div></div>` +
+        `<div class="chart-bar-val">${brl(d.val)}</div>`;
+      legend.appendChild(row);
     });
   }
 
