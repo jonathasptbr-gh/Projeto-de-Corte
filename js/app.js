@@ -32,7 +32,7 @@
   // Serve para desligar peças sem excluí-las.
   // Versão exibida no cabeçalho. Reflete o app.js carregado na tela (útil para
   // saber se o cache do Service Worker já atualizou). Manter igual ao N de sw.js.
-  const APP_VERSION = 'v91';
+  const APP_VERSION = 'v92';
 
   const clampQty = v => Math.min(MAX_QTY, Math.max(1, Math.round(parseNum(v) || 1)));
 
@@ -760,7 +760,16 @@
     const row = body.children[idx + (which === 'panels' && selectMode ? 0 : 0)];
     if (row) { const inp = row.querySelector('input:not([type=checkbox])'); if (inp) inp.focus(); }
   }
-  function deleteRow(which, obj) {
+  async function deleteRow(which, obj) {
+    const isBlank = which === 'panels' ? isBlankPanel(obj) : isBlankStock(obj);
+    if (!isBlank) {
+      const label = obj.name
+        ? `"${obj.name}"`
+        : (which === 'panels' ? `${obj.width}×${obj.length}` : `${obj.width}×${obj.length} cm`);
+      const ok = await ui.confirm(`Excluir ${label}?`,
+        { title: which === 'panels' ? 'Excluir peça' : 'Excluir chapa', danger: true, okText: 'Excluir' });
+      if (!ok) return;
+    }
     const arr = which === 'panels' ? state.panels : state.stock;
     const idx = arr.indexOf(obj); if (idx < 0) return;
     selected.delete(obj);
@@ -1536,12 +1545,25 @@
     // Foto do projeto
     $('#budget-photo-input').addEventListener('change', e => {
       const f = e.target.files[0]; if (!f) return;
-      compressPhoto(f, dataUrl => { state.budgetPhoto = dataUrl; save(); renderBudgetPhoto(); });
-      e.target.value = ''; // permite re-selecionar o mesmo arquivo
+      compressPhoto(f, dataUrl => {
+        state.budgetPhoto = dataUrl; save(); renderBudgetPhoto();
+        const v = $('#photo-viewer'); if (v) v.hidden = true; // fecha o viewer se aberto
+      });
+      e.target.value = '';
     });
     $('#budget-photo-del').addEventListener('click', () => {
       state.budgetPhoto = ''; save(); renderBudgetPhoto();
     });
+    // Visualizador de foto em tela cheia
+    $('#budget-photo-img').addEventListener('click', () => {
+      if (!state.budgetPhoto) return;
+      const v = $('#photo-viewer'), vi = $('#photo-viewer-img');
+      if (!v || !vi) return;
+      vi.src = state.budgetPhoto;
+      v.hidden = false;
+    });
+    $('#photo-viewer-close').addEventListener('click', () => { $('#photo-viewer').hidden = true; });
+    $('#photo-viewer').addEventListener('click', e => { if (e.target.id === 'photo-viewer') $('#photo-viewer').hidden = true; });
 
     // Descrição
     $('#budget-description').addEventListener('input', e => {

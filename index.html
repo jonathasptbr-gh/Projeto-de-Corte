@@ -283,6 +283,21 @@
     </div>
   </div>
 
+  <!-- Modal: visualizar foto do projeto em tela cheia -->
+  <div class="modal-overlay photo-viewer" id="photo-viewer" hidden>
+    <div class="photo-viewer-inner">
+      <img id="photo-viewer-img" alt="" />
+      <div class="photo-viewer-actions">
+        <label class="btn primary" for="budget-photo-input">
+          <span class="material-symbols-outlined">photo_camera</span>Substituir
+        </label>
+        <button class="btn" id="photo-viewer-close">
+          <span class="material-symbols-outlined">close</span>Fechar
+        </button>
+      </div>
+    </div>
+  </div>
+
   <script src="js/csv.js"></script>
   <script src="js/optimizer.js"></script>
   <script src="js/render.js"></script>
