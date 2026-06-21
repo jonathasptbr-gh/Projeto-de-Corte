@@ -890,6 +890,53 @@
     return sheets;
   }
 
+  // Tenta unir duas chapas do mesmo material e mesmas dimensões re-empacotando
+  // todas as suas peças numa única. Quando consolidateSheets falha porque não
+  // existe espaço contíguo suficiente no layout atual, um re-empacotamento
+  // completo deste subconjunto de peças pode descobrir um arranjo que cabe numa
+  // só chapa. As peças são reconstruídas a partir dos placements (realW×realH)
+  // com grain='v'/sg='v' para fixar a orientação efetiva sem rotação extra.
+  function repackMerge(sheets, o) {
+    if (sheets.length < 2) return;
+    const fillRate = s => s.placements.length
+      ? s.placements.reduce((a, p) => a + (p.realW || p.w) * (p.realH || p.h), 0) / (s.W * s.H)
+      : 0;
+    // Pares compatíveis (mesmo material + dimensão), do menor fill combinado ao maior.
+    const cands = [];
+    for (let i = 0; i < sheets.length; i++) {
+      for (let j = i + 1; j < sheets.length; j++) {
+        const a = sheets[i], b = sheets[j];
+        if (a.material !== b.material) continue;
+        if (Math.abs(a.W - b.W) > EPS || Math.abs(a.H - b.H) > EPS) continue;
+        cands.push({ i, j, combined: fillRate(a) + fillRate(b) });
+      }
+    }
+    cands.sort((a, b) => a.combined - b.combined);
+    for (const { i, j } of cands) {
+      const sA = sheets[i], sB = sheets[j];
+      const items = [];
+      [sA, sB].forEach(s => s.placements.forEach(p => items.push({
+        w: p.realW || p.w, h: p.realH || p.h,
+        material: s.material, name: p.name,
+        grain: 'v', bands: p.bands || {},
+        __mat: s.material, __sg: 'v',
+      })));
+      const ro = Object.assign({}, o);
+      const res = packGroup(items, sA.W, sA.H, ro, sA.material, 1);
+      if (res && !res.unplaced.length && res.sheets.length === 1) {
+        const ns = res.sheets[0];
+        ns.material = sA.material;
+        ns.stockName = (fillRate(sB) >= fillRate(sA) ? sB : sA).stockName || '';
+        ns.free = guillotineOffcutsGreedy(ns);
+        ns.cuts = countGuillotineCuts(ns.W, ns.H, ns.placements);
+        sheets.splice(j, 1);
+        sheets.splice(i, 1);
+        sheets.push(ns);
+        return;
+      }
+    }
+  }
+
   function packGroup(items, W, H, o, matName, maxSheets) {
     items.forEach(it => it.__mat = matName);
     o.maxSheets = (maxSheets != null && maxSheets > 0) ? maxSheets : Infinity; // teto de chapas (estoque)
@@ -946,6 +993,8 @@
     });
     const finalUnplaced = backfillUnplaced(sheets, unplaced, o);
     consolidateSheets(sheets, o);
+    let _rLen;
+    do { _rLen = sheets.length; repackMerge(sheets, o); } while (sheets.length < _rLen);
     // numera por (material + nome do estoque) após consolidação
     const perKey = {};
     sheets.forEach(s => { const k = s.material + '|' + (s.stockName || ''); (perKey[k] = perKey[k] || []).push(s); });
@@ -1070,6 +1119,9 @@
       });
       const unplaced = backfillUnplaced(sheets, rawUnplaced, o);
       consolidateSheets(sheets, o);
+      // Tenta fundir chapas pouco cheias num único re-empacotamento
+      let _prevLen;
+      do { _prevLen = sheets.length; repackMerge(sheets, o); } while (sheets.length < _prevLen);
       // Numera após consolidação (chapas podem ter sido removidas/reordenadas)
       const perMat = {};
       sheets.forEach(s => { const k = s.material + '|' + (s.stockName || ''); (perMat[k] = perMat[k] || []).push(s); });
