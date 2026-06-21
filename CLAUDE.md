@@ -4,7 +4,7 @@ PWA offline-first de plano de corte de chapas (MDF/madeira), com otimizador de a
 
 ## Versão
 
-A cada deploy deve-se incrementar `N` em **`sw.js`** (`const CACHE = 'projeto-corte-vN'`) **e** em **`app.js`** (`const APP_VERSION = 'vN'`, exibido no cabeçalho). Os dois devem ficar iguais. Versão atual: **v68**.
+A cada deploy deve-se incrementar `N` em **`sw.js`** (`const CACHE = 'projeto-corte-vN'`) **e** em **`app.js`** (`const APP_VERSION = 'vN'`, exibido no cabeçalho). Os dois devem ficar iguais. Versão atual: **v69**.
 
 O selo de versão no topo (`#app-version`) reflete o `app.js` que a tela carregou — serve para conferir, após um deploy, se o cache do Service Worker já atualizou (número novo) ou não (número antigo).
 
@@ -156,3 +156,14 @@ dois lugares.
 ## Deploy
 
 Push em `main` dispara o workflow automaticamente. O deploy leva ~15 s. Após o deploy, o Service Worker só atualiza o cache quando a versão em `sw.js` muda — sempre incrementar `N` antes de commitar.
+
+## Fluxo de trabalho com o Claude (regra obrigatória)
+
+Todo trabalho de código feito pelo Claude **deve seguir este fluxo**:
+
+1. Desenvolver na branch designada (nunca diretamente no `main`).
+2. Commitar as alterações com mensagem descritiva.
+3. Fazer `push` para o remote.
+4. **Sempre abrir um Pull Request** apontando para `main` ao final — mesmo para mudanças pequenas. Isso garante que o deploy automático rode e que o histórico fique rastreável.
+
+O Claude não deve perguntar se deve criar o PR: **cria sempre**.

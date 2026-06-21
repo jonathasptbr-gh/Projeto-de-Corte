@@ -30,7 +30,7 @@
   // Serve para desligar peças sem excluí-las.
   // Versão exibida no cabeçalho. Reflete o app.js carregado na tela (útil para
   // saber se o cache do Service Worker já atualizou). Manter igual ao N de sw.js.
-  const APP_VERSION = 'v68';
+  const APP_VERSION = 'v69';
 
   const clampQty = v => Math.min(MAX_QTY, Math.max(1, Math.round(parseNum(v) || 1)));
 
@@ -1083,6 +1083,10 @@
   function relabelResult(result, groupLabel) {
     result.sheets.forEach(s => {
       if (!s.stockName) s.stockName = 'Chapa'; // fallback p/ chapa sem nome
+      // Grava se é material branco ANTES de trocar a chave de grupo pelo rótulo.
+      // A chave tem formato "#rrggbb|espessura"; verificar a cor hex garante
+      // que renomear o material no editor não quebre a classificação no orçamento.
+      s.materialWhite = String(s.material).split('|')[0] === '#ffffff';
       s.material = groupLabel[s.material] || s.material;
     });
     const bm2 = {};
@@ -1237,7 +1241,7 @@
     live = { search, groupLabel: inp.groupLabel, raf: 0 };
     planStale = false;
     setRunButton(true);
-    $('#plan-empty').style.display = 'none';
+    const emptyEl = $('#plan-empty'); if (emptyEl) emptyEl.style.display = 'none';
     setPlanStatus('Procurando o melhor aproveitamento…');
     updateStaleNotice(); // busca em andamento → esconde o aviso de alterações
     tickLive();
@@ -1295,10 +1299,10 @@
 
   // ---------- Orçamento ----------
   function renderBudget() {
-    if (state.plan) Budget.applyMetrics(state.budgetItems, Budget.metricsFromPlan(state.plan, 'cm'));
+    const m = state.plan ? Budget.metricsFromPlan(state.plan, 'cm') : { bandMeters: 0 };
+    if (state.plan) Budget.applyMetrics(state.budgetItems, m);
     const pieces = state.plan ? state.plan.sheets.reduce((a, s) => a + s.placements.length, 0) : 0;
     const cuts = state.plan ? state.plan.sheets.reduce((a, s) => a + s.cuts, 0) : 0;
-    const m = state.plan ? Budget.metricsFromPlan(state.plan, 'cm') : { bandMeters: 0 };
 
     $('#budget-badges').innerHTML =
       `<div class="badge b1"><div class="v">${pieces}</div><div class="k">N- peças</div></div>` +
