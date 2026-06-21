@@ -840,6 +840,55 @@
     return remaining;
   }
 
+  // Pós-processamento: tenta mover peças das chapas MENOS cheias para as
+  // MAIS cheias, usando guillotineOffcutsGreedy para revelar espaços
+  // contíguos que o splitRect runtime havia fragmentado. Remove chapas que
+  // ficarem vazias após a consolidação. Muta o array `sheets` em lugar.
+  function consolidateSheets(sheets, o) {
+    if (sheets.length < 2) return sheets;
+    const fillRate = s => s.placements.length
+      ? s.placements.reduce((a, p) => a + (p.realW || p.w) * (p.realH || p.h), 0) / (s.W * s.H)
+      : 0;
+    let madeProgress = true;
+    while (madeProgress) {
+      madeProgress = false;
+      // Acha a chapa menos cheia
+      let minFill = Infinity, srcIdx = -1;
+      for (let i = 0; i < sheets.length; i++) {
+        const f = fillRate(sheets[i]);
+        if (f < minFill) { minFill = f; srcIdx = i; }
+      }
+      if (srcIdx < 0 || sheets.length < 2) break;
+      const src = sheets[srcIdx];
+      if (!src.placements.length) { sheets.splice(srcIdx, 1); madeProgress = true; continue; }
+      // Destinos: demais chapas do mesmo material, da mais cheia para a menos
+      const targets = sheets.filter((_, i) => i !== srcIdx && sheets[i].material === src.material)
+                            .sort((a, b) => fillRate(b) - fillRate(a));
+      if (!targets.length) break;
+      for (let i = src.placements.length - 1; i >= 0; i--) {
+        const p = src.placements[i];
+        for (const tgt of targets) {
+          // usa a decomposição guilhotinada para encontrar regiões contíguas
+          const free = guillotineOffcutsGreedy(tgt);
+          const f = findFit({ free }, p.w, p.h, false, 'bssf');
+          if (f) {
+            const r = free[f.rectIdx];
+            tgt.placements.push({ ...p, x: r.x, y: r.y });
+            src.placements.splice(i, 1);
+            madeProgress = true;
+            break;
+          }
+        }
+      }
+    }
+    // Remove chapas vazias
+    for (let i = sheets.length - 1; i >= 0; i--) {
+      if (!sheets[i].placements.length) sheets.splice(i, 1);
+    }
+    sheets.forEach(s => { s.cuts = countGuillotineCuts(s.W, s.H, s.placements); });
+    return sheets;
+  }
+
   function packGroup(items, W, H, o, matName, maxSheets) {
     items.forEach(it => it.__mat = matName);
     o.maxSheets = (maxSheets != null && maxSheets > 0) ? maxSheets : Infinity; // teto de chapas (estoque)
@@ -894,11 +943,12 @@
       res.sheets.forEach(s => sheets.push(s));
       res.unplaced.forEach(u => unplaced.push(u));
     });
-    // numera por (material + nome do estoque)
+    const finalUnplaced = backfillUnplaced(sheets, unplaced, o);
+    consolidateSheets(sheets, o);
+    // numera por (material + nome do estoque) após consolidação
     const perKey = {};
     sheets.forEach(s => { const k = s.material + '|' + (s.stockName || ''); (perKey[k] = perKey[k] || []).push(s); });
     Object.keys(perKey).forEach(k => perKey[k].forEach((s, i) => { s.index = i + 1; }));
-    const finalUnplaced = backfillUnplaced(sheets, unplaced, o);
     refineOffcuts(sheets); // decomposição ótima das sobras (só no resultado final)
 
     const byMaterial = {};
@@ -1010,17 +1060,19 @@
     }
 
     function result() {
-      const sheets = [], unplaced = [];
-      // Copia os sheets para não corromper g.best ao fazer backfill
+      const sheets = [], rawUnplaced = [];
+      // Copia os sheets para não corromper g.best ao fazer backfill/consolidação
       groups.forEach(g => {
         if (!g.best) return;
         g.best.sheets.forEach(s => sheets.push({ ...s, placements: s.placements.slice() }));
-        g.best.unplaced.forEach(u => unplaced.push(u));
+        g.best.unplaced.forEach(u => rawUnplaced.push(u));
       });
+      const unplaced = backfillUnplaced(sheets, rawUnplaced, o);
+      consolidateSheets(sheets, o);
+      // Numera após consolidação (chapas podem ter sido removidas/reordenadas)
       const perMat = {};
       sheets.forEach(s => { const k = s.material + '|' + (s.stockName || ''); (perMat[k] = perMat[k] || []).push(s); });
       Object.keys(perMat).forEach(k => perMat[k].forEach((s, i) => { s.index = i + 1; }));
-      const stillUnplaced = backfillUnplaced(sheets, unplaced, o);
       refineOffcuts(sheets); // decomposição ótima das sobras (só no resultado mostrado)
       const byMaterial = {};
       sheets.forEach(s => {
@@ -1028,7 +1080,7 @@
         m.sheets++; m.cuts += s.cuts; m.area += s.W * s.H;
         s.placements.forEach(p => { m.pieces++; m.usedArea += (p.realW || p.w) * (p.realH || p.h); });
       });
-      return { sheets, unplaced: stillUnplaced, byMaterial };
+      return { sheets, unplaced, byMaterial };
     }
 
     return { step, result, totalDet };
