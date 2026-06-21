@@ -359,6 +359,14 @@
         const usedCols = Math.min(cols, total), usedRows = Math.ceil(total / cols);
         splitRect(target, fit.rectIdx, usedCols * fw + (usedCols - 1) * k, usedRows * fh + (usedRows - 1) * k, k, splitPref);
         target.cuts += (usedRows - 1) + usedRows * (usedCols - 1);
+        // Devolve ao pool o espaço vazio no final da última fileira incompleta.
+        // Só ocorre quando há mais de uma fileira e ela não está cheia;
+        // com uma fileira só, o splitRect já libera o espaço à direita.
+        const lastRowCount = total % cols;
+        if (usedRows > 1 && lastRowCount > 0) {
+          const uw = (cols - lastRowCount) * (fw + k) - k;
+          if (uw > EPS && fh > EPS) target.free.push({ x: r.x + lastRowCount * (fw + k), y: r.y + (usedRows - 1) * (fh + k), w: uw, h: fh });
+        }
       } else {
         target.placements.push({ x: r.x, y: r.y, w: fw, h: fh, realW, realH, name: it.name, rotated: fit.rotated, bands: it.bands });
         splitRect(target, fit.rectIdx, fw, fh, o.kerf, splitPref);
@@ -410,6 +418,11 @@
         }
         const usedCols = Math.min(cols, total), usedRows = Math.ceil(total / cols);
         splitRect(sheet, fit.rectIdx, usedCols * fw + (usedCols - 1) * k, usedRows * fh + (usedRows - 1) * k, k, splitPref);
+        const lastRowCount = total % cols;
+        if (usedRows > 1 && lastRowCount > 0) {
+          const uw = (cols - lastRowCount) * (fw + k) - k;
+          if (uw > EPS && fh > EPS) sheet.free.push({ x: r.x + lastRowCount * (fw + k), y: r.y + (usedRows - 1) * (fh + k), w: uw, h: fh });
+        }
       } else {
         sheet.placements.push({ x: r.x, y: r.y, w: fw, h: fh, realW, realH, name: it.name, rotated: fit.rotated, bands: it.bands });
         splitRect(sheet, fit.rectIdx, fw, fh, o.kerf, splitPref);
