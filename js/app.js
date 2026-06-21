@@ -32,7 +32,7 @@
   // Serve para desligar peças sem excluí-las.
   // Versão exibida no cabeçalho. Reflete o app.js carregado na tela (útil para
   // saber se o cache do Service Worker já atualizou). Manter igual ao N de sw.js.
-  const APP_VERSION = 'v85';
+  const APP_VERSION = 'v86';
 
   const clampQty = v => Math.min(MAX_QTY, Math.max(1, Math.round(parseNum(v) || 1)));
 
@@ -98,7 +98,7 @@
       },
       budgetDescription: d.budgetDescription || '',
       budgetPhoto: d.budgetPhoto || '',
-      plan: null,
+      plan: (d.plan && typeof d.plan === 'object' && Array.isArray(d.plan.sheets)) ? d.plan : null,
     };
     return out;
   }
@@ -136,23 +136,26 @@
   }
 
   function saveDb() {
+    const build = (withPlan) => ({
+      activeId: db.activeId,
+      budgetGlobal: db.budgetGlobal,
+      projects: db.projects.map(p => ({
+        id: p.id, name: p.name, createdAt: p.createdAt, updatedAt: p.updatedAt,
+        data: withPlan ? p.data : Object.assign({}, p.data, { plan: null }),
+      })),
+    });
     try {
-      const slim = {
-        activeId: db.activeId,
-        budgetGlobal: db.budgetGlobal,
-        projects: db.projects.map(p => ({
-          id: p.id, name: p.name, createdAt: p.createdAt, updatedAt: p.updatedAt,
-          data: Object.assign({}, p.data, { plan: null }) // plano não é persistido (recalculado ao abrir)
-        })),
-      };
-      localStorage.setItem(DB_KEY, JSON.stringify(slim));
-    } catch (e) {}
+      localStorage.setItem(DB_KEY, JSON.stringify(build(true)));
+    } catch (e) {
+      // quota excedida com o plano → grava sem o plano para não perder os dados
+      try { localStorage.setItem(DB_KEY, JSON.stringify(build(false))); } catch (e2) {}
+    }
   }
   function save() { const p = activeProject(); if (p) p.updatedAt = Date.now(); saveDb(); recordHistory(); }
 
   // ---------- Histórico (desfazer / refazer) ----------
-  // Snapshots do projeto ativo (sem o plano, que não é persistido). Cada save()
-  // registra um ponto; desfazer/refazer navegam por eles. Em memória, por sessão.
+  // Snapshots do projeto ativo (sem o plano). Cada save() registra um ponto;
+  // desfazer/refazer navegam por eles. O plano é preservado mas marcado como stale.
   let history = [], histIndex = -1, restoringHistory = false;
   const HISTORY_MAX = 120;
   function snapData() { return JSON.stringify(Object.assign({}, state, { plan: null })); }
@@ -171,9 +174,18 @@
     restoringHistory = true;
     try {
       const proj = activeProject();
-      if (proj) { proj.data = normalizeData(JSON.parse(snap)); state = proj.data; saveDb(); }
+      if (proj) {
+        const prevPlan = state.plan; // preserva o plano calculado durante undo/redo
+        proj.data = normalizeData(JSON.parse(snap));
+        proj.data.plan = prevPlan;
+        state = proj.data;
+        saveDb();
+      }
       selected.clear();
-      renderActive();
+      renderActive(); // showSavedPlan exibe o plano e reseta planStale
+      if (state.plan && state.plan.sheets && state.plan.sheets.length) {
+        planStale = true; updateStaleNotice(); // peças mudaram → plano pode estar desatualizado
+      }
     } catch (e) {}
     restoringHistory = false;
     updateUndoButtons();
