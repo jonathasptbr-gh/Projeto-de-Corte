@@ -430,6 +430,7 @@ table.conditions tr.cond-pix td:last-child { background: #d4eada; color: #1c4a2a
 table.conditions tr.cond-credit td:first-child { background: #3a7fc1; }
 table.conditions tr.cond-credit td:last-child { background: #dce8f4; }
 .cond-sub { font-size: .77rem; font-weight: 400; color: var(--muted); font-style: normal; display: block; }
+table.conditions td:first-child .cond-sub { color: rgba(255,255,255,.75); }
 
 /* Linha de total nos custos do serviço */
 table.conditions tr.costs-total td { font-size: 1.05rem; font-weight: 800; }

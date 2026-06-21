@@ -32,7 +32,7 @@
   // Serve para desligar peças sem excluí-las.
   // Versão exibida no cabeçalho. Reflete o app.js carregado na tela (útil para
   // saber se o cache do Service Worker já atualizou). Manter igual ao N de sw.js.
-  const APP_VERSION = 'v86';
+  const APP_VERSION = 'v87';
 
   const clampQty = v => Math.min(MAX_QTY, Math.max(1, Math.round(parseNum(v) || 1)));
 
@@ -1432,9 +1432,9 @@
       const disc = state.budgetCfg.pixDiscountPct || 0;
       condEl.innerHTML =
         `<tr class="cond-credit">${cell('Entrada + Entrega')}${cell(brl(t.entradaVal) + ' + ' + brl(t.entregaVal))}</tr>` +
-        `<tr class="cond-credit">${cell('Crédito até 6x')}${cell(brl(t.credit6x) + '<span class="cond-sub">' + brl(t.credit6x / 6) + '/mês</span>')}</tr>` +
-        `<tr class="cond-credit">${cell('Crédito até 12x')}${cell(brl(t.credit12x) + '<span class="cond-sub">' + brl(t.credit12x / 12) + '/mês</span>')}</tr>` +
-        `<tr class="cond-pix">${cell('Pix')}${cell(brl(t.pixClient) + `<span class="cond-sub">−${disc}% do crédito 6x</span>`)}</tr>`;
+        `<tr class="cond-credit">${cell('Crédito até 6x<span class="cond-sub">sem juros</span>')}${cell(brl(t.credit6x) + '<span class="cond-sub">até 6× de ' + brl(t.credit6x / 6) + '</span>')}</tr>` +
+        `<tr class="cond-credit">${cell('Crédito até 12x<span class="cond-sub">sem juros</span>')}${cell(brl(t.credit12x) + '<span class="cond-sub">até 12× de ' + brl(t.credit12x / 12) + '</span>')}</tr>` +
+        `<tr class="cond-pix">${cell('Pix<span class="cond-sub">' + disc + '% de desconto</span>')}${cell(brl(t.pixClient))}</tr>`;
     }
 
     renderChart();
