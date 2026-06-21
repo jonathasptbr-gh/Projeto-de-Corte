@@ -165,7 +165,7 @@
     if (!sheet.placements.length) return [{ x: 0, y: 0, w: sheet.W, h: sheet.H }];
     const placements = sheet.placements;
     // Muitas peças numa região → busca completa fica cara: cai no guloso.
-    if (placements.length > 14) return guillotineOffcutsGreedy(sheet);
+    if (placements.length > 20) return guillotineOffcutsGreedy(sheet);
     const memo = new Map();
     function best(x, y, w, h, items) {
       if (w <= EPS || h <= EPS) return { rects: [], maxA: 0, total: 0 };
@@ -868,8 +868,9 @@
       for (let i = src.placements.length - 1; i >= 0; i--) {
         const p = src.placements[i];
         for (const tgt of targets) {
-          // usa a decomposição guilhotinada para encontrar regiões contíguas
-          const free = guillotineOffcutsGreedy(tgt);
+          // usa a decomposição ÓTIMA (guillotineOffcuts) — a mesma que o SVG
+          // exibe como sobras — para encontrar a maior região contígua possível
+          const free = guillotineOffcuts(tgt);
           const f = findFit({ free }, p.w, p.h, false, 'bssf');
           if (f) {
             const r = free[f.rectIdx];
