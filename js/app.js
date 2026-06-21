@@ -30,7 +30,7 @@
   // Serve para desligar peças sem excluí-las.
   // Versão exibida no cabeçalho. Reflete o app.js carregado na tela (útil para
   // saber se o cache do Service Worker já atualizou). Manter igual ao N de sw.js.
-  const APP_VERSION = 'v81';
+  const APP_VERSION = 'v82';
 
   const clampQty = v => Math.min(MAX_QTY, Math.max(1, Math.round(parseNum(v) || 1)));
 
@@ -1451,6 +1451,14 @@
       if (recentTouch) return;
       toggleLiveSearch();
     });
+    // Toque no plano alterna entre: nome + medidas → só nome → só medidas → (repete)
+    const planSheetsEl = $('#plan-sheets');
+    if (planSheetsEl) {
+      planSheetsEl.addEventListener('click', () => {
+        const cur = planSheetsEl.dataset.lbl || '';
+        planSheetsEl.dataset.lbl = cur === '' ? 'name' : cur === 'name' ? 'dim' : '';
+      });
+    }
     // Desfazer / Refazer (botões + atalhos de teclado)
     const undoBtn = $('#undo-btn'), redoBtn = $('#redo-btn');
     if (undoBtn) undoBtn.addEventListener('click', doUndo);
