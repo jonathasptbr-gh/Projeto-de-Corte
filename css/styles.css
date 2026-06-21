@@ -437,8 +437,13 @@ table.conditions tr.costs-total td { font-size: 1.05rem; font-weight: 800; }
 table.conditions tr.costs-total td:first-child { background: #1a5a38; color: #fff; }
 table.conditions tr.costs-total td:last-child { background: #d4eada; color: #1c4a2a; font-style: normal; }
 
-/* Gráfico dentro do card de custos */
-.budget-chart-wrap { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); display: flex; flex-direction: column; align-items: center; }
+/* Gráfico de barras dentro do card de custos */
+.budget-chart-wrap { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); }
+.chart-bar-row { display: flex; align-items: center; gap: 8px; margin-bottom: 5px; }
+.chart-bar-label { width: 110px; font-size: .75rem; font-weight: 600; color: var(--muted); flex-shrink: 0; text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.chart-bar-track { flex: 1; height: 13px; background: var(--line); border-radius: 4px; overflow: hidden; }
+.chart-bar-fill { height: 100%; border-radius: 4px; min-width: 2px; }
+.chart-bar-val { width: 84px; font-size: .75rem; font-weight: 700; color: var(--text); flex-shrink: 0; text-align: right; }
 
 /* Configurações das condições (dentro do modal) */
 .conditions-config { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; padding-top: 8px; }
