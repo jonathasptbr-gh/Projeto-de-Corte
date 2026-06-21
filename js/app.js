@@ -32,7 +32,7 @@
   // Serve para desligar peças sem excluí-las.
   // Versão exibida no cabeçalho. Reflete o app.js carregado na tela (útil para
   // saber se o cache do Service Worker já atualizou). Manter igual ao N de sw.js.
-  const APP_VERSION = 'v87';
+  const APP_VERSION = 'v88';
 
   const clampQty = v => Math.min(MAX_QTY, Math.max(1, Math.round(parseNum(v) || 1)));
 
@@ -1397,21 +1397,9 @@
       if (subEl) subEl.textContent = brl(Budget.subtotalItem(it, qty));
     });
 
-    // Resumo compacto do corte (base da tabela)
+    // Resumo compacto do corte — removido; IC aparece na linha de Complexidade
     const sumEl = $('#budget-summary');
-    if (sumEl) {
-      if (state.plan) {
-        const p = metrics.pieces || 0;
-        const f = metrics.fitasTotal || 0;
-        const c = metrics.cuts || 0;
-        sumEl.innerHTML =
-          `<span><b>${p}</b> peças</span>` +
-          `<span><b>${numFmt(f)}</b> m fita</span>` +
-          `<span><b>${c}</b> cortes</span>`;
-      } else {
-        sumEl.innerHTML = '<span class="budget-summary-empty">Calcule o plano para ver as métricas do corte.</span>';
-      }
-    }
+    if (sumEl) sumEl.innerHTML = '';
 
     const t = Budget.totals(items, qtys, metrics, state.budgetCfg);
 
@@ -1422,7 +1410,7 @@
         row('Tempo de produção', (Math.round(t.days * 10) / 10).toLocaleString('pt-BR') + ' Dias') +
         row('Materiais', brl(t.entrada)) +
         row('Mão de obra', brl(t.labor)) +
-        (t.complexTotal > 0 ? row('Complexidade', brl(t.complexTotal)) : '') +
+        (t.totalN > 0 ? row('Complexidade (IC: ' + numFmt(t.totalN) + ')', brl(t.complexTotal)) : '') +
         `<tr class="costs-total"><td>Total</td><td>${brl(t.pix)}</td></tr>`;
     }
 
