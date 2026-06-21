@@ -32,7 +32,7 @@
   // Serve para desligar peças sem excluí-las.
   // Versão exibida no cabeçalho. Reflete o app.js carregado na tela (útil para
   // saber se o cache do Service Worker já atualizou). Manter igual ao N de sw.js.
-  const APP_VERSION = 'v92';
+  const APP_VERSION = 'v93';
 
   const clampQty = v => Math.min(MAX_QTY, Math.max(1, Math.round(parseNum(v) || 1)));
 
@@ -1543,17 +1543,26 @@
 
   function initBudget() {
     // Foto do projeto
-    $('#budget-photo-input').addEventListener('change', e => {
+    const photoInput = $('#budget-photo-input');
+    function openPhotoPicker() { photoInput.click(); }
+
+    photoInput.addEventListener('change', e => {
       const f = e.target.files[0]; if (!f) return;
       compressPhoto(f, dataUrl => {
         state.budgetPhoto = dataUrl; save(); renderBudgetPhoto();
-        const v = $('#photo-viewer'); if (v) v.hidden = true; // fecha o viewer se aberto
+        const v = $('#photo-viewer'); if (v) v.hidden = true;
       });
       e.target.value = '';
     });
+
+    // Placeholder (sem foto) e botão de edição (com foto) — acionam o file picker via JS
+    $('#budget-photo-placeholder').addEventListener('click', openPhotoPicker);
+    $('#budget-photo-edit').addEventListener('click', openPhotoPicker);
+
     $('#budget-photo-del').addEventListener('click', () => {
       state.budgetPhoto = ''; save(); renderBudgetPhoto();
     });
+
     // Visualizador de foto em tela cheia
     $('#budget-photo-img').addEventListener('click', () => {
       if (!state.budgetPhoto) return;
@@ -1562,6 +1571,7 @@
       vi.src = state.budgetPhoto;
       v.hidden = false;
     });
+    $('#photo-viewer-replace').addEventListener('click', () => { $('#photo-viewer').hidden = true; openPhotoPicker(); });
     $('#photo-viewer-close').addEventListener('click', () => { $('#photo-viewer').hidden = true; });
     $('#photo-viewer').addEventListener('click', e => { if (e.target.id === 'photo-viewer') $('#photo-viewer').hidden = true; });
 
