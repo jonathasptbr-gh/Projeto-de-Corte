@@ -30,13 +30,15 @@ Não há `package.json`, transpiler, nem bundler.
 - **Estado** vive em `state` (referência ao `data` do projeto ativo) e em `db` (todos os projetos, persistido em `localStorage` como `projeto-corte-db-v1`).
 - **O cálculo só INICIA pelo botão** "Calcular plano" (`toggleLiveSearch` → `startLiveSearch`). Uma vez iniciado, roda continuamente (loop RAF) melhorando o resultado. Edições **não** recalculam: `markPlanStale()` apenas para uma busca em andamento (se houver), marca o plano como desatualizado e exibe um **aviso** na aba Cortes — banner `#plan-stale` + ponto `#plan-tab-dot` na aba. `updateStaleNotice()` controla a visibilidade (só aparece quando há plano calculado, ele está stale e nenhuma busca roda).
 - **`startLiveSearch()`** inicia um loop RAF via `tickLive()` que chama `Optimizer.createSearch` e vai melhorando o resultado ao longo do tempo.
-- **`showResult(result)`** renderiza métricas, tabela por material e SVG das chapas.
+- **`showResult(result)`** monta a aba Cortes: `#plan-metrics` fica **vazio** (sem cards); `#plan-breakdown` recebe **uma tabela única** (`.plan-tbl`, layout fixo) com cabeçalho `Chapas/mín | Material | Peças | Aprov.` — primeiro as linhas de **resumo por material** (classe `tbl-geral`, fundo destacado) e depois o **detalhe por chapa** (1 linha por chapa). Os cartões SVG de cada chapa vêm em `#plan-sheets` (`Render.renderSheets`).
+- **Importação NÃO calcula automaticamente** (`importAsProject`): após importar vai para a aba **Peças** (revisar); o plano só roda no botão.
 - **Projetos** ficam em `localStorage`; o plano de corte (`state.plan`) não é persistido — é recalculado ao abrir.
 - **Desfazer/Refazer:** `save()` registra um snapshot do projeto ativo (sem `plan`) em `history`; `doUndo`/`doRedo` navegam por `histIndex`. `applySnapshot()` restaura via `normalizeData` e re-renderiza (com a guarda `restoringHistory` para não gravar histórico durante a restauração). `resetHistory()` é chamado ao trocar/criar/importar/excluir projeto. Botões `#undo-btn`/`#redo-btn` no cabeçalho + atalhos Ctrl+Z / Ctrl+Shift+Z (ignorados quando o foco está num campo, para preservar o desfazer nativo do texto). Histórico é em memória (por sessão).
 - **"Sem material" (vazio)**: peça sem material fica **fora do plano** (`buildPlanInputs` filtra `p.material` vazio). Serve para desligar peças sem excluí-las. O chip mostra o símbolo "—" (`paintMatChip` pinta vazio como "none"). Não há mais a opção "Nenhum" separada (v48); `normalizeData` migra material `'Nenhum'` salvo → vazio.
 - **Editor de material** (`openMaterialEditor`): tocar no chip/nome na legenda abre um popup temático para renomear (`materialNames[m]=[novo]`) e escolher a cor (**somente paleta padrão** — cor personalizada foi removida). O rótulo (`matLabel`) usa só o **primeiro** nome nativo + espessura.
 - **Seleção de material na tabela** (`materialControl` → `openMaterialPicker`): o chip na linha de peça/estoque abre um **popup temático** (lista de materiais como chips + "Sem material"), em vez do `<select>` nativo. `paintMatChip()` é o helper de pintura do chip compartilhado.
-- **Peças que não couberam** (`renderUnplaced`): listadas no **topo** do plano (`#plan-unplaced`), em tabela **editável** que reusa `makePanelRow` — então editar medidas/qtd/material/veio/fita ali reflete direto na lista de peças original (mapeamento por valor: `width/length/name/materialGroupKey`). A última coluna mostra quantas unidades faltaram. O `render.js` **não** desenha mais o aviso no fim.
+- **Peças que não couberam** (`renderUnplaced`): no **topo** do plano (`#plan-unplaced`), com título "N peça(s) não couberam" e duas tabelas editáveis — **"Estoque"** (reusa `makeStockRow`) **antes** de **"Peças"** (reusa `makePanelRow`), pois mexer no estoque também resolve. Editar ali reflete direto nas listas originais (peças mapeadas por valor: `width/length/name/materialGroupKey`). A última coluna das peças (`Faltou`) mostra quantas unidades faltaram. O `render.js` **não** desenha mais o aviso no fim.
+- **Nome da chapa no plano** (`render.js`): cada chapa é rotulada `Material — {stockName}` e recebe número (` 1`, ` 2`…) **só quando há mais de uma do mesmo tipo** (material+nome). `stockName` vem do otimizador, por chapa (nome do tamanho de estoque de origem; ver "Múltiplos tamanhos"). Estoque tem coluna **"Nome"** (texto livre, `s.name`, padrão "Chapa") para diferenciar chapas parecidas.
 - **SVG do plano** (`render.js`): o **nome** da peça fica no quadrante superior-esquerdo (≈25%/25%), fora das linhas centrais onde ficam os números das bordas; as **medidas das sobras** vão nas bordas (largura no topo, comprimento à esquerda), como nas peças. Fontes têm piso menor para peças pequenas.
 
 ## Bugs conhecidos no Android Chrome (S24 Ultra)
@@ -117,6 +119,9 @@ nova. `runCascade()` roda os empacotadores em **cascata**: empacota no menor
 tamanho (até a `qty` dele), o que **não couber cai no próximo tamanho** (maior), e
 assim por diante. `optimize` e `createSearch` usam `sizesFor(material)` +
 `runCascade` (empacotadores recebem um único `W,H` por passada; `it.__sg` por tamanho).
+Cada tamanho carrega o **nome** do estoque (`aggregateSizes`); `runCascade` grava
+`s.stockName` em cada chapa gerada, e a numeração no resultado é por
+(material + `stockName`) — por isso o plano mostra "Chapa 1/2", "Pedaço 1/2" etc.
 
 **Chapa com material vazio NÃO conta** (igual às peças vazias): `sizesFor` só
 considera chapas com o material do grupo, sem fallback para material vazio. Um
