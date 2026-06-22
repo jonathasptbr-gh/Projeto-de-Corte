@@ -12,7 +12,7 @@ self.onmessage = function (e) {
     // Posta progresso no máximo a cada 50 ms para não sobrecarregar postMessage.
     if (now - lastPost >= 50) {
       lastPost = now;
-      self.postMessage({ type: 'progress', det: info.det, totalDet: info.totalDet, beam: info.beam });
+      self.postMessage({ type: 'progress', det: info.det, totalDet: info.totalDet, beam: info.beam, sinceImprove: info.sinceImprove || 0 });
     }
   } while (!info.converged);
   self.postMessage({ type: 'done', result: search.result() });

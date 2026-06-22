@@ -1274,7 +1274,7 @@
         }
         stepCount++;
         if (improved) sinceImprove = 0; else sinceImprove++;
-        return { improved, converged: false, det: detIdx, totalDet, step: stepCount };
+        return { improved, converged: false, det: detIdx, totalDet, step: stepCount, sinceImprove };
       }
       if (detIdx < combos.length) {
         const c = combos[detIdx++];
@@ -1308,7 +1308,7 @@
       // convergiu: terminou as fases determinística + beam e estagnou por MUITOS
       // passos (busca longa; o usuário pode pausar a qualquer momento).
       const converged = detIdx >= combos.length && beamIdx >= beamSchedule.length && sinceImprove >= 3000;
-      return { improved, converged, det: detIdx, totalDet, step: stepCount, beam: { idx: beamIdx, total: beamSchedule.length } };
+      return { improved, converged, det: detIdx, totalDet, step: stepCount, sinceImprove, beam: { idx: beamIdx, total: beamSchedule.length } };
     }
 
     function result() {
