@@ -158,9 +158,11 @@
   // Decomposição guilhotinada das SOBRAS que MAXIMIZA O MAIOR retalho único.
   // Em vez de descascar a maior área vazia (guloso, fragmenta), faz uma busca
   // recursiva por todos os cortes de lado-a-lado e escolhe a sequência que
-  // deixa o MAIOR pedaço inteiro (desempate: maior área reaproveitável total).
-  // Assim ela "apara as tiras com peça" primeiro (esquerda, topo) e mantém o
-  // miolo vazio como um único retalho grande. Memoiza por região+peças.
+  // deixa o MAIOR pedaço inteiro. Desempate em ordem de prioridade:
+  //   1. Maior retalho único (maxA) — prioridade principal
+  //   2. Menor número de fragmentos (count) — sobras mais inteiras
+  //   3. Maior área total reaproveitável (total)
+  // Memoiza por região+peças.
   function guillotineOffcuts(sheet) {
     if (!sheet.placements.length) return [{ x: 0, y: 0, w: sheet.W, h: sheet.H }];
     const placements = sheet.placements;
@@ -168,17 +170,21 @@
     if (placements.length > 20) return guillotineOffcutsGreedy(sheet);
     const memo = new Map();
     function best(x, y, w, h, items) {
-      if (w <= EPS || h <= EPS) return { rects: [], maxA: 0, total: 0 };
-      if (!items.length) { const a = w * h; return { rects: [{ x, y, w, h }], maxA: a, total: a }; }
+      if (w <= EPS || h <= EPS) return { rects: [], count: 0, maxA: 0, total: 0 };
+      if (!items.length) { const a = w * h; return { rects: [{ x, y, w, h }], count: 1, maxA: a, total: a }; }
       const key = x.toFixed(1) + '|' + y.toFixed(1) + '|' + w.toFixed(1) + '|' + h.toFixed(1) + '|' + items.map(p => p.x.toFixed(0) + ',' + p.y.toFixed(0)).sort().join(';');
       const hit = memo.get(key); if (hit) return hit;
       let res = null;
       const consider = (ca, cb) => {
         const ra = best(ca.x, ca.y, ca.w, ca.h, ca.items);
         const rb = best(cb.x, cb.y, cb.w, cb.h, cb.items);
+        const count = ra.rects.length + rb.rects.length;
         const maxA = Math.max(ra.maxA, rb.maxA), total = ra.total + rb.total;
-        if (!res || maxA > res.maxA + 1e-6 || (Math.abs(maxA - res.maxA) <= 1e-6 && total > res.total + 1e-6)) {
-          res = { rects: ra.rects.concat(rb.rects), maxA, total };
+        if (!res ||
+            maxA > res.maxA + 1e-6 ||
+            (Math.abs(maxA - res.maxA) <= 1e-6 && count < res.count) ||
+            (Math.abs(maxA - res.maxA) <= 1e-6 && count === res.count && total > res.total + 1e-6)) {
+          res = { rects: ra.rects.concat(rb.rects), count, maxA, total };
         }
       };
       const xs = Array.from(new Set([].concat(...items.map(p => [p.x, p.x + p.w])))).filter(X => X > x + EPS && X < x + w - EPS);
@@ -193,7 +199,7 @@
           consider({ x, y, w, h: Y - y, items: items.filter(p => p.y + p.h <= Y + EPS) },
                    { x, y: Y, w, h: y + h - Y, items: items.filter(p => p.y >= Y - EPS) });
       });
-      if (!res) res = { rects: [], maxA: 0, total: 0 }; // peça preenche a região
+      if (!res) res = { rects: [], count: 0, maxA: 0, total: 0 }; // peça preenche a região
       memo.set(key, res);
       return res;
     }
@@ -229,7 +235,11 @@
       if (!cands.length) return;
       const emptyArea = c => [c.a, c.b].reduce((s, r) => s + (r.items.length ? 0 : r.w * r.h), 0);
       const biggestEmpty = c => [c.a, c.b].reduce((m, r) => Math.max(m, r.items.length ? 0 : r.w * r.h), 0);
-      cands.sort((c1, c2) => (emptyArea(c2) - emptyArea(c1)) || (biggestEmpty(c2) - biggestEmpty(c1)));
+      // Tiebreaker extra: quando nenhum corte produz sub-região vazia, preferir o
+      // que deixa MENOS peças no lado menor — tende a gerar menos fragmentos no
+      // total ao isolar sub-problemas menores mais rapidamente.
+      const minSideCount = c => Math.min(c.a.items.length, c.b.items.length);
+      cands.sort((c1, c2) => (emptyArea(c2) - emptyArea(c1)) || (biggestEmpty(c2) - biggestEmpty(c1)) || (minSideCount(c1) - minSideCount(c2)));
       const c = cands[0];
       decompose(c.a.x, c.a.y, c.a.w, c.a.h, c.a.items);
       decompose(c.b.x, c.b.y, c.b.w, c.b.h, c.b.items);
