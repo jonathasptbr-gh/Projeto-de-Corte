@@ -32,7 +32,7 @@
   // Serve para desligar peças sem excluí-las.
   // Versão exibida no cabeçalho. Reflete o app.js carregado na tela (útil para
   // saber se o cache do Service Worker já atualizou). Manter igual ao N de sw.js.
-  const APP_VERSION = 'v100';
+  const APP_VERSION = 'v101';
 
   const clampQty = v => Math.min(MAX_QTY, Math.max(1, Math.round(parseNum(v) || 1)));
 
@@ -1293,8 +1293,9 @@
   function setRunButton(running) {
     const b = $('#run-plan');
     if (!b) return;
+    b.disabled = !!running;
     b.innerHTML = running
-      ? '<span class="material-symbols-outlined">pause</span>Pausar e usar este'
+      ? '<span class="material-symbols-outlined">hourglass_empty</span>Calculando…'
       : '<span class="material-symbols-outlined">play_arrow</span>Calcular plano';
     b.classList.toggle('searching', !!running);
   }
@@ -1340,12 +1341,6 @@
       if (info.improved) improved = true;
     } while (!info.converged && performance.now() - t0 < 14);
 
-    if (improved) {
-      const result = relabelResult(search.result(), live.groupLabel);
-      state.plan = result;
-      showResult(result);
-      save();
-    }
     // Mapeia fases para intervalos de % que evitam saltos bruscos:
     //   det 0→totalDet  : 0–50 %
     //   beam 0→total    : 50–92 %
@@ -1363,21 +1358,16 @@
     setProgressPct(_displayPct);
 
     if (info.converged) {
-      setProgressPct(null);
+      const groupLabel = live.groupLabel;
       stopLiveSearch();
-      toast('Otimização estabilizou — usando o melhor plano.');
+      const result = relabelResult(search.result(), groupLabel);
+      state.plan = result;
+      showResult(result);
+      save();
+      toast('Cálculo concluído.');
       return;
     }
     live.raf = requestAnimationFrame(tickLive);
-  }
-
-  function toggleLiveSearch() {
-    if (live) {
-      stopLiveSearch();
-      toast('Usando o melhor plano encontrado.');
-    } else {
-      startLiveSearch();
-    }
   }
 
   // ---------- Orçamento ----------
@@ -1734,11 +1724,11 @@
       recentTouch = true;
       setTimeout(function () { recentTouch = false; }, 500);
       e.preventDefault();
-      toggleLiveSearch();
+      if (!live) startLiveSearch();
     }, { passive: false });
     runBtn.addEventListener('click', function () {
-      if (recentTouch) return;
-      toggleLiveSearch();
+      if (recentTouch || live) return;
+      startLiveSearch();
     });
     // Toque no plano alterna entre: nome + medidas → só nome → só medidas → (repete)
     const planSheetsEl = $('#plan-sheets');
