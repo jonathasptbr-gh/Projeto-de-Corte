@@ -212,13 +212,14 @@
     // conta chapas por tipo (material+nome) → nº só aparece se houver mais de uma
     const typeCount = {};
     result.sheets.forEach(s => { const k = s.material + '|' + (s.stockName || ''); typeCount[k] = (typeCount[k] || 0) + 1; });
-    result.sheets.forEach(sheet => {
+    result.sheets.forEach((sheet, idx) => {
       const used = sheet.placements.reduce((a, p) => a + (p.realW || p.w) * (p.realH || p.h), 0);
       const eff = sheet.W * sheet.H ? (used / (sheet.W * sheet.H) * 100) : 0;
       const nm = sheet.stockName || 'Chapa';
       const suffix = typeCount[sheet.material + '|' + (sheet.stockName || '')] > 1 ? ' ' + sheet.index : '';
       const card = document.createElement('div');
       card.className = 'sheet-card';
+      card.id = 'sheet-card-' + idx;
       card.innerHTML =
         `<h3>${esc(sheet.material)} — ${esc(nm)}${suffix}</h3>` +
         `<div class="sub">${fmt(sheet.W)} × ${fmt(sheet.H)} · ${sheet.placements.length} peças · aproveit. ${eff.toFixed(1)}%</div>` +

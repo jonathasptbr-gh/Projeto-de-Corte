@@ -32,7 +32,7 @@
   // Serve para desligar peças sem excluí-las.
   // Versão exibida no cabeçalho. Reflete o app.js carregado na tela (útil para
   // saber se o cache do Service Worker já atualizou). Manter igual ao N de sw.js.
-  const APP_VERSION = 'v97';
+  const APP_VERSION = 'v98';
 
   const clampQty = v => Math.min(MAX_QTY, Math.max(1, Math.round(parseNum(v) || 1)));
 
@@ -1193,23 +1193,33 @@
     // Tabela ÚNICA: resumo por material (geral, destacado) no topo + detalhe por chapa.
     const typeCount = {};
     result.sheets.forEach(s => { const k = s.material + '|' + (s.stockName || ''); typeCount[k] = (typeCount[k] || 0) + 1; });
+    // índice da primeira chapa de cada material (para navegar nos cliques das linhas de resumo)
+    const matFirstIdx = {};
+    result.sheets.forEach((s, i) => { if (!(s.material in matFirstIdx)) matFirstIdx[s.material] = i; });
     const bm = result.byMaterial;
     let rows = '';
     Object.keys(bm).forEach(mat => {
       const d = bm[mat];
       const minSheets = Math.max(1, Math.ceil(d.usedArea / (d.area / d.sheets)));
       const effMat = d.area ? (d.usedArea / d.area * 100) : 0;
-      rows += `<tr class="tbl-geral"><td>${d.sheets} / ${minSheets}</td><td>${esc(mat)}</td><td>${d.pieces}</td><td>${effMat.toFixed(1)}%</td></tr>`;
+      const si = matFirstIdx[mat] != null ? ` data-sheet="${matFirstIdx[mat]}"` : '';
+      rows += `<tr class="tbl-geral"${si}><td>${d.sheets} / ${minSheets}</td><td>${esc(mat)}</td><td>${d.pieces}</td><td>${effMat.toFixed(1)}%</td></tr>`;
     });
-    result.sheets.forEach(s => {
+    result.sheets.forEach((s, idx) => {
       const u = s.placements.reduce((a, p) => a + (p.realW || p.w) * (p.realH || p.h), 0);
       const ef = s.W * s.H ? (u / (s.W * s.H) * 100) : 0;
       const nm = (s.stockName || 'Chapa') + (typeCount[s.material + '|' + (s.stockName || '')] > 1 ? ' ' + s.index : '');
-      rows += `<tr><td>${esc(nm)}</td><td>${esc(s.material)}</td><td>${s.placements.length}</td><td>${ef.toFixed(1)}%</td></tr>`;
+      rows += `<tr data-sheet="${idx}"><td>${esc(nm)}</td><td>${esc(s.material)}</td><td>${s.placements.length}</td><td>${ef.toFixed(1)}%</td></tr>`;
     });
     breakdownEl.innerHTML =
       `<table class="grid compact plan-tbl"><thead><tr><th>Chapas/mín</th><th>Material</th>` +
       `<th>Peças</th><th>Aprov.</th></tr></thead><tbody>${rows}</tbody></table>`;
+    breakdownEl.querySelector('tbody').addEventListener('click', e => {
+      const tr = e.target.closest('tr[data-sheet]');
+      if (!tr) return;
+      const card = document.getElementById('sheet-card-' + tr.dataset.sheet);
+      if (card) card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
 
     renderUnplaced(result);
     Render.renderSheets(sheetsEl, result, { showLabels: true });
