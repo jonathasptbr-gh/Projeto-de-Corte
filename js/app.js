@@ -32,7 +32,7 @@
   // Serve para desligar peças sem excluí-las.
   // Versão exibida no cabeçalho. Reflete o app.js carregado na tela (útil para
   // saber se o cache do Service Worker já atualizou). Manter igual ao N de sw.js.
-  const APP_VERSION = 'v99';
+  const APP_VERSION = 'v100';
 
   const clampQty = v => Math.min(MAX_QTY, Math.max(1, Math.round(parseNum(v) || 1)));
 
@@ -1298,7 +1298,14 @@
       : '<span class="material-symbols-outlined">play_arrow</span>Calcular plano';
     b.classList.toggle('searching', !!running);
   }
-  function setPlanStatus(txt) { const e = $('#plan-status'); if (e) { e.textContent = txt || ''; e.style.display = txt ? 'block' : 'none'; } }
+  let _displayPct = 0, _targetPct = 0;
+  function setProgressPct(pct) {
+    const e = $('#plan-progress');
+    if (!e) return;
+    if (pct == null) { e.hidden = true; return; }
+    e.hidden = false;
+    e.textContent = Math.floor(pct) + '%';
+  }
 
   function startLiveSearch() {
     const inp = buildPlanInputs();
@@ -1306,9 +1313,10 @@
     const search = Optimizer.createSearch(inp.gpanels, inp.gstock, inp.opts);
     live = { search, groupLabel: inp.groupLabel, raf: 0 };
     planStale = false;
+    _displayPct = 0; _targetPct = 0;
     setRunButton(true);
     const emptyEl = $('#plan-empty'); if (emptyEl) emptyEl.style.display = 'none';
-    setPlanStatus('Calculando…');
+    setProgressPct(0);
     updateStaleNotice(); // busca em andamento → esconde o aviso de alterações
     tickLive();
   }
@@ -1318,7 +1326,7 @@
     if (live.raf) cancelAnimationFrame(live.raf);
     live = null;
     setRunButton(false);
-    setPlanStatus('');
+    setProgressPct(null);
     updateStaleNotice();
   }
 
@@ -1338,18 +1346,24 @@
       showResult(result);
       save();
     }
-    let status;
+    // Mapeia fases para intervalos de % que evitam saltos bruscos:
+    //   det 0→totalDet  : 0–50 %
+    //   beam 0→total    : 50–92 %
+    //   pós-beam        : 98 % (lerp chega lá gradualmente)
     if (info.det < info.totalDet) {
-      status = `Calculando… ${Math.min(99, Math.round(info.det / info.totalDet * 100))}%`;
+      _targetPct = (info.det / info.totalDet) * 50;
     } else if (info.beam && info.beam.idx < info.beam.total) {
-      status = `Calculando… ${Math.round(info.beam.idx / info.beam.total * 100)}%`;
+      _targetPct = 50 + (info.beam.idx / info.beam.total) * 42;
     } else {
-      status = `${info.step} tentativas`;
+      _targetPct = 98;
     }
-    setPlanStatus(status);
+    // Interpolação suave: avança sempre pelo menos 0.08 % por frame (60 fps ≈ 5 %/s)
+    // e aproveita os saltos do target para avançar mais rápido quando possível.
+    _displayPct = Math.min(99, _displayPct + Math.max(0.08, (_targetPct - _displayPct) * 0.12));
+    setProgressPct(_displayPct);
 
     if (info.converged) {
-      setPlanStatus('');
+      setProgressPct(null);
       stopLiveSearch();
       toast('Otimização estabilizou — usando o melhor plano.');
       return;
