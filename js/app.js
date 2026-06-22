@@ -32,7 +32,7 @@
   // Serve para desligar peças sem excluí-las.
   // Versão exibida no cabeçalho. Reflete o app.js carregado na tela (útil para
   // saber se o cache do Service Worker já atualizou). Manter igual ao N de sw.js.
-  const APP_VERSION = 'v102';
+  const APP_VERSION = 'v103';
 
   const clampQty = v => Math.min(MAX_QTY, Math.max(1, Math.round(parseNum(v) || 1)));
 
@@ -1323,13 +1323,17 @@
       const msg = e.data;
       if (msg.type === 'progress') {
         // Atualiza só o alvo; o RAF da thread principal anima o display.
+        // det→0-50%  beam→50-92%  pós-beam→92-98% proporcional a sinceImprove/3000
+        // Math.max impede retrocesso quando sinceImprove reseta numa melhora.
+        let tp;
         if (msg.det < msg.totalDet) {
-          _targetPct = (msg.det / msg.totalDet) * 50;
+          tp = (msg.det / msg.totalDet) * 50;
         } else if (msg.beam && msg.beam.idx < msg.beam.total) {
-          _targetPct = 50 + (msg.beam.idx / msg.beam.total) * 42;
+          tp = 50 + (msg.beam.idx / msg.beam.total) * 42;
         } else {
-          _targetPct = 98;
+          tp = 92 + (Math.min(msg.sinceImprove || 0, 3000) / 3000) * 6;
         }
+        _targetPct = Math.max(_targetPct, tp);
       } else if (msg.type === 'done') {
         stopLiveSearch();
         const result = relabelResult(msg.result, inp.groupLabel);
