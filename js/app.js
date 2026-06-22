@@ -32,7 +32,7 @@
   // Serve para desligar peças sem excluí-las.
   // Versão exibida no cabeçalho. Reflete o app.js carregado na tela (útil para
   // saber se o cache do Service Worker já atualizou). Manter igual ao N de sw.js.
-  const APP_VERSION = 'v101';
+  const APP_VERSION = 'v102';
 
   const clampQty = v => Math.min(MAX_QTY, Math.max(1, Math.round(parseNum(v) || 1)));
 
@@ -1159,7 +1159,7 @@
   // plano já calculado, ele ficou desatualizado e não há busca em andamento.
   function updateStaleNotice() {
     const hasPlan = !!(state.plan && state.plan.sheets && state.plan.sheets.length);
-    const show = planStale && hasPlan && !live;
+    const show = planStale && hasPlan && !liveWorker;
     const banner = $('#plan-stale'); if (banner) banner.hidden = !show;
     const dot = $('#plan-tab-dot'); if (dot) dot.hidden = !show;
   }
@@ -1287,8 +1287,8 @@
     }
   }
 
-  // ---------- Busca contínua (testa e melhora ao vivo) ----------
-  let live = null; // { search, groupLabel, raf }
+  // ---------- Busca em Web Worker (não bloqueia a thread principal) ----------
+  let liveWorker = null, _progressRaf = 0;
 
   function setRunButton(running) {
     const b = $('#run-plan');
@@ -1311,63 +1311,53 @@
   function startLiveSearch() {
     const inp = buildPlanInputs();
     if (!inp) { toast('Importe um CSV ou adicione peças.'); return; }
-    const search = Optimizer.createSearch(inp.gpanels, inp.gstock, inp.opts);
-    live = { search, groupLabel: inp.groupLabel, raf: 0 };
     planStale = false;
     _displayPct = 0; _targetPct = 0;
     setRunButton(true);
     const emptyEl = $('#plan-empty'); if (emptyEl) emptyEl.style.display = 'none';
     setProgressPct(0);
-    updateStaleNotice(); // busca em andamento → esconde o aviso de alterações
-    tickLive();
+    updateStaleNotice();
+
+    liveWorker = new Worker('./js/optimizer-worker.js');
+    liveWorker.onmessage = function (e) {
+      const msg = e.data;
+      if (msg.type === 'progress') {
+        // Atualiza só o alvo; o RAF da thread principal anima o display.
+        if (msg.det < msg.totalDet) {
+          _targetPct = (msg.det / msg.totalDet) * 50;
+        } else if (msg.beam && msg.beam.idx < msg.beam.total) {
+          _targetPct = 50 + (msg.beam.idx / msg.beam.total) * 42;
+        } else {
+          _targetPct = 98;
+        }
+      } else if (msg.type === 'done') {
+        stopLiveSearch();
+        const result = relabelResult(msg.result, inp.groupLabel);
+        state.plan = result;
+        showResult(result);
+        save();
+        toast('Cálculo concluído.');
+      }
+    };
+    liveWorker.onerror = function () { stopLiveSearch(); toast('Erro no cálculo.'); };
+    liveWorker.postMessage({ panels: inp.gpanels, stockList: inp.gstock, options: inp.opts });
+
+    // RAF exclusivo para animação do progresso — roda mesmo durante steps pesados.
+    // Cap de 1 %/frame: nunca salta mais que 1 % por frame (≈ 60 %/s a 60 fps).
+    (function progressTick() {
+      if (!liveWorker) return;
+      _displayPct = Math.min(99, _displayPct + Math.min(1.0, Math.max(0.07, (_targetPct - _displayPct) * 0.05)));
+      setProgressPct(_displayPct);
+      _progressRaf = requestAnimationFrame(progressTick);
+    })();
   }
 
   function stopLiveSearch() {
-    if (!live) return;
-    if (live.raf) cancelAnimationFrame(live.raf);
-    live = null;
+    if (_progressRaf) { cancelAnimationFrame(_progressRaf); _progressRaf = 0; }
+    if (liveWorker) { liveWorker.terminate(); liveWorker = null; }
     setRunButton(false);
     setProgressPct(null);
     updateStaleNotice();
-  }
-
-  function tickLive() {
-    if (!live) return;
-    const search = live.search;
-    const t0 = performance.now();
-    let improved = false, info = null;
-    do {
-      info = search.step();
-      if (info.improved) improved = true;
-    } while (!info.converged && performance.now() - t0 < 14);
-
-    // Mapeia fases para intervalos de % que evitam saltos bruscos:
-    //   det 0→totalDet  : 0–50 %
-    //   beam 0→total    : 50–92 %
-    //   pós-beam        : 98 % (lerp chega lá gradualmente)
-    if (info.det < info.totalDet) {
-      _targetPct = (info.det / info.totalDet) * 50;
-    } else if (info.beam && info.beam.idx < info.beam.total) {
-      _targetPct = 50 + (info.beam.idx / info.beam.total) * 42;
-    } else {
-      _targetPct = 98;
-    }
-    // Interpolação suave: avança sempre pelo menos 0.08 % por frame (60 fps ≈ 5 %/s)
-    // e aproveita os saltos do target para avançar mais rápido quando possível.
-    _displayPct = Math.min(99, _displayPct + Math.max(0.08, (_targetPct - _displayPct) * 0.12));
-    setProgressPct(_displayPct);
-
-    if (info.converged) {
-      const groupLabel = live.groupLabel;
-      stopLiveSearch();
-      const result = relabelResult(search.result(), groupLabel);
-      state.plan = result;
-      showResult(result);
-      save();
-      toast('Cálculo concluído.');
-      return;
-    }
-    live.raf = requestAnimationFrame(tickLive);
   }
 
   // ---------- Orçamento ----------
@@ -1724,10 +1714,10 @@
       recentTouch = true;
       setTimeout(function () { recentTouch = false; }, 500);
       e.preventDefault();
-      if (!live) startLiveSearch();
+      if (!liveWorker) startLiveSearch();
     }, { passive: false });
     runBtn.addEventListener('click', function () {
-      if (recentTouch || live) return;
+      if (recentTouch || liveWorker) return;
       startLiveSearch();
     });
     // Toque no plano alterna entre: nome + medidas → só nome → só medidas → (repete)
