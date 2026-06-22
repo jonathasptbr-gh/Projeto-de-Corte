@@ -1,5 +1,5 @@
 /* Service Worker — cache do app shell + recepção de CSV compartilhado. */
-const CACHE = 'projeto-corte-v101';
+const CACHE = 'projeto-corte-v102';
 const SHARE_CACHE = 'projeto-corte-share';
 const FONT_CACHE = 'projeto-corte-fonts'; // ícones do Google (persiste entre versões)
 const FONT_HOSTS = ['fonts.googleapis.com', 'fonts.gstatic.com'];
@@ -10,6 +10,7 @@ const ASSETS = [
   './css/styles.css',
   './js/csv.js',
   './js/optimizer.js',
+  './js/optimizer-worker.js',
   './js/render.js',
   './js/budget.js',
   './js/app.js',
