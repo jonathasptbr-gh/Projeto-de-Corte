@@ -996,6 +996,87 @@
   }
 
 
+  // Redistribui peças entre chapas do mesmo material para MAXIMIZAR o maior
+  // retalho contíguo. Ao contrário de consolidateSheets (que reduz o número de
+  // chapas), aqui o objetivo é melhorar a QUALIDADE das sobras: concentra o
+  // espaço ocupado numa chapa e "expande" a sobra livre da outra — mesmo que o
+  // número de chapas não mude. Move uma peça de src→tgt somente quando o maior
+  // retalho inteiro do par (max(off_src, off_tgt)) estritamente aumenta.
+  function consolidateRemnants(sheets, o) {
+    if (sheets.length < 2) return;
+
+    // Área do maior retalho contíguo de uma chapa (via decomposição ótima)
+    const maxOff = s => {
+      if (!s.placements.length) return s.W * s.H;
+      const free = guillotineOffcuts(s);
+      return free.reduce((m, r) => Math.max(m, r.w * r.h), 0);
+    };
+
+    let madeProgress = true;
+    let guard = 0;
+    while (madeProgress && guard++ < 100) {
+      madeProgress = false;
+
+      outer: for (let si = 0; si < sheets.length; si++) {
+        const src = sheets[si];
+        if (!src.placements.length) continue;
+
+        for (let ti = 0; ti < sheets.length; ti++) {
+          if (si === ti) continue;
+          const tgt = sheets[ti];
+          if (src.material !== tgt.material) continue;
+
+          const srcOff = maxOff(src);
+          const tgtOff = maxOff(tgt);
+          const currentMax = Math.max(srcOff, tgtOff);
+
+          // Sobras disponíveis no destino (decomposição ótima)
+          const tgtFree = guillotineOffcuts(tgt);
+
+          for (let pi = 0; pi < src.placements.length; pi++) {
+            const p = src.placements[pi];
+
+            // Encaixa a peça nas sobras do destino (sem rotação — orientação já fixada)
+            const f = findFit({ free: tgtFree }, p.w, p.h, false, 'bssf');
+            if (!f) continue;
+
+            const r = tgtFree[f.rectIdx];
+            const newTgtPlacements = tgt.placements.concat([{ ...p, x: r.x, y: r.y }]);
+
+            // Verifica que o novo layout do destino é guilhotinável
+            if (!isGuillotineFeasible(tgt.W, tgt.H, newTgtPlacements)) continue;
+
+            // Simula o retalho máximo do par após a troca
+            const simTgt = { W: tgt.W, H: tgt.H, placements: newTgtPlacements };
+            const newTgtOff = maxOff(simTgt);
+
+            const newSrcPlacements = src.placements.filter((_, i) => i !== pi);
+            const simSrc = { W: src.W, H: src.H, placements: newSrcPlacements };
+            const newSrcOff = maxOff(simSrc);
+
+            // Só move se o maior retalho do par melhorar estritamente
+            if (Math.max(newSrcOff, newTgtOff) > currentMax + EPS) {
+              tgt.placements.push({ ...p, x: r.x, y: r.y });
+              src.placements.splice(pi, 1);
+              madeProgress = true;
+              break outer;
+            }
+          }
+        }
+      }
+    }
+
+    // Remove chapas que ficaram vazias após os movimentos
+    for (let i = sheets.length - 1; i >= 0; i--) {
+      if (!sheets[i].placements.length) sheets.splice(i, 1);
+    }
+
+    sheets.forEach(s => {
+      s.free = guillotineOffcutsGreedy(s);
+      s.cuts = countGuillotineCuts(s.W, s.H, s.placements);
+    });
+  }
+
   // todas as suas peças numa única. Quando consolidateSheets falha porque não
   // existe espaço contíguo suficiente no layout atual, um re-empacotamento
   // completo deste subconjunto de peças pode descobrir um arranjo que cabe numa
@@ -1101,6 +1182,7 @@
     consolidateByFreeArea(sheets, o);
     let _rLen;
     do { _rLen = sheets.length; repackMerge(sheets, o); } while (sheets.length < _rLen);
+    consolidateRemnants(sheets, o); // melhora qualidade das sobras sem reduzir chapas
     // numera por (material + nome do estoque) após consolidação
     const perKey = {};
     sheets.forEach(s => { const k = s.material + '|' + (s.stockName || ''); (perKey[k] = perKey[k] || []).push(s); });
@@ -1229,6 +1311,7 @@
       // Tenta fundir chapas pouco cheias num único re-empacotamento
       let _prevLen;
       do { _prevLen = sheets.length; repackMerge(sheets, o); } while (sheets.length < _prevLen);
+      consolidateRemnants(sheets, o); // melhora qualidade das sobras sem reduzir chapas
       // Numera após consolidação (chapas podem ter sido removidas/reordenadas)
       const perMat = {};
       sheets.forEach(s => { const k = s.material + '|' + (s.stockName || ''); (perMat[k] = perMat[k] || []).push(s); });
