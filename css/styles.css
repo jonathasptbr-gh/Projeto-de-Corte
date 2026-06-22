@@ -329,6 +329,9 @@ table.grid.plan-tbl tr.tbl-geral td { background: #d6e8dd; font-weight: 700; col
 .plan-tbl th:nth-child(3), .plan-tbl td:nth-child(3) { width: 16%; text-align: center; }
 .plan-tbl th:nth-child(4), .plan-tbl td:nth-child(4) { width: 20%; text-align: center; }
 
+table.grid.plan-tbl tr[data-sheet] { cursor: pointer; }
+table.grid.plan-tbl tr[data-sheet]:hover td { background: #bdd8c4; }
+
 table.grid.breakdown { margin-top: 14px; font-size: .85rem; }
 table.grid.breakdown .ok { color: var(--green); font-weight: 700; }
 .breakdown-note { margin: 8px 2px 0; line-height: 1.4; }
