@@ -811,9 +811,13 @@
   }
 
   // Recalcula as sobras do resultado final com a decomposição ÓTIMA (maior
-  // retalho único). Roda só nas poucas chapas finais → barato.
+  // retalho único, menos fragmentos). Filtra retalhos menores que 1 cm em
+  // qualquer dimensão (sobras de kerf — inutilizáveis). Roda só nas poucas
+  // chapas finais → barato. Também exportada para uso externo (app.js).
   function refineOffcuts(sheets) {
-    sheets.forEach(s => { s.free = guillotineOffcuts(s); });
+    sheets.forEach(s => {
+      s.free = guillotineOffcuts(s).filter(r => Math.min(r.w, r.h) > 1.0);
+    });
   }
 
   // Tenta encaixar peças não-posicionadas nas sobras guilhotinadas das chapas
@@ -1339,5 +1343,5 @@
     return { step, result, totalDet };
   }
 
-  global.Optimizer = { optimize, createSearch, defaultWeights };
+  global.Optimizer = { optimize, createSearch, defaultWeights, refineOffcuts };
 })(window);
