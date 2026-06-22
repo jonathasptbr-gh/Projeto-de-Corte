@@ -32,7 +32,7 @@
   // Serve para desligar peças sem excluí-las.
   // Versão exibida no cabeçalho. Reflete o app.js carregado na tela (útil para
   // saber se o cache do Service Worker já atualizou). Manter igual ao N de sw.js.
-  const APP_VERSION = 'v98';
+  const APP_VERSION = 'v99';
 
   const clampQty = v => Math.min(MAX_QTY, Math.max(1, Math.round(parseNum(v) || 1)));
 
@@ -1218,7 +1218,10 @@
       const tr = e.target.closest('tr[data-sheet]');
       if (!tr) return;
       const card = document.getElementById('sheet-card-' + tr.dataset.sheet);
-      if (card) card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      if (!card) return;
+      const header = document.querySelector('.app-header');
+      const gap = (header ? header.getBoundingClientRect().height : 0) + 10;
+      window.scrollTo({ top: card.getBoundingClientRect().top + window.scrollY - gap, behavior: 'smooth' });
     });
 
     renderUnplaced(result);
