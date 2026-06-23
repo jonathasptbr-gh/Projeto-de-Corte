@@ -12,8 +12,10 @@ self.onmessage = function (e) {
     // Posta progresso no máximo a cada 50 ms para não sobrecarregar postMessage.
     if (now - lastPost >= 50) {
       lastPost = now;
-      self.postMessage({ type: 'progress', det: info.det, totalDet: info.totalDet, beam: info.beam, sinceImprove: info.sinceImprove || 0 });
+      self.postMessage({ type: 'progress', det: info.det, totalDet: info.totalDet, beam: info.beam });
     }
-  } while (!info.converged);
+  // Para ao fim da fase beam — a fase estocástica pós-beam é lenta e raramente melhora
+  // o resultado; a UI mostra o resultado do beam como final.
+  } while (!(info.det >= info.totalDet && info.beam && info.beam.idx >= info.beam.total));
   self.postMessage({ type: 'done', result: search.result() });
 };
