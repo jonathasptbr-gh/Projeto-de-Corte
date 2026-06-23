@@ -32,7 +32,7 @@
   // Serve para desligar peças sem excluí-las.
   // Versão exibida no cabeçalho. Reflete o app.js carregado na tela (útil para
   // saber se o cache do Service Worker já atualizou). Manter igual ao N de sw.js.
-  const APP_VERSION = 'v106';
+  const APP_VERSION = 'v107';
 
   const clampQty = v => Math.min(MAX_QTY, Math.max(1, Math.round(parseNum(v) || 1)));
 
@@ -1337,19 +1337,37 @@
         if (_progressRaf) { cancelAnimationFrame(_progressRaf); _progressRaf = 0; }
         setRunButton(false); updateStaleNotice();
         const groupLabel = inp.groupLabel, rawResult = msg.result;
-        // Mostra spinner CSS — CSS animation corre no compositor, visível mesmo
-        // durante JS pesado. setTimeout(80) dá ao browser ~5 frames para pintá-lo
-        // antes de showResult bloquear a thread (double-RAF não é suficiente no
-        // Android Chrome, que pode não intercalar um paint entre os dois frames).
-        const prog = $('#plan-progress');
-        if (prog) { prog.hidden = false; prog.innerHTML = '<span class="plan-spinner"></span>'; }
-        setTimeout(() => {
-          const result = relabelResult(rawResult, groupLabel);
-          state.plan = result;
-          showResult(result);
-          save();
-          showVerifying();
-        }, 80);
+
+        // Sprint suave de ~92% → 100% (~450 ms) antes de bloquear a thread.
+        // Roda em RAF livre (worker já terminou) — garante fluidez visual.
+        const sprintFrom = _displayPct, sprintDuration = 450, sprintStart = performance.now();
+        (function sprintTick(ts) {
+          const t = Math.min(1, (ts - sprintStart) / sprintDuration);
+          const eased = t * (2 - t); // ease-out quadrático
+          _displayPct = sprintFrom + (100 - sprintFrom) * eased;
+          setProgressPct(Math.floor(_displayPct));
+          if (t < 1) { requestAnimationFrame(sprintTick); return; }
+
+          // Chegou em 100% — esconde % e exibe overlay de tela cheia antes de renderizar.
+          const prog = $('#plan-progress');
+          if (prog) prog.hidden = true;
+          const overlay = document.createElement('div');
+          overlay.id = 'render-overlay';
+          overlay.innerHTML = '<div class="render-overlay-spinner"></div>'
+            + '<span class="render-overlay-label">Montando visualização…</span>';
+          document.body.appendChild(overlay);
+
+          // rAF + setTimeout(0): garante pelo menos um frame pintado (overlay visível)
+          // antes de showResult bloquear a thread com a construção do SVG.
+          requestAnimationFrame(() => setTimeout(() => {
+            const result = relabelResult(rawResult, groupLabel);
+            state.plan = result;
+            showResult(result);
+            save();
+            overlay.remove();
+            showVerifying();
+          }, 0));
+        })(performance.now());
       }
     };
     liveWorker.onerror = function () { stopLiveSearch(); toast('Erro no cálculo.'); };
