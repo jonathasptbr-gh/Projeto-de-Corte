@@ -32,7 +32,7 @@
   // Serve para desligar peças sem excluí-las.
   // Versão exibida no cabeçalho. Reflete o app.js carregado na tela (útil para
   // saber se o cache do Service Worker já atualizou). Manter igual ao N de sw.js.
-  const APP_VERSION = 'v103';
+  const APP_VERSION = 'v104';
 
   const clampQty = v => Math.min(MAX_QTY, Math.max(1, Math.round(parseNum(v) || 1)));
 
@@ -1322,25 +1322,36 @@
     liveWorker.onmessage = function (e) {
       const msg = e.data;
       if (msg.type === 'progress') {
-        // Atualiza só o alvo; o RAF da thread principal anima o display.
-        // det→0-50%  beam→50-92%  pós-beam→92-98% proporcional a sinceImprove/3000
-        // Math.max impede retrocesso quando sinceImprove reseta numa melhora.
+        // det→0-50%  beam→50-92%; Math.max impede retrocesso.
         let tp;
-        if (msg.det < msg.totalDet) {
-          tp = (msg.det / msg.totalDet) * 50;
-        } else if (msg.beam && msg.beam.idx < msg.beam.total) {
-          tp = 50 + (msg.beam.idx / msg.beam.total) * 42;
+        if (!msg.beam || msg.det < msg.totalDet) {
+          tp = msg.totalDet ? (msg.det / msg.totalDet) * 50 : 0;
         } else {
-          tp = 92 + (Math.min(msg.sinceImprove || 0, 3000) / 3000) * 6;
+          tp = 50 + (msg.beam.idx / msg.beam.total) * 42;
         }
         _targetPct = Math.max(_targetPct, tp);
       } else if (msg.type === 'done') {
-        stopLiveSearch();
-        const result = relabelResult(msg.result, inp.groupLabel);
-        state.plan = result;
-        showResult(result);
-        save();
-        toast('Cálculo concluído.');
+        // Para o worker e o RAF de progresso; dispara um sprint até 100%.
+        if (liveWorker) { liveWorker.terminate(); liveWorker = null; }
+        if (_progressRaf) { cancelAnimationFrame(_progressRaf); _progressRaf = 0; }
+        setRunButton(false); updateStaleNotice();
+        const groupLabel = inp.groupLabel, rawResult = msg.result;
+        // Sprint fluído até 100 %: cap 2 %/frame → chega em ~5 frames.
+        (function sprintTo100() {
+          _displayPct = Math.min(100, _displayPct + Math.min(2.0, Math.max(0.5, (100 - _displayPct) * 0.2)));
+          setProgressPct(Math.floor(_displayPct));
+          if (_displayPct < 100) {
+            _progressRaf = requestAnimationFrame(sprintTo100);
+          } else {
+            _progressRaf = 0;
+            // Mostra o plano e inicia animação Verificando → ✓
+            const result = relabelResult(rawResult, groupLabel);
+            state.plan = result;
+            showResult(result);
+            save();
+            showVerifying();
+          }
+        })();
       }
     };
     liveWorker.onerror = function () { stopLiveSearch(); toast('Erro no cálculo.'); };
@@ -1350,10 +1361,21 @@
     // Cap de 1 %/frame: nunca salta mais que 1 % por frame (≈ 60 %/s a 60 fps).
     (function progressTick() {
       if (!liveWorker) return;
-      _displayPct = Math.min(99, _displayPct + Math.min(1.0, Math.max(0.07, (_targetPct - _displayPct) * 0.05)));
+      _displayPct = Math.min(92, _displayPct + Math.min(1.0, Math.max(0.07, (_targetPct - _displayPct) * 0.05)));
       setProgressPct(_displayPct);
       _progressRaf = requestAnimationFrame(progressTick);
     })();
+  }
+
+  function showVerifying() {
+    const e = $('#plan-progress');
+    if (!e) return;
+    e.hidden = false;
+    e.textContent = 'Verificando…';
+    setTimeout(() => {
+      e.innerHTML = '<span class="material-symbols-outlined plan-check">check_circle</span>';
+      setTimeout(() => { e.hidden = true; }, 1400);
+    }, 1000);
   }
 
   function stopLiveSearch() {
