@@ -9,13 +9,15 @@ self.onmessage = function (e) {
   do {
     info = search.step();
     const now = Date.now();
-    // Posta progresso no máximo a cada 50 ms para não sobrecarregar postMessage.
     if (now - lastPost >= 50) {
       lastPost = now;
       self.postMessage({ type: 'progress', det: info.det, totalDet: info.totalDet, beam: info.beam });
     }
-  // Para ao fim da fase beam — a fase estocástica pós-beam é lenta e raramente melhora
-  // o resultado; a UI mostra o resultado do beam como final.
   } while (!(info.det >= info.totalDet && info.beam && info.beam.idx >= info.beam.total));
-  self.postMessage({ type: 'done', result: search.result() });
+
+  // refineOffcuts roda aqui no worker (pode ser pesado), não na thread principal.
+  const result = search.result();
+  self.Optimizer.refineOffcuts(result.sheets);
+  result.__refined = true;
+  self.postMessage({ type: 'done', result });
 };

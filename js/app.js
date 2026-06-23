@@ -32,7 +32,7 @@
   // Serve para desligar peças sem excluí-las.
   // Versão exibida no cabeçalho. Reflete o app.js carregado na tela (útil para
   // saber se o cache do Service Worker já atualizou). Manter igual ao N de sw.js.
-  const APP_VERSION = 'v105';
+  const APP_VERSION = 'v106';
 
   const clampQty = v => Math.min(MAX_QTY, Math.max(1, Math.round(parseNum(v) || 1)));
 
@@ -1175,7 +1175,9 @@
     // Sempre recomputa sobras ótimas — planos carregados do localStorage têm
     // free arrays fragmentados do runtime; refineOffcuts garante a decomposição
     // correta independentemente de onde showResult é chamado.
-    if (result.sheets) Optimizer.refineOffcuts(result.sheets);
+    // Pula refineOffcuts se o worker já computou (result.__refined); senão roda
+    // aqui para planos carregados do localStorage ou restaurados por undo/redo.
+    if (result.sheets && !result.__refined) Optimizer.refineOffcuts(result.sheets);
 
     // Cache refs before any innerHTML mutation — Android Chrome can orphan
     // sibling elements when innerHTML is set on a node in the same subtree.
@@ -1335,18 +1337,19 @@
         if (_progressRaf) { cancelAnimationFrame(_progressRaf); _progressRaf = 0; }
         setRunButton(false); updateStaleNotice();
         const groupLabel = inp.groupLabel, rawResult = msg.result;
-        // Mostra spinner CSS imediatamente — CSS animation corre no compositor,
-        // permanece visível enquanto showResult bloqueia a thread.
+        // Mostra spinner CSS — CSS animation corre no compositor, visível mesmo
+        // durante JS pesado. setTimeout(80) dá ao browser ~5 frames para pintá-lo
+        // antes de showResult bloquear a thread (double-RAF não é suficiente no
+        // Android Chrome, que pode não intercalar um paint entre os dois frames).
         const prog = $('#plan-progress');
         if (prog) { prog.hidden = false; prog.innerHTML = '<span class="plan-spinner"></span>'; }
-        // Double-RAF: garante que o browser pintou o spinner antes do JS pesado.
-        requestAnimationFrame(() => requestAnimationFrame(() => {
+        setTimeout(() => {
           const result = relabelResult(rawResult, groupLabel);
           state.plan = result;
           showResult(result);
           save();
           showVerifying();
-        }));
+        }, 80);
       }
     };
     liveWorker.onerror = function () { stopLiveSearch(); toast('Erro no cálculo.'); };
