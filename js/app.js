@@ -32,7 +32,7 @@
   // Serve para desligar peças sem excluí-las.
   // Versão exibida no cabeçalho. Reflete o app.js carregado na tela (útil para
   // saber se o cache do Service Worker já atualizou). Manter igual ao N de sw.js.
-  const APP_VERSION = 'v104';
+  const APP_VERSION = 'v105';
 
   const clampQty = v => Math.min(MAX_QTY, Math.max(1, Math.round(parseNum(v) || 1)));
 
@@ -1331,27 +1331,22 @@
         }
         _targetPct = Math.max(_targetPct, tp);
       } else if (msg.type === 'done') {
-        // Para o worker e o RAF de progresso; dispara um sprint até 100%.
         if (liveWorker) { liveWorker.terminate(); liveWorker = null; }
         if (_progressRaf) { cancelAnimationFrame(_progressRaf); _progressRaf = 0; }
         setRunButton(false); updateStaleNotice();
         const groupLabel = inp.groupLabel, rawResult = msg.result;
-        // Sprint fluído até 100 %: cap 2 %/frame → chega em ~5 frames.
-        (function sprintTo100() {
-          _displayPct = Math.min(100, _displayPct + Math.min(2.0, Math.max(0.5, (100 - _displayPct) * 0.2)));
-          setProgressPct(Math.floor(_displayPct));
-          if (_displayPct < 100) {
-            _progressRaf = requestAnimationFrame(sprintTo100);
-          } else {
-            _progressRaf = 0;
-            // Mostra o plano e inicia animação Verificando → ✓
-            const result = relabelResult(rawResult, groupLabel);
-            state.plan = result;
-            showResult(result);
-            save();
-            showVerifying();
-          }
-        })();
+        // Mostra spinner CSS imediatamente — CSS animation corre no compositor,
+        // permanece visível enquanto showResult bloqueia a thread.
+        const prog = $('#plan-progress');
+        if (prog) { prog.hidden = false; prog.innerHTML = '<span class="plan-spinner"></span>'; }
+        // Double-RAF: garante que o browser pintou o spinner antes do JS pesado.
+        requestAnimationFrame(() => requestAnimationFrame(() => {
+          const result = relabelResult(rawResult, groupLabel);
+          state.plan = result;
+          showResult(result);
+          save();
+          showVerifying();
+        }));
       }
     };
     liveWorker.onerror = function () { stopLiveSearch(); toast('Erro no cálculo.'); };
