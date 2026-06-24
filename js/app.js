@@ -32,7 +32,7 @@
   // Serve para desligar peças sem excluí-las.
   // Versão exibida no cabeçalho. Reflete o app.js carregado na tela (útil para
   // saber se o cache do Service Worker já atualizou). Manter igual ao N de sw.js.
-  const APP_VERSION = 'v110';
+  const APP_VERSION = 'v111';
 
   const clampQty = v => Math.min(MAX_QTY, Math.max(1, Math.round(parseNum(v) || 1)));
 
@@ -1477,6 +1477,29 @@
     updateStaleNotice();
   }
 
+  // Exporta o plano completo em PDF usando a impressão nativa do navegador
+  // (sem dependência externa — funciona offline). O CSS @media print mostra só
+  // o conteúdo do plano (resumo + chapas) e o usuário escolhe "Salvar como PDF".
+  function exportPlanPdf() {
+    if (liveWorker) { toast('Aguarde o cálculo terminar.'); return; }
+    if (!state.plan || !state.plan.sheets || !state.plan.sheets.length) {
+      toast('Calcule o plano antes de exportar.');
+      return;
+    }
+    if (planStale) toast('Atenção: o plano está desatualizado.');
+    const projName = (($('#project-name') && $('#project-name').textContent) || 'Projeto').trim() || 'Projeto';
+    const titleEl = $('#print-title'); if (titleEl) titleEl.textContent = projName;
+    const metaEl = $('#print-meta');
+    if (metaEl) {
+      const n = state.plan.sheets.length;
+      metaEl.textContent = 'Plano de corte · ' + n + (n === 1 ? ' chapa' : ' chapas')
+        + ' · ' + new Date().toLocaleDateString('pt-BR');
+    }
+    // Garante que os rótulos das peças apareçam no PDF (estado padrão da legenda).
+    const planSheetsEl = $('#plan-sheets'); if (planSheetsEl) planSheetsEl.dataset.lbl = '';
+    window.print();
+  }
+
   // ---------- Orçamento ----------
   function getBudgetMetrics() {
     const m = state.plan ? Budget.metricsFromPlan(state.plan, 'cm') : {};
@@ -1837,6 +1860,23 @@
       if (recentTouch || liveWorker) return;
       startLiveSearch();
     });
+
+    // Exportar plano em PDF (via window.print → "Salvar como PDF"). Mesmo guarda
+    // de duplo-disparo touch/click do Android usada no botão Calcular.
+    const pdfBtn = $('#export-pdf');
+    if (pdfBtn) {
+      let pdfTouch = false;
+      pdfBtn.addEventListener('touchend', function (e) {
+        pdfTouch = true;
+        setTimeout(function () { pdfTouch = false; }, 500);
+        e.preventDefault();
+        exportPlanPdf();
+      }, { passive: false });
+      pdfBtn.addEventListener('click', function () {
+        if (pdfTouch) return;
+        exportPlanPdf();
+      });
+    }
     // Toque no plano alterna entre: nome + medidas → só nome → só medidas → (repete)
     const planSheetsEl = $('#plan-sheets');
     if (planSheetsEl) {
