@@ -32,7 +32,7 @@
   // Serve para desligar peças sem excluí-las.
   // Versão exibida no cabeçalho. Reflete o app.js carregado na tela (útil para
   // saber se o cache do Service Worker já atualizou). Manter igual ao N de sw.js.
-  const APP_VERSION = 'v108';
+  const APP_VERSION = 'v109';
 
   const clampQty = v => Math.min(MAX_QTY, Math.max(1, Math.round(parseNum(v) || 1)));
 
@@ -1301,7 +1301,7 @@
       : '<span class="material-symbols-outlined">play_arrow</span>Calcular plano';
     b.classList.toggle('searching', !!running);
   }
-  let _displayPct = 0, _targetPct = 0;
+  let _displayPct = 0, _targetPct = 0, _bandHi = 45;
   function setProgressPct(pct) {
     const e = $('#plan-progress');
     if (!e) return;
@@ -1314,7 +1314,7 @@
     const inp = buildPlanInputs();
     if (!inp) { toast('Importe um CSV ou adicione peças.'); return; }
     planStale = false;
-    _displayPct = 0; _targetPct = 0;
+    _displayPct = 0; _targetPct = 0; _bandHi = 45;
     setRunButton(true);
     const emptyEl = $('#plan-empty'); if (emptyEl) emptyEl.style.display = 'none';
     setProgressPct(0);
@@ -1324,21 +1324,32 @@
     liveWorker.onmessage = function (e) {
       const msg = e.data;
       if (msg.type === 'progress') {
-        // det→0-50%  beam→50-92%; Math.max impede retrocesso.
+        // Faixas: det→0-45%, beam→45-85%. Math.max impede retrocesso. _bandHi é o
+        // teto até onde o trickle pode subir sozinho enquanto não há sinal novo
+        // (nunca passa do topo da fase atual, então a barra não "mente").
         let tp;
         if (!msg.beam || msg.det < msg.totalDet) {
-          tp = msg.totalDet ? (msg.det / msg.totalDet) * 50 : 0;
+          tp = msg.totalDet ? (msg.det / msg.totalDet) * 45 : 0;
+          _bandHi = 45;
         } else {
-          tp = 50 + (msg.beam.idx / msg.beam.total) * 42;
+          tp = 45 + (msg.beam.idx / msg.beam.total) * 40;
+          _bandHi = 85;
         }
         _targetPct = Math.max(_targetPct, tp);
+      } else if (msg.type === 'finalize_start') {
+        // Pós-processamento (antes era o trecho que travava em 92%). Faixa 85-99%.
+        _bandHi = 99;
+        _targetPct = Math.max(_targetPct, 85);
+      } else if (msg.type === 'finalize') {
+        _bandHi = 99;
+        _targetPct = Math.max(_targetPct, 85 + (msg.frac || 0) * 14);
       } else if (msg.type === 'done_signal') {
         // Sinal leve — worker terminou o cálculo mas ainda não enviou os dados.
         // Cancela RAF, anima sprint, exibe overlay e só então pede o payload pesado.
         if (_progressRaf) { cancelAnimationFrame(_progressRaf); _progressRaf = 0; }
         setRunButton(false); updateStaleNotice();
 
-        // Sprint suave de ~92% → 100% (~450 ms) antes de pedir o payload ao worker.
+        // Sprint suave de ~99% → 100% (~450 ms) antes de pedir o payload ao worker.
         const sprintFrom = _displayPct, sprintDuration = 450, sprintStart = performance.now();
         (function sprintTick(ts) {
           const t = Math.min(1, (ts - sprintStart) / sprintDuration);
@@ -1379,10 +1390,17 @@
     liveWorker.postMessage({ panels: inp.gpanels, stockList: inp.gstock, options: inp.opts });
 
     // RAF exclusivo para animação do progresso — roda mesmo durante steps pesados.
-    // Cap de 1 %/frame: nunca salta mais que 1 % por frame (≈ 60 %/s a 60 fps).
+    // Dois componentes somados a cada frame:
+    //  1) avanço rápido em direção ao alvo real (_targetPct), quando há sinal novo;
+    //  2) "trickle" lento rumo ao topo da fase atual (_bandHi), para a barra NUNCA
+    //     congelar mesmo durante um único passo longo (ex.: beam 700 ou finalize).
+    // O trickle é assintótico (desacelera perto do teto) e limitado a _bandHi, então
+    // a barra sempre se move mas jamais ultrapassa a fase real em andamento.
     (function progressTick() {
       if (!liveWorker) return;
-      _displayPct = Math.min(92, _displayPct + Math.min(1.0, Math.max(0.07, (_targetPct - _displayPct) * 0.05)));
+      if (_displayPct < _targetPct) _displayPct += (_targetPct - _displayPct) * 0.12;
+      if (_displayPct < _bandHi) _displayPct += (_bandHi - _displayPct) * 0.0016;
+      if (_displayPct > _bandHi) _displayPct = _bandHi;
       setProgressPct(_displayPct);
       _progressRaf = requestAnimationFrame(progressTick);
     })();
