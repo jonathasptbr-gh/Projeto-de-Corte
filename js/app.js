@@ -32,7 +32,7 @@
   // Serve para desligar peças sem excluí-las.
   // Versão exibida no cabeçalho. Reflete o app.js carregado na tela (útil para
   // saber se o cache do Service Worker já atualizou). Manter igual ao N de sw.js.
-  const APP_VERSION = 'v113';
+  const APP_VERSION = 'v114';
 
   const clampQty = v => Math.min(MAX_QTY, Math.max(1, Math.round(parseNum(v) || 1)));
 
@@ -1669,7 +1669,9 @@
     list.querySelectorAll('[data-prc]').forEach(inp => inp.addEventListener('input', () => {
       items[+inp.dataset.prc].price = parseFloat(inp.value) || 0;
       saveDb();
-      if ($('#view-budget').classList.contains('active')) updateBudgetTotals();
+      // renderBudget (não só updateBudgetTotals) p/ refletir o preço unitário na
+      // coluna "Und." da tabela, não apenas o subtotal.
+      if ($('#view-budget').classList.contains('active')) renderBudget();
     }));
     list.querySelectorAll('[data-del]').forEach(btn => btn.addEventListener('click', async () => {
       const i = +btn.dataset.del;
@@ -1709,9 +1711,16 @@
       e.target.value = '';
     });
 
-    // Placeholder (sem foto) e botão de edição (com foto) — acionam o file picker via JS
-    $('#budget-photo-placeholder').addEventListener('click', openPhotoPicker);
-    $('#budget-photo-edit').addEventListener('click', openPhotoPicker);
+    // Sem foto: a ÁREA INTEIRA abre o seletor (não só o textinho central — alvo de
+    // toque grande no celular). Com foto, a área é coberta pela imagem (que abre o
+    // visualizador) e o clique aqui é ignorado pela guarda.
+    $('#budget-photo-area').addEventListener('click', e => {
+      if (state.budgetPhoto) return;            // tem foto → quem trata é a imagem/edição
+      if (e.target.closest('#budget-photo-del')) return;
+      openPhotoPicker();
+    });
+    // Botão de edição (com foto) — substitui a foto.
+    $('#budget-photo-edit').addEventListener('click', e => { e.stopPropagation(); openPhotoPicker(); });
 
     $('#budget-photo-del').addEventListener('click', () => {
       state.budgetPhoto = ''; save(); renderBudgetPhoto();
@@ -1735,12 +1744,17 @@
     });
 
     // Gear: itens do orçamento (global)
+    const closeBudgetCfg = () => {
+      $('#budget-cfg-modal').hidden = true;
+      if ($('#view-budget').classList.contains('active')) renderBudget();
+    };
     $('#budget-cfg-btn').addEventListener('click', openBudgetGearModal);
-    $('#budget-cfg-close').addEventListener('click', () => { $('#budget-cfg-modal').hidden = true; });
-    $('#budget-cfg-modal').addEventListener('click', e => { if (e.target === $('#budget-cfg-modal')) $('#budget-cfg-modal').hidden = true; });
+    $('#budget-cfg-close').addEventListener('click', closeBudgetCfg);
+    $('#budget-cfg-modal').addEventListener('click', e => { if (e.target === $('#budget-cfg-modal')) closeBudgetCfg(); });
     $('#budget-cfg-add').addEventListener('click', () => {
       db.budgetGlobal.items.push({ key: 'item_' + Date.now(), label: 'Novo item', type: 'manual', price: 0 });
       saveDb(); renderBudgetGearList();
+      if ($('#view-budget').classList.contains('active')) renderBudget();
     });
 
     // Gear: condições (por projeto)
