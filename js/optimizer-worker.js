@@ -15,9 +15,17 @@ self.onmessage = function (e) {
     }
   } while (!(info.det >= info.totalDet && info.beam && info.beam.idx >= info.beam.total));
 
-  // refineOffcuts roda aqui no worker (pode ser pesado), não na thread principal.
   const result = search.result();
   self.Optimizer.refineOffcuts(result.sheets);
   result.__refined = true;
-  self.postMessage({ type: 'done', result });
+
+  // Protocolo de dois passos: sinal leve primeiro (sem dados — desserialização
+  // instantânea), payload pesado só após o main thread confirmar que o overlay
+  // já foi pintado. Evita freeze do RAF antes do overlay aparecer.
+  self.postMessage({ type: 'done_signal' });
+  self.onmessage = function (ack) {
+    if (ack.data && ack.data.type === 'ready') {
+      self.postMessage({ type: 'done', result });
+    }
+  };
 };
