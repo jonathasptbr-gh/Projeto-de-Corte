@@ -32,7 +32,7 @@
   // Serve para desligar peças sem excluí-las.
   // Versão exibida no cabeçalho. Reflete o app.js carregado na tela (útil para
   // saber se o cache do Service Worker já atualizou). Manter igual ao N de sw.js.
-  const APP_VERSION = 'v107';
+  const APP_VERSION = 'v108';
 
   const clampQty = v => Math.min(MAX_QTY, Math.max(1, Math.round(parseNum(v) || 1)));
 
@@ -1332,23 +1332,21 @@
           tp = 50 + (msg.beam.idx / msg.beam.total) * 42;
         }
         _targetPct = Math.max(_targetPct, tp);
-      } else if (msg.type === 'done') {
-        if (liveWorker) { liveWorker.terminate(); liveWorker = null; }
+      } else if (msg.type === 'done_signal') {
+        // Sinal leve — worker terminou o cálculo mas ainda não enviou os dados.
+        // Cancela RAF, anima sprint, exibe overlay e só então pede o payload pesado.
         if (_progressRaf) { cancelAnimationFrame(_progressRaf); _progressRaf = 0; }
         setRunButton(false); updateStaleNotice();
-        const groupLabel = inp.groupLabel, rawResult = msg.result;
 
-        // Sprint suave de ~92% → 100% (~450 ms) antes de bloquear a thread.
-        // Roda em RAF livre (worker já terminou) — garante fluidez visual.
+        // Sprint suave de ~92% → 100% (~450 ms) antes de pedir o payload ao worker.
         const sprintFrom = _displayPct, sprintDuration = 450, sprintStart = performance.now();
         (function sprintTick(ts) {
           const t = Math.min(1, (ts - sprintStart) / sprintDuration);
-          const eased = t * (2 - t); // ease-out quadrático
-          _displayPct = sprintFrom + (100 - sprintFrom) * eased;
+          _displayPct = sprintFrom + (100 - sprintFrom) * t * (2 - t);
           setProgressPct(Math.floor(_displayPct));
           if (t < 1) { requestAnimationFrame(sprintTick); return; }
 
-          // Chegou em 100% — esconde % e exibe overlay de tela cheia antes de renderizar.
+          // 100% atingido — overlay de tela cheia.
           const prog = $('#plan-progress');
           if (prog) prog.hidden = true;
           const overlay = document.createElement('div');
@@ -1357,17 +1355,24 @@
             + '<span class="render-overlay-label">Montando visualização…</span>';
           document.body.appendChild(overlay);
 
-          // rAF + setTimeout(0): garante pelo menos um frame pintado (overlay visível)
-          // antes de showResult bloquear a thread com a construção do SVG.
+          // rAF + setTimeout(0): overlay pintado antes de enviar 'ready'.
+          // A desserialização do payload pesado (done) só bloqueia após este ponto,
+          // quando o overlay já está visível na tela.
           requestAnimationFrame(() => setTimeout(() => {
-            const result = relabelResult(rawResult, groupLabel);
-            state.plan = result;
-            showResult(result);
-            save();
-            overlay.remove();
-            showVerifying();
+            if (liveWorker) liveWorker.postMessage({ type: 'ready' });
           }, 0));
         })(performance.now());
+
+      } else if (msg.type === 'done') {
+        // Payload pesado chegou — overlay já está pintado na tela.
+        if (liveWorker) { liveWorker.terminate(); liveWorker = null; }
+        const overlay = document.getElementById('render-overlay');
+        const result = relabelResult(msg.result, inp.groupLabel);
+        state.plan = result;
+        showResult(result);
+        save();
+        if (overlay) overlay.remove();
+        showVerifying();
       }
     };
     liveWorker.onerror = function () { stopLiveSearch(); toast('Erro no cálculo.'); };
@@ -1397,6 +1402,8 @@
   function stopLiveSearch() {
     if (_progressRaf) { cancelAnimationFrame(_progressRaf); _progressRaf = 0; }
     if (liveWorker) { liveWorker.terminate(); liveWorker = null; }
+    const overlay = document.getElementById('render-overlay');
+    if (overlay) overlay.remove();
     setRunButton(false);
     setProgressPct(null);
     updateStaleNotice();
