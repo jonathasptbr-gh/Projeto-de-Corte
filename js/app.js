@@ -32,7 +32,7 @@
   // Serve para desligar peças sem excluí-las.
   // Versão exibida no cabeçalho. Reflete o app.js carregado na tela (útil para
   // saber se o cache do Service Worker já atualizou). Manter igual ao N de sw.js.
-  const APP_VERSION = 'v109';
+  const APP_VERSION = 'v110';
 
   const clampQty = v => Math.min(MAX_QTY, Math.max(1, Math.round(parseNum(v) || 1)));
 
@@ -1301,89 +1301,152 @@
       : '<span class="material-symbols-outlined">play_arrow</span>Calcular plano';
     b.classList.toggle('searching', !!running);
   }
-  let _displayPct = 0, _targetPct = 0, _bandHi = 45;
-  function setProgressPct(pct) {
-    const e = $('#plan-progress');
-    if (!e) return;
-    if (pct == null) { e.hidden = true; return; }
-    e.hidden = false;
-    e.textContent = Math.floor(pct) + '%';
+  let _displayPct = 0, _targetPct = 0, _bandHi = 5;
+
+  // ---------- Popup de progresso por etapas ----------
+  // Cada etapa tem uma faixa no progresso global (0..100). A etapa local vai de
+  // 0→100% dentro da sua faixa: começa cinza (pendente), acende em verde enquanto
+  // avança (ativa) e fica verde cheia com ✓ ao concluir. O popup some quando todas
+  // as etapas chegam a 100%.
+  const PROG_STEPS = [
+    { id: 'prep',   label: 'Preparando peças',      lo: 0,  hi: 5 },
+    { id: 'fast',   label: 'Busca rápida',          lo: 5,  hi: 42 },
+    { id: 'deep',   label: 'Otimização profunda',   lo: 42, hi: 80 },
+    { id: 'final',  label: 'Consolidando o plano',  lo: 80, hi: 94 },
+    { id: 'render', label: 'Montando visualização', lo: 94, hi: 100 }
+  ];
+  let _progModalEl = null;
+  const _progRows = {};
+
+  function ensureProgressModal() {
+    if (_progModalEl) return _progModalEl;
+    const ov = document.createElement('div');
+    ov.id = 'plan-progress-modal';
+    ov.className = 'ppm-overlay';
+    ov.setAttribute('role', 'dialog');
+    ov.setAttribute('aria-label', 'Progresso do cálculo do plano');
+    const card = document.createElement('div');
+    card.className = 'ppm-card';
+    card.innerHTML = '<h3 class="ppm-title">Calculando plano de corte</h3>';
+    const ul = document.createElement('ul');
+    ul.className = 'ppm-steps';
+    PROG_STEPS.forEach(function (st) {
+      const li = document.createElement('li');
+      li.className = 'ppm-step';
+      li.dataset.step = st.id;
+      li.innerHTML =
+        '<div class="ppm-step-top">'
+        + '<span class="ppm-step-dot"><span class="material-symbols-outlined">check</span></span>'
+        + '<span class="ppm-step-label">' + st.label + '</span>'
+        + '<span class="ppm-step-pct">0%</span>'
+        + '</div>'
+        + '<div class="ppm-step-bar"><div class="ppm-step-fill"></div></div>';
+      _progRows[st.id] = {
+        li: li,
+        pct: li.querySelector('.ppm-step-pct'),
+        fill: li.querySelector('.ppm-step-fill')
+      };
+      ul.appendChild(li);
+    });
+    card.appendChild(ul);
+    ov.appendChild(card);
+    document.body.appendChild(ov);
+    _progModalEl = ov;
+    return ov;
+  }
+
+  function showProgressModal() {
+    ensureProgressModal();
+    updateProgressModal(0);
+    // força reflow antes de abrir, para a transição de entrada rodar
+    void _progModalEl.offsetWidth;
+    _progModalEl.classList.add('open');
+  }
+
+  function hideProgressModal() {
+    if (!_progModalEl) return;
+    _progModalEl.classList.remove('open');
+  }
+
+  function updateProgressModal(g) {
+    if (!_progModalEl) return;
+    PROG_STEPS.forEach(function (st) {
+      const row = _progRows[st.id];
+      if (!row) return;
+      let local = (g - st.lo) / (st.hi - st.lo) * 100;
+      if (local < 0) local = 0; else if (local > 100) local = 100;
+      row.fill.style.width = local + '%';
+      row.pct.textContent = Math.round(local) + '%';
+      row.li.classList.toggle('done', local >= 100);
+      row.li.classList.toggle('active', local > 0 && local < 100);
+    });
   }
 
   function startLiveSearch() {
     const inp = buildPlanInputs();
     if (!inp) { toast('Importe um CSV ou adicione peças.'); return; }
     planStale = false;
-    _displayPct = 0; _targetPct = 0; _bandHi = 45;
+    _displayPct = 0; _targetPct = 0; _bandHi = 5;
     setRunButton(true);
     const emptyEl = $('#plan-empty'); if (emptyEl) emptyEl.style.display = 'none';
-    setProgressPct(0);
+    showProgressModal();
     updateStaleNotice();
 
     liveWorker = new Worker('./js/optimizer-worker.js');
     liveWorker.onmessage = function (e) {
       const msg = e.data;
       if (msg.type === 'progress') {
-        // Faixas: det→0-45%, beam→45-85%. Math.max impede retrocesso. _bandHi é o
-        // teto até onde o trickle pode subir sozinho enquanto não há sinal novo
-        // (nunca passa do topo da fase atual, então a barra não "mente").
+        // Faixas no progresso global: det→5-42%, beam→42-80%. Math.max impede
+        // retrocesso. _bandHi é o teto até onde o trickle pode subir sozinho
+        // enquanto não há sinal novo (nunca passa do topo da fase atual).
         let tp;
         if (!msg.beam || msg.det < msg.totalDet) {
-          tp = msg.totalDet ? (msg.det / msg.totalDet) * 45 : 0;
-          _bandHi = 45;
+          tp = 5 + (msg.totalDet ? (msg.det / msg.totalDet) * 37 : 0);
+          _bandHi = 42;
         } else {
-          tp = 45 + (msg.beam.idx / msg.beam.total) * 40;
-          _bandHi = 85;
+          tp = 42 + (msg.beam.idx / msg.beam.total) * 38;
+          _bandHi = 80;
         }
         _targetPct = Math.max(_targetPct, tp);
       } else if (msg.type === 'finalize_start') {
-        // Pós-processamento (antes era o trecho que travava em 92%). Faixa 85-99%.
-        _bandHi = 99;
-        _targetPct = Math.max(_targetPct, 85);
+        // Pós-processamento (antes travava em 92%). Faixa global 80-94%.
+        _bandHi = 94;
+        _targetPct = Math.max(_targetPct, 80);
       } else if (msg.type === 'finalize') {
-        _bandHi = 99;
-        _targetPct = Math.max(_targetPct, 85 + (msg.frac || 0) * 14);
+        _bandHi = 94;
+        _targetPct = Math.max(_targetPct, 80 + (msg.frac || 0) * 14);
       } else if (msg.type === 'done_signal') {
         // Sinal leve — worker terminou o cálculo mas ainda não enviou os dados.
-        // Cancela RAF, anima sprint, exibe overlay e só então pede o payload pesado.
+        // Cancela o RAF, anima a etapa "Montando visualização" e só então pede o
+        // payload pesado (cuja desserialização bloqueia a thread principal).
         if (_progressRaf) { cancelAnimationFrame(_progressRaf); _progressRaf = 0; }
         setRunButton(false); updateStaleNotice();
 
-        // Sprint suave de ~99% → 100% (~450 ms) antes de pedir o payload ao worker.
-        const sprintFrom = _displayPct, sprintDuration = 450, sprintStart = performance.now();
+        // Sprint suave dentro da faixa render (94→99%) em ~450 ms.
+        const sprintFrom = _displayPct, sprintTo = 99, sprintDuration = 450, sprintStart = performance.now();
         (function sprintTick(ts) {
           const t = Math.min(1, (ts - sprintStart) / sprintDuration);
-          _displayPct = sprintFrom + (100 - sprintFrom) * t * (2 - t);
-          setProgressPct(Math.floor(_displayPct));
+          _displayPct = sprintFrom + (sprintTo - sprintFrom) * t * (2 - t);
+          updateProgressModal(_displayPct);
           if (t < 1) { requestAnimationFrame(sprintTick); return; }
-
-          // 100% atingido — overlay de tela cheia.
-          const prog = $('#plan-progress');
-          if (prog) prog.hidden = true;
-          const overlay = document.createElement('div');
-          overlay.id = 'render-overlay';
-          overlay.innerHTML = '<div class="render-overlay-spinner"></div>'
-            + '<span class="render-overlay-label">Montando visualização…</span>';
-          document.body.appendChild(overlay);
-
-          // rAF + setTimeout(0): overlay pintado antes de enviar 'ready'.
-          // A desserialização do payload pesado (done) só bloqueia após este ponto,
-          // quando o overlay já está visível na tela.
-          requestAnimationFrame(() => setTimeout(() => {
+          // rAF + setTimeout(0): popup repintado antes de enviar 'ready'. A
+          // desserialização do payload pesado (done) só bloqueia após este ponto,
+          // com a etapa "Montando visualização" já visível em andamento.
+          requestAnimationFrame(function () { setTimeout(function () {
             if (liveWorker) liveWorker.postMessage({ type: 'ready' });
-          }, 0));
+          }, 0); });
         })(performance.now());
 
       } else if (msg.type === 'done') {
-        // Payload pesado chegou — overlay já está pintado na tela.
+        // Payload pesado chegou — popup já está pintado na tela.
         if (liveWorker) { liveWorker.terminate(); liveWorker = null; }
-        const overlay = document.getElementById('render-overlay');
         const result = relabelResult(msg.result, inp.groupLabel);
         state.plan = result;
         showResult(result);
         save();
-        if (overlay) overlay.remove();
-        showVerifying();
+        // Todas as etapas concluídas (100%) — segura um instante e fecha o popup.
+        updateProgressModal(100);
+        setTimeout(hideProgressModal, 650);
       }
     };
     liveWorker.onerror = function () { stopLiveSearch(); toast('Erro no cálculo.'); };
@@ -1401,29 +1464,16 @@
       if (_displayPct < _targetPct) _displayPct += (_targetPct - _displayPct) * 0.12;
       if (_displayPct < _bandHi) _displayPct += (_bandHi - _displayPct) * 0.0016;
       if (_displayPct > _bandHi) _displayPct = _bandHi;
-      setProgressPct(_displayPct);
+      updateProgressModal(_displayPct);
       _progressRaf = requestAnimationFrame(progressTick);
     })();
-  }
-
-  function showVerifying() {
-    const e = $('#plan-progress');
-    if (!e) return;
-    e.hidden = false;
-    e.textContent = 'Verificando…';
-    setTimeout(() => {
-      e.innerHTML = '<span class="material-symbols-outlined plan-check">check_circle</span>';
-      setTimeout(() => { e.hidden = true; }, 1400);
-    }, 1000);
   }
 
   function stopLiveSearch() {
     if (_progressRaf) { cancelAnimationFrame(_progressRaf); _progressRaf = 0; }
     if (liveWorker) { liveWorker.terminate(); liveWorker = null; }
-    const overlay = document.getElementById('render-overlay');
-    if (overlay) overlay.remove();
     setRunButton(false);
-    setProgressPct(null);
+    hideProgressModal();
     updateStaleNotice();
   }
 
