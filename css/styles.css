@@ -605,3 +605,48 @@ table.conditions tr.costs-total td:last-child { background: #d4eada; color: #1c4
 .btn.danger { background: #c0392b; color: #fff; border-color: #c0392b; }
 .btn.danger:hover { filter: brightness(1.06); }
 
+/* ---------- Ações do cabeçalho do plano + exportação PDF ---------- */
+.head-actions { display: flex; align-items: center; gap: 8px; }
+#export-pdf .material-symbols-outlined { color: #c0392b; }
+
+/* Elementos visíveis apenas na impressão / PDF */
+.print-only { display: none; }
+
+/* ---------- Impressão / Exportar PDF (window.print) ---------- */
+@media print {
+  @page { size: A4 portrait; margin: 10mm; }
+  html, body { background: #fff !important; }
+
+  /* Esconde tudo que não faz parte do plano */
+  .app-header, nav.tabs, #tabs, .opt-details,
+  #view-panels, #view-budget,
+  #view-plan .card-head, #plan-stale, #plan-empty,
+  #plan-progress-modal, .toast, .toast-wrap,
+  .modal, .popover, .sheet-modal-backdrop { display: none !important; }
+
+  main { display: block; padding: 0; margin: 0; }
+  .view { display: none !important; }
+  #view-plan { display: block !important; }
+  #view-plan .card { box-shadow: none; border: none; margin: 0 0 8px; overflow: visible; }
+
+  /* Cabeçalho do PDF */
+  .print-only { display: block !important; }
+  #print-header { margin: 0 0 10px; padding-bottom: 6px; border-bottom: 2px solid var(--green); }
+  #print-title { margin: 0; font-size: 1.3rem; color: var(--green); letter-spacing: -.3px; }
+  #print-meta { margin-top: 2px; font-size: .85rem; color: #444; }
+
+  /* Tabela de resumo: não cortar linhas no meio */
+  .plan-tbl tr { break-inside: avoid; page-break-inside: avoid; }
+  .plan-unplaced { break-inside: avoid; page-break-inside: avoid; }
+
+  /* Chapas: uma embaixo da outra, sem cortar uma chapa entre páginas */
+  .sheets { display: block !important; }
+  .sheet-card {
+    break-inside: avoid; page-break-inside: avoid;
+    box-shadow: none; border: 1px solid #bbb; margin: 0 0 10px; max-width: 100%;
+  }
+
+  /* Preserva as cores das peças/legendas no PDF */
+  * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+}
+

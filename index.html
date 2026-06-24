@@ -104,10 +104,17 @@
 
     <!-- ===================== ABA: PLANO DE CORTE ===================== -->
     <section class="view" id="view-plan">
+      <div id="print-header" class="print-only">
+        <h1 id="print-title">Plano de Corte</h1>
+        <div id="print-meta"></div>
+      </div>
       <div class="card">
         <div class="card-head">
           <h2>Plano de Corte</h2>
-          <button class="btn primary" id="run-plan"><span class="material-symbols-outlined">play_arrow</span>Calcular plano</button>
+          <div class="head-actions">
+            <button class="btn" id="export-pdf" title="Exportar plano em PDF"><span class="material-symbols-outlined">picture_as_pdf</span>PDF</button>
+            <button class="btn primary" id="run-plan"><span class="material-symbols-outlined">play_arrow</span>Calcular plano</button>
+          </div>
         </div>
         <div class="card-body">
           <div class="plan-stale" id="plan-stale" hidden>
