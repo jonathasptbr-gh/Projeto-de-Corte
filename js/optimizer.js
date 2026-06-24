@@ -1311,7 +1311,11 @@
       return { improved, converged, det: detIdx, totalDet, step: stepCount, sinceImprove, beam: { idx: beamIdx, total: beamSchedule.length } };
     }
 
-    function result() {
+    // onStage(frac) — callback opcional de progresso (0..1) da finalização. Cada
+    // etapa do pós-processamento reporta seu avanço para que a barra de progresso
+    // continue fluindo durante esta fase pesada (antes ela ficava sem sinal).
+    function result(onStage) {
+      const report = typeof onStage === 'function' ? onStage : function () {};
       const sheets = [], rawUnplaced = [];
       // Copia os sheets para não corromper g.best ao fazer backfill/consolidação
       groups.forEach(g => {
@@ -1319,18 +1323,26 @@
         g.best.sheets.forEach(s => sheets.push({ ...s, placements: s.placements.slice() }));
         g.best.unplaced.forEach(u => rawUnplaced.push(u));
       });
+      report(0.08);
       const unplaced = backfillUnplaced(sheets, rawUnplaced, o);
+      report(0.22);
       consolidateSheets(sheets, o);
+      report(0.34);
       consolidateByFreeArea(sheets, o);
+      report(0.46);
       // Tenta fundir chapas pouco cheias num único re-empacotamento
       let _prevLen;
       do { _prevLen = sheets.length; repackMerge(sheets, o); } while (sheets.length < _prevLen);
+      report(0.66);
       consolidateRemnants(sheets, o); // melhora qualidade das sobras sem reduzir chapas
+      report(0.78);
       // Numera após consolidação (chapas podem ter sido removidas/reordenadas)
       const perMat = {};
       sheets.forEach(s => { const k = s.material + '|' + (s.stockName || ''); (perMat[k] = perMat[k] || []).push(s); });
       Object.keys(perMat).forEach(k => perMat[k].forEach((s, i) => { s.index = i + 1; }));
+      report(0.82);
       refineOffcuts(sheets); // decomposição ótima das sobras (só no resultado mostrado)
+      report(0.92);
       const byMaterial = {};
       sheets.forEach(s => {
         const m = byMaterial[s.material] || (byMaterial[s.material] = { sheets: 0, pieces: 0, area: 0, usedArea: 0, cuts: 0 });
