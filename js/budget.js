@@ -70,7 +70,7 @@
     const div = unit === 'mm' ? 1000 : 100;
     let sheetsWhite = 0, sheetsColor = 0, pieces = 0, cuts = 0;
     let b22w = 0, b45w = 0, b22c = 0, b45c = 0;
-    let n22w = 0, n45w = 0, n22c = 0, n45c = 0; // lados fitados por tipo
+    let n22w = 0, n45w = 0, n22c = 0, n45c = 0; // lados fitados por tipo (45 será /2)
 
     result.sheets.forEach(s => {
       const white = s.materialWhite !== undefined ? s.materialWhite : isWhite(s.material);
@@ -96,8 +96,8 @@
     // metragem final com margem, arredondada de 5 em 5 p/ cima
     const ceil5 = x => Math.ceil((x - 1e-9) / 5) * 5;
     const finalMet = (raw, sides) => raw > 0 ? ceil5(raw * 1.05 + sides * 0.05) : 0;
-    const f22w = finalMet(r22w, n22w), f45w = finalMet(r45w, n45w);
-    const f22c = finalMet(r22c, n22c), f45c = finalMet(r45c, n45c);
+    const f22w = finalMet(r22w, n22w), f45w = finalMet(r45w, n45w / 2);
+    const f22c = finalMet(r22c, n22c), f45c = finalMet(r45c, n45c / 2);
     const bandMeters  = Math.round((r22w + r45w + r22c + r45c) * 10) / 10;
     const fitasTotal  = Math.round((r22w + r22c + (r45w + r45c) * 2) * 10) / 10;
     const totalN      = Math.round((pieces + fitasTotal + cuts) * 10) / 10;
