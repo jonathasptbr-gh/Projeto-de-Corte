@@ -32,7 +32,7 @@
   // Serve para desligar peças sem excluí-las.
   // Versão exibida no cabeçalho. Reflete o app.js carregado na tela (útil para
   // saber se o cache do Service Worker já atualizou). Manter igual ao N de sw.js.
-  const APP_VERSION = 'v116';
+  const APP_VERSION = 'v117';
 
   const clampQty = v => Math.min(MAX_QTY, Math.max(1, Math.round(parseNum(v) || 1)));
 
@@ -182,7 +182,9 @@
   // desfazer/refazer navegam por eles. O plano é preservado mas marcado como stale.
   let history = [], histIndex = -1, restoringHistory = false;
   const HISTORY_MAX = 120;
-  function snapData() { return JSON.stringify(Object.assign({}, state, { plan: null })); }
+  // Foto (budgetPhoto) fica FORA do histórico: é só um marcador e os bytes vivem
+  // no IndexedDB por projeto — não deve ser afetada por desfazer/refazer.
+  function snapData() { return JSON.stringify(Object.assign({}, state, { plan: null, budgetPhoto: '' })); }
   function resetHistory() { history = [snapData()]; histIndex = 0; updateUndoButtons(); }
   function recordHistory() {
     if (restoringHistory) return;
@@ -199,9 +201,11 @@
     try {
       const proj = activeProject();
       if (proj) {
-        const prevPlan = state.plan; // preserva o plano calculado durante undo/redo
+        const prevPlan = state.plan;   // preserva o plano calculado durante undo/redo
+        const prevPhoto = state.budgetPhoto; // foto não entra no histórico
         proj.data = normalizeData(JSON.parse(snap));
         proj.data.plan = prevPlan;
+        proj.data.budgetPhoto = prevPhoto;
         state = proj.data;
         saveDb();
       }
@@ -1014,6 +1018,7 @@
     if (!ok) return;
     const i = db.projects.findIndex(x => x.id === p.id);
     if (i >= 0) db.projects.splice(i, 1);
+    idbDelPhoto(p.id); // remove a foto de referência do IndexedDB
     if (!db.projects.length) { const np = makeProject('Projeto 1', null); db.projects.push(np); db.activeId = np.id; }
     if (p.id === db.activeId) db.activeId = db.projects[0].id;
     state = activeProject().data; saveDb();
@@ -1620,37 +1625,100 @@
   function row(k, v) { return `<tr>${cell(k)}${cell(v)}</tr>`; }
   function cell(v)    { return `<td>${v}</td>`; }
 
+  // ---------- Fotos de referência (IndexedDB) ----------
+  // Guardadas no IndexedDB (não no localStorage) p/ suportar ALTA RESOLUÇÃO sem
+  // estourar a cota. Chave = id do projeto; valor = Blob ORIGINAL (sem recompressão
+  // → qualidade máxima). state.budgetPhoto vira só um marcador ('1' = tem foto).
+  const PHOTO_DB = 'projeto-corte-media', PHOTO_STORE = 'photos';
+  let _photoDbPromise = null;
+  function photoDb() {
+    if (_photoDbPromise) return _photoDbPromise;
+    _photoDbPromise = new Promise((resolve, reject) => {
+      let req;
+      try { req = indexedDB.open(PHOTO_DB, 1); } catch (e) { reject(e); return; }
+      req.onupgradeneeded = () => { const d = req.result; if (!d.objectStoreNames.contains(PHOTO_STORE)) d.createObjectStore(PHOTO_STORE); };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+    return _photoDbPromise;
+  }
+  function idbGetPhoto(id) {
+    return photoDb().then(d => new Promise((resolve, reject) => {
+      const req = d.transaction(PHOTO_STORE, 'readonly').objectStore(PHOTO_STORE).get(id);
+      req.onsuccess = () => resolve(req.result || null);
+      req.onerror = () => reject(req.error);
+    })).catch(() => null);
+  }
+  function idbSetPhoto(id, blob) {
+    return photoDb().then(d => new Promise((resolve, reject) => {
+      const tx = d.transaction(PHOTO_STORE, 'readwrite');
+      tx.objectStore(PHOTO_STORE).put(blob, id);
+      tx.oncomplete = () => resolve(true);
+      tx.onerror = () => reject(tx.error); tx.onabort = () => reject(tx.error);
+    }));
+  }
+  function idbDelPhoto(id) {
+    return photoDb().then(d => new Promise((resolve) => {
+      const tx = d.transaction(PHOTO_STORE, 'readwrite');
+      tx.objectStore(PHOTO_STORE).delete(id);
+      tx.oncomplete = () => resolve(true); tx.onerror = () => resolve(false);
+    })).catch(() => false);
+  }
+
+  // Object URL da foto exibida no momento (revogado ao trocar).
+  let activePhotoUrl = null;
+  function setActivePhotoUrl(url) {
+    if (activePhotoUrl && activePhotoUrl !== url) { try { URL.revokeObjectURL(activePhotoUrl); } catch (e) {} }
+    activePhotoUrl = url;
+  }
+
   function renderBudgetPhoto() {
     const img  = $('#budget-photo-img');
     const plh  = $('#budget-photo-placeholder');
     const edit = $('#budget-photo-edit');
     const del  = $('#budget-photo-del');
     if (!img) return;
-    const has = !!state.budgetPhoto;
-    img.hidden  = !has; plh.hidden  = has;
-    edit.hidden = !has; del.hidden  = !has;
-    if (has) img.src = state.budgetPhoto;
+    const v = state.budgetPhoto;
+    const has = !!v;
+    plh.hidden = has; edit.hidden = !has; del.hidden = !has;
+    if (!has) { img.hidden = true; img.removeAttribute('src'); setActivePhotoUrl(null); return; }
+    // Legado: foto ainda como dataURL no state (antes da migração p/ IndexedDB).
+    if (typeof v === 'string' && v.slice(0, 5) === 'data:') {
+      setActivePhotoUrl(null); img.src = v; img.hidden = false; return;
+    }
+    const proj = activeProject(); const pid = proj && proj.id;
+    idbGetPhoto(pid).then(blob => {
+      // ainda é o mesmo projeto/foto?
+      if (!state.budgetPhoto || (activeProject() && activeProject().id !== pid)) return;
+      if (!blob) { img.hidden = true; img.removeAttribute('src'); setActivePhotoUrl(null); plh.hidden = false; edit.hidden = true; del.hidden = true; return; }
+      const url = URL.createObjectURL(blob);
+      setActivePhotoUrl(url);
+      img.src = url; img.hidden = false;
+    });
   }
 
-  function compressPhoto(file, cb) {
-    const reader = new FileReader();
-    reader.onload = evt => {
-      const image = new Image();
-      image.onload = () => {
-        // Mantém a resolução original (proporção intacta); só reduz se exceder um
-        // teto alto, para não estourar o localStorage. Qualidade JPEG alta.
-        const maxDim = 2560;
-        let w = image.width, h = image.height;
-        const scale = Math.min(1, maxDim / Math.max(w, h));
-        w = Math.round(w * scale); h = Math.round(h * scale);
-        const canvas = document.createElement('canvas');
-        canvas.width = w; canvas.height = h;
-        canvas.getContext('2d').drawImage(image, 0, 0, w, h);
-        cb(canvas.toDataURL('image/jpeg', 0.9));
-      };
-      image.src = evt.target.result;
-    };
-    reader.readAsDataURL(file);
+  function dataUrlToBlob(dataUrl) {
+    const m = /^data:([^;,]*?)(;base64)?,(.*)$/.exec(dataUrl); if (!m) return null;
+    const mime = m[1] || 'image/jpeg', isB64 = !!m[2], data = m[3];
+    try {
+      let bytes;
+      if (isB64) { const bin = atob(data); bytes = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i); }
+      else { const txt = decodeURIComponent(data); bytes = new Uint8Array(txt.length); for (let i = 0; i < txt.length; i++) bytes[i] = txt.charCodeAt(i); }
+      return new Blob([bytes], { type: mime });
+    } catch (e) { return null; }
+  }
+
+  // Migra fotos antigas (dataURL no localStorage) → IndexedDB, liberando a cota.
+  async function migratePhotosToIdb() {
+    let changed = false;
+    for (const p of db.projects) {
+      const val = p.data && p.data.budgetPhoto;
+      if (typeof val === 'string' && val.slice(0, 5) === 'data:') {
+        const blob = dataUrlToBlob(val);
+        if (blob) { try { await idbSetPhoto(p.id, blob); p.data.budgetPhoto = '1'; changed = true; } catch (e) {} }
+      }
+    }
+    if (changed) { saveDb(); if ($('#view-budget').classList.contains('active')) renderBudgetPhoto(); }
   }
 
   function openBudgetGearModal() {
@@ -1729,10 +1797,15 @@
 
     photoInput.addEventListener('change', e => {
       const f = e.target.files[0]; if (!f) return;
-      compressPhoto(f, dataUrl => {
-        state.budgetPhoto = dataUrl; save(); renderBudgetPhoto();
+      const proj = activeProject();
+      if (!proj) { e.target.value = ''; return; }
+      const pid = proj.id;
+      // Guarda o ARQUIVO ORIGINAL (sem recompressão) → qualidade máxima.
+      idbSetPhoto(pid, f).then(() => {
+        if (activeProject() && activeProject().id !== pid) return;
+        state.budgetPhoto = '1'; save(); renderBudgetPhoto();
         const v = $('#photo-viewer'); if (v) v.hidden = true;
-      });
+      }).catch(() => toast('Não foi possível salvar a imagem (muito grande?).'));
       e.target.value = '';
     });
 
@@ -1748,15 +1821,19 @@
     $('#budget-photo-edit').addEventListener('click', e => { e.stopPropagation(); openPhotoPicker(); });
 
     $('#budget-photo-del').addEventListener('click', () => {
+      const proj = activeProject();
+      if (proj) idbDelPhoto(proj.id);
       state.budgetPhoto = ''; save(); renderBudgetPhoto();
     });
 
-    // Visualizador de foto em tela cheia
+    // Visualizador de foto em tela cheia (usa a imagem original em alta resolução)
     $('#budget-photo-img').addEventListener('click', () => {
       if (!state.budgetPhoto) return;
       const v = $('#photo-viewer'), vi = $('#photo-viewer-img');
       if (!v || !vi) return;
-      vi.src = state.budgetPhoto;
+      const src = activePhotoUrl || (typeof state.budgetPhoto === 'string' && state.budgetPhoto.slice(0, 5) === 'data:' ? state.budgetPhoto : '');
+      if (!src) return;
+      vi.src = src;
       v.hidden = false;
     });
     $('#photo-viewer-replace').addEventListener('click', () => { $('#photo-viewer').hidden = true; openPhotoPicker(); });
@@ -1873,6 +1950,7 @@
   // ---------- Init ----------
   function init() {
     load();
+    migratePhotosToIdb(); // move fotos antigas (dataURL no localStorage) p/ IndexedDB
     const verEl = $('#app-version'); if (verEl) verEl.textContent = APP_VERSION;
     // seleciona todo o conteúdo de campos numéricos ao focar
     document.addEventListener('focusin', e => {
