@@ -32,7 +32,7 @@
   // Serve para desligar peças sem excluí-las.
   // Versão exibida no cabeçalho. Reflete o app.js carregado na tela (útil para
   // saber se o cache do Service Worker já atualizou). Manter igual ao N de sw.js.
-  const APP_VERSION = 'v114';
+  const APP_VERSION = 'v115';
 
   const clampQty = v => Math.min(MAX_QTY, Math.max(1, Math.round(parseNum(v) || 1)));
 
@@ -106,6 +106,29 @@
     return { id: genId(), name: name || 'Projeto', createdAt: Date.now(), updatedAt: Date.now(), data: normalizeData(data) };
   }
 
+  // Migração (v115): "Fixação" deixou de ser auto-value (subtotal = qty em R$ via
+  // cfg.fixacaoRate) e virou item 'auto' normal — o VALOR UNITÁRIO do item é a
+  // constante que multiplica a quantidade automática (totalN). Herda o R$/N antigo
+  // (cfg.fixacaoRate do projeto ativo, ou o 1º com valor) como valor unitário.
+  function migrateFixacaoItem() {
+    const items = db.budgetGlobal && db.budgetGlobal.items;
+    if (!Array.isArray(items)) return;
+    const fx = items.find(i => i && i.key === 'fixacao');
+    if (!fx || fx.type !== 'auto-value') return;
+    fx.type = 'auto'; fx.src = 'totalN';
+    const order = [];
+    const act = db.projects.find(p => p.id === db.activeId);
+    if (act) order.push(act);
+    db.projects.forEach(p => { if (p !== act) order.push(p); });
+    let rate = null;
+    for (const p of order) {
+      const r = p && p.data && p.data.budgetCfg && p.data.budgetCfg.fixacaoRate;
+      if (r != null) { rate = r; if (r) break; }
+    }
+    // fiel ao subtotal anterior (totalN × fixacaoRate); sem valor → 0 (estava "off")
+    fx.price = rate != null ? rate : 0;
+  }
+
   function load() {
     let parsed = null;
     try { parsed = JSON.parse(localStorage.getItem(DB_KEY) || 'null'); } catch (e) {}
@@ -124,6 +147,7 @@
       } else {
         db.budgetGlobal.items = db.budgetGlobal.items || Budget.defaultItems();
       }
+      migrateFixacaoItem(); // antes do normalizeData (lê o fixacaoRate antigo cru)
       db.projects.forEach(p => { p.data = normalizeData(p.data); });
     } else {
       let old = null;
@@ -199,7 +223,10 @@
   }
 
   // ---------- Utilidades ----------
-  const brl = n => 'R$ ' + (n || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const brlNum = n => (n || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const brl = n => 'R$ ' + brlNum(n);
+  // Célula monetária com prefixo "R$" à esquerda e valor à direita (flex .rs).
+  const brlSplit = n => '<span class="rs"><span class="cur">R$</span><span class="val">' + brlNum(n) + '</span></span>';
   const numFmt = n => (Math.round((n || 0) * 100) / 100).toLocaleString('pt-BR');
   const fmtNum = v => (v || v === 0) ? String(v).replace('.', ',') : '';
   const parseNum = s => { const n = parseFloat(String(s).replace(',', '.')); return isFinite(n) ? n : 0; };
@@ -1503,7 +1530,6 @@
   // ---------- Orçamento ----------
   function getBudgetMetrics() {
     const m = state.plan ? Budget.metricsFromPlan(state.plan, 'cm') : {};
-    m.fixacaoAuto = Math.round((m.totalN || 0) * (state.budgetCfg.fixacaoRate || 0) * 100) / 100;
     return m;
   }
 
@@ -1532,10 +1558,8 @@
         : `<td class="bgt-qty"><input class="qty-inp" inputmode="decimal" value="${qty}" data-k="${it.key}"></td>`;
       const unitTd = it.type === 'value'
         ? `<td class="bgt-unit">—</td>`
-        : it.type === 'auto-value'
-        ? `<td class="bgt-unit">${brl(state.budgetCfg.fixacaoRate || 0)}</td>`
-        : `<td class="bgt-unit">${brl(it.price)}</td>`;
-      tr.innerHTML = `<td class="bgt-name">${esc(it.label)}</td>${qtyTd}${unitTd}<td class="bgt-sub">${brl(sub)}</td>`;
+        : `<td class="bgt-unit">${brlSplit(it.price)}</td>`;
+      tr.innerHTML = `<td class="bgt-name">${esc(it.label)}</td>${qtyTd}${unitTd}<td class="bgt-sub">${brlSplit(sub)}</td>`;
       body.appendChild(tr);
     });
     body.querySelectorAll('[data-k]').forEach(inp => inp.addEventListener('input', () => {
@@ -1559,7 +1583,7 @@
         ? (metrics[it.src] != null ? metrics[it.src] : 0)
         : (qtys[it.key] || 0);
       const subEl = tr.querySelector('.bgt-sub');
-      if (subEl) subEl.textContent = brl(Budget.subtotalItem(it, qty));
+      if (subEl) subEl.innerHTML = brlSplit(Budget.subtotalItem(it, qty));
     });
 
     // Resumo compacto do corte — removido; IC aparece na linha de Complexidade
@@ -1688,7 +1712,6 @@
     const sv = (id, v) => { const e = $(id); if (e) e.value = v; };
     sv('#cfg-labor', c.laborPct);
     sv('#cfg-complexidade', c.complexidade);
-    sv('#cfg-fixacao-rate', c.fixacaoRate);
     sv('#cfg-days', c.daysPerUnit);
     sv('#cfg-entrada-pct', c.entradaPct);
     sv('#cfg-credit-6x', c.credit6xFee);
@@ -1771,7 +1794,6 @@
     };
     bindCfg('#cfg-labor', 'laborPct');
     bindCfg('#cfg-complexidade', 'complexidade');
-    bindCfg('#cfg-fixacao-rate', 'fixacaoRate');
     bindCfg('#cfg-days', 'daysPerUnit');
     bindCfg('#cfg-entrada-pct', 'entradaPct');
     bindCfg('#cfg-credit-6x', 'credit6xFee');
