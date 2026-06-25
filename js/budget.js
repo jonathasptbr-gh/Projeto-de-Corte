@@ -62,10 +62,15 @@
   // Extrai métricas do plano de corte.
   // Fita 45: compartilhada entre 2 peças → metros reais ÷ 2.
   // fitasTotal: 22mm a 1× e 45mm a 2× (mais material/trabalho).
+  // Metragem FINAL de cada fita (quantidade que multiplica o preço):
+  //   final = arredondaCima5( metragemTotal × 1,05 + (lados fitados × 0,05m) )
+  // — soma a margem de desperdício/retrabalho e arredonda de 5 em 5 m p/ cima.
+  // A metragem total "fria" continua disponível (…Raw) p/ exibir entre parênteses.
   function metricsFromPlan(result, unit) {
     const div = unit === 'mm' ? 1000 : 100;
     let sheetsWhite = 0, sheetsColor = 0, pieces = 0, cuts = 0;
     let b22w = 0, b45w = 0, b22c = 0, b45c = 0;
+    let n22w = 0, n45w = 0, n22c = 0, n45c = 0; // lados fitados por tipo
 
     result.sheets.forEach(s => {
       const white = s.materialWhite !== undefined ? s.materialWhite : isWhite(s.material);
@@ -78,20 +83,31 @@
         const add = (v, len) => {
           const sp = bandSpec(v); if (!sp) return;
           const w = isWhiteBand(sp.color);
-          if (sp.w === 45) { if (w) b45w += len; else b45c += len; }
-          else             { if (w) b22w += len; else b22c += len; }
+          if (sp.w === 45) { if (w) { b45w += len; n45w++; } else { b45c += len; n45c++; } }
+          else             { if (w) { b22w += len; n22w++; } else { b22c += len; n22c++; } }
         };
         add(b.top, pw); add(b.bottom, pw); add(b.left, ph); add(b.right, ph);
       });
     });
 
     const m = x => Math.round((x / div) * 10) / 10;
-    const band22White = m(b22w), band45White = m(b45w / 2);
-    const band22Color = m(b22c), band45Color = m(b45c / 2);
-    const bandMeters  = Math.round((band22White + band45White + band22Color + band45Color) * 10) / 10;
-    const fitasTotal  = Math.round((band22White + band22Color + (band45White + band45Color) * 2) * 10) / 10;
+    // metragem total "fria" (45 dividida por 2)
+    const r22w = m(b22w), r45w = m(b45w / 2), r22c = m(b22c), r45c = m(b45c / 2);
+    // metragem final com margem, arredondada de 5 em 5 p/ cima
+    const ceil5 = x => Math.ceil((x - 1e-9) / 5) * 5;
+    const finalMet = (raw, sides) => raw > 0 ? ceil5(raw * 1.05 + sides * 0.05) : 0;
+    const f22w = finalMet(r22w, n22w), f45w = finalMet(r45w, n45w);
+    const f22c = finalMet(r22c, n22c), f45c = finalMet(r45c, n45c);
+    const bandMeters  = Math.round((r22w + r45w + r22c + r45c) * 10) / 10;
+    const fitasTotal  = Math.round((r22w + r22c + (r45w + r45c) * 2) * 10) / 10;
     const totalN      = Math.round((pieces + fitasTotal + cuts) * 10) / 10;
-    return { sheetsWhite, sheetsColor, pieces, cuts, band22White, band45White, band22Color, band45Color, bandMeters, fitasTotal, totalN };
+    return {
+      sheetsWhite, sheetsColor, pieces, cuts,
+      // band* = metragem FINAL (multiplica o preço); band*Raw = total fria (parênteses)
+      band22White: f22w, band45White: f45w, band22Color: f22c, band45Color: f45c,
+      band22WhiteRaw: r22w, band45WhiteRaw: r45w, band22ColorRaw: r22c, band45ColorRaw: r45c,
+      bandMeters, fitasTotal, totalN
+    };
   }
 
   // Subtotal de um item dado sua quantidade.

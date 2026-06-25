@@ -458,7 +458,8 @@ table.grid.breakdown .ok { color: var(--blue); font-weight: 700; }
 
 /* Tabela de orçamento — colunas */
 .bgt-name { }
-.bgt-qty  { width: 14%; min-width: 46px; text-align: right !important; white-space: nowrap; }
+.bgt-qty  { width: 18%; min-width: 70px; text-align: right !important; white-space: nowrap; }
+.bgt-raw  { font-size: .8em; color: var(--muted); }
 .bgt-unit { width: 22%; min-width: 78px; text-align: right !important; }
 .bgt-sub  { width: 27%; min-width: 92px; text-align: right !important; }
 table.grid.budget th.bgt-qty,
