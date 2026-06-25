@@ -21,7 +21,7 @@
       { key: 'chapasCor',     label: 'Chapas de Cor',      type: 'auto',   price: 419.00, src: 'sheetsColor' },
       { key: 'fitaCor',       label: 'Fita de Cor 22',     type: 'auto',   price: 1.99,   src: 'band22Color' },
       { key: 'fitaCor45',     label: 'Fita de Cor 45',     type: 'auto',   price: 3.80,   src: 'band45Color' },
-      { key: 'fixacao',       label: 'Fixação',            type: 'auto-value', src: 'fixacaoAuto', price: 1.00 },
+      { key: 'fixacao',       label: 'Fixação',            type: 'auto',   price: 1.00, src: 'totalN' },
       { key: 'fundo6mm',      label: 'Fundo 6mm',          type: 'manual', price: 139.00  },
       { key: 'pes',           label: 'Pés',                type: 'manual', price: 15.00   },
       { key: 'dobradicas',    label: 'Dobradiças',         type: 'manual', price: 9.00    },
