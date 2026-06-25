@@ -416,11 +416,13 @@ table.grid.breakdown .ok { color: var(--blue); font-weight: 700; }
 .budget-hdr { overflow: hidden; }
 .budget-photo-area {
   position: relative; width: 100%;
-  height: 40vw; min-height: 140px; max-height: 260px;
+  min-height: 140px;
   background: #f0f3f1; display: flex; align-items: center; justify-content: center;
   border-bottom: 1px solid var(--line); overflow: hidden;
 }
-.budget-photo-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; cursor: zoom-in; }
+/* Preenche a largura e mantém a altura proporcional original (sem cortar). */
+.budget-photo-img { display: block; width: 100%; height: auto; cursor: zoom-in; }
+.budget-photo-img[hidden] { display: none; }
 .budget-photo-placeholder {
   position: absolute; inset: 0;
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px;

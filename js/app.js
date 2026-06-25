@@ -32,7 +32,7 @@
   // Serve para desligar peças sem excluí-las.
   // Versão exibida no cabeçalho. Reflete o app.js carregado na tela (útil para
   // saber se o cache do Service Worker já atualizou). Manter igual ao N de sw.js.
-  const APP_VERSION = 'v115';
+  const APP_VERSION = 'v116';
 
   const clampQty = v => Math.min(MAX_QTY, Math.max(1, Math.round(parseNum(v) || 1)));
 
@@ -1637,14 +1637,16 @@
     reader.onload = evt => {
       const image = new Image();
       image.onload = () => {
-        const maxW = 800, maxH = 600;
+        // Mantém a resolução original (proporção intacta); só reduz se exceder um
+        // teto alto, para não estourar o localStorage. Qualidade JPEG alta.
+        const maxDim = 2560;
         let w = image.width, h = image.height;
-        if (w > maxW) { h = Math.round(h * maxW / w); w = maxW; }
-        if (h > maxH) { w = Math.round(w * maxH / h); h = maxH; }
+        const scale = Math.min(1, maxDim / Math.max(w, h));
+        w = Math.round(w * scale); h = Math.round(h * scale);
         const canvas = document.createElement('canvas');
         canvas.width = w; canvas.height = h;
         canvas.getContext('2d').drawImage(image, 0, 0, w, h);
-        cb(canvas.toDataURL('image/jpeg', 0.80));
+        cb(canvas.toDataURL('image/jpeg', 0.9));
       };
       image.src = evt.target.result;
     };
