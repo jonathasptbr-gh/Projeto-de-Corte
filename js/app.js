@@ -32,7 +32,7 @@
   // Serve para desligar peças sem excluí-las.
   // Versão exibida no cabeçalho. Reflete o app.js carregado na tela (útil para
   // saber se o cache do Service Worker já atualizou). Manter igual ao N de sw.js.
-  const APP_VERSION = 'v117';
+  const APP_VERSION = 'v118';
 
   const clampQty = v => Math.min(MAX_QTY, Math.max(1, Math.round(parseNum(v) || 1)));
 
@@ -1557,9 +1557,13 @@
       const sub  = Budget.subtotalItem(it, qty);
       // auto-value (fixação): a quantidade exibida é o IC (totalN), não o valor em R$
       const qtyDisplay = it.type === 'auto-value' ? (metrics.totalN || 0) : qty;
+      // Fitas: mostra a metragem FINAL e, entre parênteses, a metragem total "fria".
+      let qtyHtml = numFmt(qtyDisplay);
+      const rawV = it.src ? metrics[it.src + 'Raw'] : undefined;
+      if (auto && rawV != null) qtyHtml += ` <span class="bgt-raw">(${numFmt(rawV)})</span>`;
       const tr = el('tr');
       const qtyTd = auto
-        ? `<td class="bgt-qty auto">${numFmt(qtyDisplay)}</td>`
+        ? `<td class="bgt-qty auto">${qtyHtml}</td>`
         : `<td class="bgt-qty"><input class="qty-inp" inputmode="decimal" value="${qty}" data-k="${it.key}"></td>`;
       const unitTd = it.type === 'value'
         ? `<td class="bgt-unit">—</td>`
