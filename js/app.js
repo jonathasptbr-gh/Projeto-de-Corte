@@ -32,7 +32,7 @@
   // Serve para desligar peças sem excluí-las.
   // Versão exibida no cabeçalho. Reflete o app.js carregado na tela (útil para
   // saber se o cache do Service Worker já atualizou). Manter igual ao N de sw.js.
-  const APP_VERSION = 'v119';
+  const APP_VERSION = 'v120';
 
   const clampQty = v => Math.min(MAX_QTY, Math.max(1, Math.round(parseNum(v) || 1)));
 
@@ -1183,7 +1183,7 @@
   // aba Cortes (banner + ponto na aba), para o usuário recalcular quando quiser.
   let planStale = false;
   function markPlanStale() {
-    if (live) stopLiveSearch(); // busca rodava com dados velhos → para (sem reiniciar)
+    if (liveWorker) stopLiveSearch(); // busca rodava com dados velhos → para (sem reiniciar)
     planStale = true;
     updateStaleNotice();
   }
