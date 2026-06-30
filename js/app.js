@@ -32,7 +32,7 @@
   // Serve para desligar peças sem excluí-las.
   // Versão exibida no cabeçalho. Reflete o app.js carregado na tela (útil para
   // saber se o cache do Service Worker já atualizou). Manter igual ao N de sw.js.
-  const APP_VERSION = 'v121';
+  const APP_VERSION = 'v122';
 
   const clampQty = v => Math.min(MAX_QTY, Math.max(1, Math.round(parseNum(v) || 1)));
 
@@ -751,6 +751,7 @@
     const fitaEstBtn = el('button', 'fita-est-btn' + (s.fitaEstimate ? ' active' : ''));
     fitaEstBtn.type = 'button';
     fitaEstBtn.title = s.fitaEstimate ? 'Estimativa bruta ativa: 25m de fita 22 por chapa usada' : 'Estimativa bruta desativada (usa fitas alocadas nas peças)';
+    const fitaIcon = el('span', 'material-symbols-outlined'); fitaIcon.textContent = 'refresh'; fitaEstBtn.appendChild(fitaIcon);
     fitaEstBtn.addEventListener('click', () => {
       s.fitaEstimate = !s.fitaEstimate;
       fitaEstBtn.classList.toggle('active', s.fitaEstimate);
