@@ -291,7 +291,7 @@ table.grid th.cell-fita, table.grid td.cell-fita { text-align: center; }
 table.grid td.cell-mat { text-align: center; }
 table.grid td.cell-mat .mat-cell-btn { margin: 0 auto; }
 .cell-name { width: 3.4rem; }
-.cell-name input { font-weight: 700; }
+table.grid .cell-name input { font-weight: 700; }
 .cell-fita { width: 2.8rem; text-align: center; }
 .cell-veio { width: 2.4rem; text-align: center; }
 .veio-btn {
@@ -304,13 +304,12 @@ table.grid td.cell-mat .mat-cell-btn { margin: 0 auto; }
 /* toggle de estimativa bruta de fita no estoque */
 .fita-est-btn {
   width: 22px; height: 28px; padding: 0; cursor: pointer; vertical-align: middle;
-  border: 1px dashed #bbb; border-radius: 3px; background: #f0f0f0;
-  transition: background .15s, border-color .15s;
+  border: none; border-radius: 3px; background: transparent;
+  display: inline-flex; align-items: center; justify-content: center;
+  transition: color .15s;
 }
-.fita-est-btn.active {
-  background: repeating-linear-gradient(0deg, #b3d4f5 0 4px, #2563a0 4px 6px);
-  border: 1px solid #2563a0;
-}
+.fita-est-btn .material-symbols-outlined { font-size: 18px; color: #ccc; }
+.fita-est-btn.active .material-symbols-outlined { color: #22a05a; }
 .cell-act { width: 1.6rem; padding: 2px !important; text-align: center; }
 table.grid.compact select { font: inherit; border: none; background: transparent; width: 100%; min-width: 0; padding: 2px 0; }
 
