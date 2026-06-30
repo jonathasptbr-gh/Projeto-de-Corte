@@ -71,6 +71,19 @@ body {
   display: flex; align-items: center; gap: 6px;
   border: 1px solid var(--line); border-radius: 10px; padding: 8px 8px 8px 10px;
 }
+/* lista de projetos no diálogo de importação CSV */
+.import-proj-list { display: flex; flex-direction: column; gap: 6px; max-height: 50vh; overflow-y: auto; margin-top: 4px; }
+.import-proj-item {
+  display: flex; align-items: center; gap: 8px; width: 100%; text-align: left;
+  border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px;
+  background: #fff; cursor: pointer; font: inherit;
+  transition: background .12s, border-color .12s;
+}
+.import-proj-item:hover, .import-proj-item:focus { background: #e9f1fa; border-color: var(--blue); outline: none; }
+.import-proj-icon { font-size: 20px; color: var(--muted); flex-shrink: 0; }
+.import-proj-info { display: flex; flex-direction: column; min-width: 0; }
+.import-proj-name { font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.import-proj-sub { font-size: .78rem; color: var(--muted); }
 .proj-item.active { border-color: var(--blue); background: #e9f1fa; }
 .proj-info { flex: 1; min-width: 0; cursor: pointer; }
 .proj-title { font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -278,6 +291,7 @@ table.grid th.cell-fita, table.grid td.cell-fita { text-align: center; }
 table.grid td.cell-mat { text-align: center; }
 table.grid td.cell-mat .mat-cell-btn { margin: 0 auto; }
 .cell-name { width: 3.4rem; }
+.cell-name input { font-weight: 700; }
 .cell-fita { width: 2.8rem; text-align: center; }
 .cell-veio { width: 2.4rem; text-align: center; }
 .veio-btn {
@@ -287,6 +301,16 @@ table.grid td.cell-mat .mat-cell-btn { margin: 0 auto; }
 .veio-btn.v { background: repeating-linear-gradient(90deg, #9a7b50 0 1.5px, #e6d3ad 1.5px 3.5px); }
 .veio-btn.h { background: repeating-linear-gradient(0deg, #9a7b50 0 1.5px, #e6d3ad 1.5px 3.5px); }
 .veio-btn.none { background: #eee; border-style: dashed; }
+/* toggle de estimativa bruta de fita no estoque */
+.fita-est-btn {
+  width: 22px; height: 28px; padding: 0; cursor: pointer; vertical-align: middle;
+  border: 1px dashed #bbb; border-radius: 3px; background: #f0f0f0;
+  transition: background .15s, border-color .15s;
+}
+.fita-est-btn.active {
+  background: repeating-linear-gradient(0deg, #b3d4f5 0 4px, #2563a0 4px 6px);
+  border: 1px solid #2563a0;
+}
 .cell-act { width: 1.6rem; padding: 2px !important; text-align: center; }
 table.grid.compact select { font: inherit; border: none; background: transparent; width: 100%; min-width: 0; padding: 2px 0; }
 
