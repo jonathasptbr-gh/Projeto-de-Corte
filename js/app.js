@@ -32,7 +32,7 @@
   // Serve para desligar peças sem excluí-las.
   // Versão exibida no cabeçalho. Reflete o app.js carregado na tela (útil para
   // saber se o cache do Service Worker já atualizou). Manter igual ao N de sw.js.
-  const APP_VERSION = 'v120';
+  const APP_VERSION = 'v121';
 
   const clampQty = v => Math.min(MAX_QTY, Math.max(1, Math.round(parseNum(v) || 1)));
 
@@ -309,7 +309,7 @@
 
   // ---------- Linhas em branco ----------
   function blankPanel() { return { length: 0, width: 0, qty: 1, material: '', name: '', grain: '', bands: {} }; }
-  function blankStock() { return { width: 0, length: 0, qty: 1, material: '', name: '' }; }
+  function blankStock() { return { width: 0, length: 0, qty: 1, material: '', name: '', grain: '', fitaEstimate: false }; }
   const isBlankPanel = p => !(p.length > 0) && !(p.width > 0) && !String(p.material || '').trim() && !String(p.name || '').trim();
   const isBlankStock = s => !(s.width > 0) && !(s.length > 0) && !String(s.material || '').trim() && !String(s.name || '').trim();
   function ensureTrailingBlank(arr, isBlank, mk) { if (!arr.length || !isBlank(arr[arr.length - 1])) arr.push(mk()); }
@@ -743,8 +743,23 @@
     const nameInp = document.createElement('input'); nameInp.placeholder = 'Chapa'; nameInp.value = s.name || '';
     nameInp.addEventListener('change', () => { const cap = capFirst(nameInp.value.trim()); nameInp.value = cap; onStockField(s, 'name', cap); });
     tdNm.appendChild(nameInp); tr.appendChild(tdNm);
-    if (s.grain == null) s.grain = 'v'; // padrão: veio ao longo do comprimento
+    if (s.grain == null) s.grain = ''; // padrão: sem orientação específica
     const tdV = el('td', 'cell-veio'); tdV.appendChild(veioButton(s, { stock: true, onCycle: () => { save(); markPlanStale(); } })); tr.appendChild(tdV);
+    // fita: toggle de estimativa bruta por chapa (25m de fita 22 por chapa usada no plano)
+    if (s.fitaEstimate == null) s.fitaEstimate = false;
+    const tdFita = el('td', 'cell-fita');
+    const fitaEstBtn = el('button', 'fita-est-btn' + (s.fitaEstimate ? ' active' : ''));
+    fitaEstBtn.type = 'button';
+    fitaEstBtn.title = s.fitaEstimate ? 'Estimativa bruta ativa: 25m de fita 22 por chapa usada' : 'Estimativa bruta desativada (usa fitas alocadas nas peças)';
+    fitaEstBtn.addEventListener('click', () => {
+      s.fitaEstimate = !s.fitaEstimate;
+      fitaEstBtn.classList.toggle('active', s.fitaEstimate);
+      fitaEstBtn.title = s.fitaEstimate ? 'Estimativa bruta ativa: 25m de fita 22 por chapa usada' : 'Estimativa bruta desativada (usa fitas alocadas nas peças)';
+      save();
+      if ($('#view-budget').classList.contains('active')) renderBudget();
+    });
+    tdFita.appendChild(fitaEstBtn);
+    tr.appendChild(tdFita);
     const tdD = el('td', 'cell-act'); tdD.appendChild(iconBtn('del', 'delete', 'Excluir', () => deleteRow('stock', s))); tr.appendChild(tdD);
     return tr;
   }
@@ -752,10 +767,12 @@
     if (f === 'material') s[f] = String(value).trim();
     else if (f === 'qty') s[f] = clampQty(value);
     else if (f === 'name') s[f] = String(value).trim();
+    else if (f === 'fitaEstimate') s[f] = !!value;
     else s[f] = parseNum(value);
     if (f === 'material') { save(); renderStock(); renderPanels(); }
     else { save(); afterRowEdit('stock'); }
-    if (f !== 'name' && validPanels().length) markPlanStale(); // nome não afeta o plano
+    if (f !== 'name' && f !== 'fitaEstimate' && validPanels().length) markPlanStale();
+    if (f === 'fitaEstimate' && $('#view-budget').classList.contains('active')) renderBudget();
   }
   function renderStock() {
     ensureTrailingBlank(state.stock, isBlankStock, blankStock);
@@ -845,40 +862,105 @@
     });
   }
 
-  // ---------- Importação (cada CSV vira um projeto no histórico) ----------
+  // ---------- Importação ----------
   function projectNameFromFile(fileName) {
     let base = String(fileName || 'Projeto').replace(/\.[^.]+$/, '').replace(/^.*[\\/]/, '').trim() || 'Projeto';
     let name = base, i = 2;
     while (db.projects.some(p => p.name === name)) name = `${base} (${i++})`;
     return name;
   }
-  function importAsProject(text, fileName) {
-    const { panels, warnings } = CSV.parse(text);
-    if (!panels.length) { toast(warnings[0] || 'CSV sem peças válidas.'); return; }
-    // novo projeto herdando opções do projeto atual
+
+  // Normaliza os painéis parseados do CSV (nomes, materiais, cores) no state atual.
+  function applyParsedPanels(panels) {
+    panels.forEach(p => {
+      p.name = capFirst((p.name || '').trim());
+      const raw = p.material;
+      p.material = normalizeMaterial(raw, p.thickness);
+      if (!state.materialColors[p.material]) state.materialColors[p.material] = colorFromName(raw) || fallbackColor(p.material);
+      const arr = state.materialNames[p.material] || (state.materialNames[p.material] = []);
+      if (raw && arr.indexOf(raw) < 0) arr.push(raw);
+    });
+    panels.sort((a, b) => nameSortKey(a.name).localeCompare(nameSortKey(b.name), 'pt'));
+    state.panels = panels;
+    state.plan = null;
+    syncStockToMaterials();
+  }
+
+  // Importa painéis como NOVO projeto (herdando opções do projeto atual).
+  function importAsNewProject(panels, fileName) {
     const base = activeProject() ? activeProject().data : emptyData();
     const proj = makeProject(projectNameFromFile(fileName),
       { options: base.options, budgetCfg: base.budgetCfg });
     db.projects.unshift(proj); db.activeId = proj.id; state = proj.data;
     selected.clear();
-
-    panels.forEach(p => {
-      p.name = capFirst((p.name || '').trim()); // primeira letra maiúscula
-      const raw = p.material;
-      p.material = normalizeMaterial(raw, p.thickness);
-      if (!state.materialColors[p.material]) state.materialColors[p.material] = colorFromName(raw) || fallbackColor(p.material);
-      const arr = state.materialNames[p.material] || (state.materialNames[p.material] = []);
-      if (raw && arr.indexOf(raw) < 0) arr.push(raw); // guarda todos os nomes nativos do grupo
-    });
-    panels.sort((a, b) => nameSortKey(a.name).localeCompare(nameSortKey(b.name), 'pt'));
-    state.panels = panels;
-    syncStockToMaterials();
+    applyParsedPanels(panels);
     save();
     refreshOptionsUI(); updateProjectName(); renderStock(); renderPanels();
     $('#import-status').textContent = `${panels.length} peças · ${panels.reduce((a, p) => a + p.qty, 0)} un.`;
-    gotoTab('panels'); // revisar as peças; o plano é calculado manualmente no botão
+    gotoTab('panels');
     toast('Projeto: ' + proj.name);
     resetHistory();
+  }
+
+  // Importa painéis SUBSTITUINDO dados de peças/materiais/estoque de um projeto existente.
+  // Preserva budgetCfg, options, budgetQtys, budgetDescription, budgetPhoto e nome do projeto.
+  function importIntoProject(panels, targetId) {
+    if (!db.projects.find(p => p.id === targetId)) return;
+    db.activeId = targetId; state = activeProject().data;
+    selected.clear();
+    // Limpa materiais/cores/nomes antes de reaplicar (mantém budgetCfg, options, etc.)
+    state.materialColors = {};
+    state.materialNames = {};
+    state.materials = [];
+    applyParsedPanels(panels);
+    save();
+    refreshOptionsUI(); updateProjectName(); renderStock(); renderPanels();
+    $('#import-status').textContent = `${panels.length} peças · ${panels.reduce((a, p) => a + p.qty, 0)} un.`;
+    gotoTab('panels');
+    toast('Importado em: ' + activeProject().name);
+    resetHistory();
+  }
+
+  // Exibe diálogo para o usuário escolher onde importar o CSV (novo ou projeto existente).
+  function showImportDialog(panels, fileName) {
+    const ov = el('div', 'modal-overlay dialog-overlay');
+    const card = el('div', 'modal dialog');
+    const head = el('div', 'dialog-head'); head.textContent = 'Importar CSV';
+    const body = el('div', 'dialog-body');
+    const hint = el('p', 'dialog-msg'); hint.textContent = 'Escolha onde importar as peças:';
+    body.appendChild(hint);
+    const list = el('div', 'import-proj-list');
+    const addItem = (icon, title, sub, onClick) => {
+      const btn = el('button', 'import-proj-item'); btn.type = 'button';
+      btn.innerHTML = `<span class="material-symbols-outlined import-proj-icon">${icon}</span>` +
+        `<span class="import-proj-info"><span class="import-proj-name">${esc(title)}</span>` +
+        (sub ? `<span class="import-proj-sub">${esc(sub)}</span>` : '') + '</span>';
+      btn.addEventListener('click', () => { close(); onClick(); });
+      list.appendChild(btn);
+    };
+    addItem('add', 'Novo projeto', '', () => importAsNewProject(panels, fileName));
+    db.projects.slice().sort((a, b) => b.updatedAt - a.updatedAt).forEach(p => {
+      const pieces = (p.data.panels || []).reduce((a, x) => a + (x.length > 0 && x.width > 0 ? (x.qty || 1) : 0), 0);
+      addItem('folder_open', p.name, `${pieces} peças · ${fmtDate(p.updatedAt)}`, () => importIntoProject(panels, p.id));
+    });
+    body.appendChild(list);
+    const actions = el('div', 'modal-actions');
+    const cancelBtn = el('button', 'btn'); cancelBtn.textContent = 'Cancelar';
+    cancelBtn.addEventListener('click', close);
+    actions.appendChild(cancelBtn);
+    card.appendChild(head); card.appendChild(body); card.appendChild(actions); ov.appendChild(card);
+    document.body.appendChild(ov);
+    function close() { ov.remove(); document.removeEventListener('keydown', onKey); }
+    ov.addEventListener('click', e => { if (e.target === ov) close(); });
+    function onKey(e) { if (e.key === 'Escape') { e.preventDefault(); close(); } }
+    document.addEventListener('keydown', onKey);
+    setTimeout(() => cancelBtn.focus(), 30);
+  }
+
+  function importAsProject(text, fileName) {
+    const { panels, warnings } = CSV.parse(text);
+    if (!panels.length) { toast(warnings[0] || 'CSV sem peças válidas.'); return; }
+    showImportDialog(panels, fileName);
   }
   // Exporta as peças atuais (com edições de medida/veio/material/fita) num CSV
   // re-importável. No celular abre o compartilhamento; no resto, baixa o arquivo.
@@ -1293,7 +1375,7 @@
       st.innerHTML =
         `<thead><tr><th class="cell-act"></th><th class="cell-num">Larg.</th><th class="cell-num">Compr.</th>` +
         `<th class="cell-qty">Qtd</th><th class="cell-mat">Mat</th><th class="cell-name">Nome</th>` +
-        `<th class="cell-veio">Veio</th><th class="cell-act"></th></tr></thead>`;
+        `<th class="cell-veio">Veio</th><th class="cell-fita">Fita</th><th class="cell-act"></th></tr></thead>`;
       const sb = el('tbody');
       stock.forEach(s => sb.appendChild(makeStockRow(s)));
       st.appendChild(sb);
@@ -1535,6 +1617,38 @@
   // ---------- Orçamento ----------
   function getBudgetMetrics() {
     const m = state.plan ? Budget.metricsFromPlan(state.plan, 'cm') : {};
+    const fitaRows = state.stock.filter(s => s.fitaEstimate && s.width > 0 && s.length > 0);
+    if (fitaRows.length && state.plan && state.plan.sheets) {
+      // Estimativa bruta: 25m de fita 22 por chapa usada das linhas de estoque marcadas.
+      const TAPE_PER_SHEET = 25;
+      const estimateKeys = new Set(fitaRows.map(s => s.material + ':' + (s.name || '')));
+      let est22White = 0, est22Color = 0;
+      state.plan.sheets.forEach(sheet => {
+        const key = sheet.material + ':' + (sheet.stockName || '');
+        if (!estimateKeys.has(key)) return;
+        const isW = sheet.materialWhite !== undefined
+          ? sheet.materialWhite
+          : (String(sheet.material || '').split('|')[0] === '#ffffff');
+        if (isW) est22White += TAPE_PER_SHEET;
+        else     est22Color += TAPE_PER_SHEET;
+      });
+      m.band22White = est22White;
+      m.band22Color = est22Color;
+      m.band45White = 0;
+      m.band45Color = 0;
+      // sem raw neste modo (não exibe parênteses)
+      m.band22WhiteRaw = undefined;
+      m.band22ColorRaw = undefined;
+      m.band45WhiteRaw = undefined;
+      m.band45ColorRaw = undefined;
+      m.bandManualMode = false;
+    } else {
+      const hasBands = validPanels().some(p => {
+        const b = p.bands || {};
+        return ['top', 'left', 'bottom', 'right'].some(side => !!b[side]);
+      });
+      m.bandManualMode = !hasBands;
+    }
     return m;
   }
 
@@ -1551,8 +1665,13 @@
     // Tabela de itens
     const body = $('#budget-body'); if (!body) return;
     body.innerHTML = '';
+    // isBandItem: itens de fita que, em modo manual (sem fita alocada e sem estimativa),
+    // viram inputs editáveis mesmo sendo do tipo 'auto'.
+    const isBandSrc = src => typeof src === 'string' && src.startsWith('band');
     items.forEach(it => {
-      const auto = it.type === 'auto' || it.type === 'auto-value';
+      const typeAuto = it.type === 'auto' || it.type === 'auto-value';
+      const manualBand = typeAuto && isBandSrc(it.src) && metrics.bandManualMode;
+      const auto = typeAuto && !manualBand;
       const qty  = auto ? (metrics[it.src] != null ? metrics[it.src] : 0) : (qtys[it.key] || 0);
       const sub  = Budget.subtotalItem(it, qty);
       // auto-value (fixação): a quantidade exibida é o IC (totalN), não o valor em R$
@@ -1585,9 +1704,12 @@
     const qtys    = state.budgetQtys;
 
     // Subtotais na tabela
+    const isBandSrcU = src => typeof src === 'string' && src.startsWith('band');
     $$('#budget-body tr').forEach((tr, i) => {
       const it  = items[i]; if (!it) return;
-      const auto = it.type === 'auto' || it.type === 'auto-value';
+      const typeAuto = it.type === 'auto' || it.type === 'auto-value';
+      const manualBand = typeAuto && isBandSrcU(it.src) && metrics.bandManualMode;
+      const auto = typeAuto && !manualBand;
       const qty = auto
         ? (metrics[it.src] != null ? metrics[it.src] : 0)
         : (qtys[it.key] || 0);
@@ -1599,6 +1721,13 @@
     const sumEl = $('#budget-summary');
     if (sumEl) sumEl.innerHTML = '';
 
+    // Em bandManualMode, injeta os qtys manuais nos metrics das fitas antes de totalizar,
+    // para que Budget.totals() compute entrada/mão-de-obra corretamente.
+    if (metrics.bandManualMode) {
+      items.forEach(it => {
+        if (it.type === 'auto' && it.src && it.src.startsWith('band')) metrics[it.src] = qtys[it.key] || 0;
+      });
+    }
     const t = Budget.totals(items, qtys, metrics, state.budgetCfg);
 
     // Custos do serviço: materiais + mão de obra + complexidade + total
