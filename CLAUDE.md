@@ -163,8 +163,10 @@ Push em `main` dispara o workflow automaticamente. O deploy leva ~15 s. Após o 
 Todo trabalho de código feito pelo Claude **deve seguir este fluxo**:
 
 1. Desenvolver na branch designada (nunca diretamente no `main`).
-2. Commitar as alterações com mensagem descritiva.
-3. Fazer `push` para o remote.
-4. **Sempre abrir um Pull Request** apontando para `main` ao final — mesmo para mudanças pequenas. Isso garante que o deploy automático rode e que o histórico fique rastreável.
+2. **Incrementar a versão** em `sw.js` (`const CACHE = 'projeto-corte-vN'`) **e** em `app.js` (`const APP_VERSION = 'vN'`) — sempre juntos, sempre iguais, a cada deploy.
+3. Commitar as alterações com mensagem descritiva.
+4. Fazer `push` para o remote.
+5. **Abrir um Pull Request** apontando para `main`.
+6. **Mergear o Pull Request imediatamente** (squash merge) — não deixar o PR aberto aguardando aprovação.
 
-O Claude não deve perguntar se deve criar o PR: **cria sempre**.
+O Claude não deve perguntar se deve criar o PR nem se deve mergear: **cria e mergeia sempre**.
