@@ -115,59 +115,104 @@
     return cuts;
   }
 
-  function sheetSVG(sheet, colorMap, showLabels) {
-    const W = sheet.W, H = sheet.H;
-    const mT = 16, mL = 16, mR = 5, mB = 5;        // margens para as réguas
-    const ox = mL, oy = mT;                          // origem da chapa
-    const parts = [`<svg viewBox="0 0 ${W + mL + mR} ${H + mT + mB}" preserveAspectRatio="xMidYMid meet" role="img">`];
-    parts.push(`<defs><pattern id="grain" width="3" height="3" patternUnits="userSpaceOnUse"><path d="M0,0 L0,3" stroke="#000" stroke-width="0.15"/></pattern></defs>`);
-    parts.push(`<rect x="${ox}" y="${oy}" width="${W}" height="${H}" fill="#fbfbf8" stroke="#888" stroke-width="0.7"/>`);
+  function sheetSVG(sheet, colorMap, showLabels, idx) {
+    const rawW = sheet.W, rawH = sheet.H;
+    const stockGrain = sheet.stockGrain || '';
 
-    // peças + medidas
+    // Portrait: rotaciona 90° CW quando a chapa é mais larga que alta.
+    // 90° CW em SVG (y-down): (x,y) → (rawH-y, x) no espaço de display.
+    const rot = rawW > rawH;
+    const W = rot ? rawH : rawW;  // largura de display
+    const H = rot ? rawW : rawH;  // altura de display
+
+    const mT = 16, mL = 16, mR = 5, mB = 5;
+    const ox = mL, oy = mT;
+
+    // Transforma rect do espaço original para SVG display (com offset de margem).
+    // Para rot: rect(x,y,w,h) → (ox+rawH-y-h, oy+x, h, w)
+    function mapRect(x, y, w, h) {
+      if (!rot) return { x: ox + x, y: oy + y, w, h };
+      return { x: ox + rawH - y - h, y: oy + x, w: h, h: w };
+    }
+
+    // Após 90° CW, veio 'v' (vertical na chapa) aparece horizontal no display.
+    const displayGrain = !rot ? stockGrain
+      : stockGrain === 'v' ? 'h' : stockGrain === 'h' ? 'v' : '';
+
+    const gId = 'gp' + (idx || 0);
+    const parts = [`<svg viewBox="0 0 ${W + mL + mR} ${H + mT + mB}" preserveAspectRatio="xMidYMid meet" role="img">`];
+
+    // Padrão de veio no fundo da chapa — apenas se o estoque tiver direção configurada.
+    if (displayGrain) {
+      const pathD = displayGrain === 'v' ? 'M0,0 L0,3' : 'M0,0 L3,0';
+      parts.push(`<defs><pattern id="${gId}" width="3" height="3" patternUnits="userSpaceOnUse"><path d="${pathD}" stroke="#000" stroke-width="0.15"/></pattern></defs>`);
+    }
+
+    // Fundo da chapa
+    parts.push(`<rect x="${ox}" y="${oy}" width="${W}" height="${H}" fill="#fbfbf8" stroke="#888" stroke-width="0.7"/>`);
+    if (displayGrain) {
+      parts.push(`<rect x="${ox}" y="${oy}" width="${W}" height="${H}" fill="url(#${gId})" opacity="0.20"/>`);
+    }
+
+    // Peças + medidas
     sheet.placements.forEach(p => {
-      const x = ox + p.x, y = oy + p.y;
+      const pr = mapRect(p.x, p.y, p.w, p.h);
       const fill = colorMap[p.name] || '#e0e0e0';
-      parts.push(`<rect x="${x}" y="${y}" width="${p.w}" height="${p.h}" fill="${fill}" stroke="#3a3a3a" stroke-width="0.5"/>`);
-      parts.push(`<rect x="${x}" y="${y}" width="${p.w}" height="${p.h}" fill="url(#grain)" opacity="0.20"/>`);
+      parts.push(`<rect x="${pr.x}" y="${pr.y}" width="${pr.w}" height="${pr.h}" fill="${fill}" stroke="#3a3a3a" stroke-width="0.5"/>`);
       if (!showLabels) return;
-      const dw = p.realW || p.w, dh = p.realH || p.h; // medida REAL no rótulo (slot pode ser maior)
+      const dw = p.realW || p.w, dh = p.realH || p.h; // medida REAL no rótulo
       const small = Math.min(p.w, p.h);
-      const cx = x + p.w / 2, cy = y + p.h / 2;
-      // fonte proporcional à MENOR medida da peça; mínimo para peças pequenas
+      const cx = pr.x + pr.w / 2, cy = pr.y + pr.h / 2;
       const fsDim = Math.max(3.2, Math.min(small * 0.2, 7));
-      parts.push(`<text x="${cx}" y="${y + fsDim * 1.05}" font-size="${fsDim}" text-anchor="middle" fill="#555" class="lbl-dim">${fmt(dw)}</text>`);
-      parts.push(`<text x="${x + fsDim * 1.05}" y="${cy}" font-size="${fsDim}" text-anchor="middle" dominant-baseline="central" fill="#555" class="lbl-dim" transform="rotate(-90 ${x + fsDim * 1.05} ${cy})">${fmt(dh)}</text>`);
+      // Após rotação 90° CW: largura original (dw) vira extensão vertical no display.
+      // Rótulo topo = extensão horizontal no display; rótulo esquerda = vertical.
+      const topVal  = rot ? dh : dw;
+      const leftVal = rot ? dw : dh;
+      parts.push(`<text x="${cx}" y="${pr.y + fsDim * 1.05}" font-size="${fsDim}" text-anchor="middle" fill="#555" class="lbl-dim">${fmt(topVal)}</text>`);
+      parts.push(`<text x="${pr.x + fsDim * 1.05}" y="${cy}" font-size="${fsDim}" text-anchor="middle" dominant-baseline="central" fill="#555" class="lbl-dim" transform="rotate(-90 ${pr.x + fsDim * 1.05} ${cy})">${fmt(leftVal)}</text>`);
       const fsName = Math.max(3.2, Math.min(small * 0.2, 8));
       parts.push(`<text x="${cx}" y="${cy}" font-size="${fsName}" text-anchor="middle" dominant-baseline="central" fill="#2a2a2a" font-weight="600" class="lbl-name">${esc(p.name)}</text>`);
     });
 
-    // sobras reaproveitáveis — sem preenchimento; medidas nas BORDAS (igual às peças)
+    // Sobras reaproveitáveis
     (sheet.free || []).forEach(r => {
       if (Math.min(r.w, r.h) < 3) return;
-      const x = ox + r.x, y = oy + r.y;
-      parts.push(`<rect x="${x}" y="${y}" width="${r.w}" height="${r.h}" fill="none" stroke="#9aa39d" stroke-width="0.6"/>`);
+      const rr = mapRect(r.x, r.y, r.w, r.h);
+      parts.push(`<rect x="${rr.x}" y="${rr.y}" width="${rr.w}" height="${rr.h}" fill="none" stroke="#9aa39d" stroke-width="0.6"/>`);
       const small = Math.min(r.w, r.h);
       if (small >= 8) {
         const fs = Math.max(1.6, Math.min(small * 0.18, 7));
-        const cx = x + r.w / 2, cy = y + r.h / 2;
-        // largura na borda superior; comprimento na borda esquerda
-        parts.push(`<text x="${cx}" y="${y + fs * 1.05}" font-size="${fs}" text-anchor="middle" fill="#8a938d">${fmt(r.w)}</text>`);
-        parts.push(`<text x="${x + fs * 1.05}" y="${cy}" font-size="${fs}" text-anchor="middle" dominant-baseline="central" fill="#8a938d" transform="rotate(-90 ${x + fs * 1.05} ${cy})">${fmt(r.h)}</text>`);
+        const cx = rr.x + rr.w / 2, cy = rr.y + rr.h / 2;
+        const topVal  = rot ? r.h : r.w;
+        const leftVal = rot ? r.w : r.h;
+        parts.push(`<text x="${cx}" y="${rr.y + fs * 1.05}" font-size="${fs}" text-anchor="middle" fill="#8a938d">${fmt(topVal)}</text>`);
+        parts.push(`<text x="${rr.x + fs * 1.05}" y="${cy}" font-size="${fs}" text-anchor="middle" dominant-baseline="central" fill="#8a938d" transform="rotate(-90 ${rr.x + fs * 1.05} ${cy})">${fmt(leftVal)}</text>`);
       }
     });
 
-    // (As linhas de corte internas foram removidas a pedido — o desenho mostra
-    // só as peças, as sobras e as réguas externas, sem riscar os retalhos.)
-    const cuts = reconstructCuts(W, H, sheet.placements);
-
-    // réguas externas: cortes que atravessam a chapa inteira (1º estágio)
+    // Réguas externas (cortes que atravessam a chapa inteira)
+    const cuts = reconstructCuts(rawW, rawH, sheet.placements);
     const rfs = Math.max(4, Math.min(W, H) * 0.024);
-    const vFull = cuts.filter(c => c.orient === 'v' && c.a <= EPS && c.b >= H - EPS).map(c => c.pos);
-    const hFull = cuts.filter(c => c.orient === 'h' && c.a <= EPS && c.b >= W - EPS).map(c => c.pos);
-    const colsX = Array.from(new Set([0, ...vFull, W])).sort((a, b) => a - b);
-    const rowsY = Array.from(new Set([0, ...hFull, H])).sort((a, b) => a - b);
-    const ruler = '#cc2200'; // vermelho para diferenciar cortes guilhotinados dos contornos
-    // topo (medidas paralelas dos cortes verticais)
+    const ruler = '#cc2200';
+
+    let colsX, rowsY;
+    if (!rot) {
+      // Caso normal: cortes verticais → régua topo; cortes horizontais → régua esquerda.
+      const vFull = cuts.filter(c => c.orient === 'v' && c.a <= EPS && c.b >= rawH - EPS).map(c => c.pos);
+      const hFull = cuts.filter(c => c.orient === 'h' && c.a <= EPS && c.b >= rawW - EPS).map(c => c.pos);
+      colsX = Array.from(new Set([0, ...vFull, rawW])).sort((a, b) => a - b);
+      rowsY = Array.from(new Set([0, ...hFull, rawH])).sort((a, b) => a - b);
+    } else {
+      // Após 90° CW: corte vertical (orig. x=pos) → horizontal de display em display_y=pos.
+      // Corte horizontal (orig. y=pos) → vertical de display em display_x=rawH-pos.
+      const vFull = cuts.filter(c => c.orient === 'v' && c.a <= EPS && c.b >= rawH - EPS).map(c => c.pos);
+      const hFull = cuts.filter(c => c.orient === 'h' && c.a <= EPS && c.b >= rawW - EPS).map(c => c.pos);
+      // Colunas no display (régua topo): vêm dos cortes horizontais originais → display_x = rawH-y
+      colsX = Array.from(new Set([0, ...hFull.map(y => rawH - y), rawH])).sort((a, b) => a - b);
+      // Linhas no display (régua esquerda): vêm dos cortes verticais originais → display_y = x
+      rowsY = Array.from(new Set([0, ...vFull, rawW])).sort((a, b) => a - b);
+    }
+
     const ty = oy - 5.5;
     parts.push(`<line x1="${ox}" y1="${ty}" x2="${ox + W}" y2="${ty}" stroke="${ruler}" stroke-width="0.4"/>`);
     colsX.forEach(X => parts.push(`<line x1="${ox + X}" y1="${ty}" x2="${ox + X}" y2="${oy}" stroke="${ruler}" stroke-width="0.4"/>`));
@@ -175,7 +220,7 @@
       const mid = ox + (colsX[i] + colsX[i + 1]) / 2;
       parts.push(`<text x="${mid}" y="${ty - 1.5}" font-size="${rfs}" text-anchor="middle" fill="${ruler}">${fmt(colsX[i + 1] - colsX[i])}</text>`);
     }
-    // esquerda (medidas paralelas dos cortes horizontais)
+
     const tx = ox - 5.5;
     parts.push(`<line x1="${tx}" y1="${oy}" x2="${tx}" y2="${oy + H}" stroke="${ruler}" stroke-width="0.4"/>`);
     rowsY.forEach(Y => parts.push(`<line x1="${tx}" y1="${oy + Y}" x2="${ox}" y2="${oy + Y}" stroke="${ruler}" stroke-width="0.4"/>`));
@@ -224,7 +269,7 @@
         `<h3>${esc(sheet.material)} — ${esc(nm)}${suffix}</h3>` +
         `<div class="sub">${fmt(sheet.W)} × ${fmt(sheet.H)} · ${sheet.placements.length} peças · aproveit. ${eff.toFixed(1)}%</div>` +
         sheetLegend(sheet, colorMap) +
-        sheetSVG(sheet, colorMap, opts.showLabels);
+        sheetSVG(sheet, colorMap, opts.showLabels, idx);
       container.appendChild(card);
     });
     // As peças que não couberam são listadas no TOPO do plano, em tabela
