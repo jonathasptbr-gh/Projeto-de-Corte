@@ -32,7 +32,7 @@
   // Serve para desligar peças sem excluí-las.
   // Versão exibida no cabeçalho. Reflete o app.js carregado na tela (útil para
   // saber se o cache do Service Worker já atualizou). Manter igual ao N de sw.js.
-  const APP_VERSION = 'v123';
+  const APP_VERSION = 'v124';
 
   const clampQty = v => Math.min(MAX_QTY, Math.max(1, Math.round(parseNum(v) || 1)));
 
@@ -1246,6 +1246,13 @@
   // Re-rotula (chave de grupo → nome legível) para exibição. O nome da chapa
   // (s.stockName) já vem do otimizador por chapa (tamanho de estoque de origem).
   function relabelResult(result, groupLabel) {
+    // Mapa (materialGroupKey:stockName) → grain do estoque, para gravar em cada chapa.
+    const grainMap = {};
+    state.stock.forEach(s => {
+      if (!s.material) return;
+      const k = materialGroupKey(s.material) + ':' + (s.name || 'Chapa');
+      if (!(k in grainMap)) grainMap[k] = s.grain || '';
+    });
     result.sheets.forEach(s => {
       if (!s.stockName) s.stockName = 'Chapa'; // fallback p/ chapa sem nome
       // Grava se é material branco ANTES de trocar a chave de grupo pelo rótulo.
@@ -1253,6 +1260,7 @@
       // que renomear o material no editor não quebre a classificação no orçamento.
       s.materialWhite = String(s.material).split('|')[0] === '#ffffff';
       s.materialKey = s.material; // preserva a materialGroupKey antes de relabelar
+      s.stockGrain = grainMap[s.materialKey + ':' + s.stockName] || '';
       s.material = groupLabel[s.material] || s.material;
     });
     const bm2 = {};
