@@ -32,7 +32,7 @@
   // Serve para desligar peças sem excluí-las.
   // Versão exibida no cabeçalho. Reflete o app.js carregado na tela (útil para
   // saber se o cache do Service Worker já atualizou). Manter igual ao N de sw.js.
-  const APP_VERSION = 'v122';
+  const APP_VERSION = 'v123';
 
   const clampQty = v => Math.min(MAX_QTY, Math.max(1, Math.round(parseNum(v) || 1)));
 
@@ -1252,6 +1252,7 @@
       // A chave tem formato "#rrggbb|espessura"; verificar a cor hex garante
       // que renomear o material no editor não quebre a classificação no orçamento.
       s.materialWhite = String(s.material).split('|')[0] === '#ffffff';
+      s.materialKey = s.material; // preserva a materialGroupKey antes de relabelar
       s.material = groupLabel[s.material] || s.material;
     });
     const bm2 = {};
@@ -1622,14 +1623,15 @@
     if (fitaRows.length && state.plan && state.plan.sheets) {
       // Estimativa bruta: 25m de fita 22 por chapa usada das linhas de estoque marcadas.
       const TAPE_PER_SHEET = 25;
-      const estimateKeys = new Set(fitaRows.map(s => s.material + ':' + (s.name || '')));
+      // estimateKeys: materialGroupKey + ':' + nome (com fallback 'Chapa' igual ao relabelResult)
+      const estimateKeys = new Set(fitaRows.map(s => materialGroupKey(s.material) + ':' + (s.name || 'Chapa')));
       let est22White = 0, est22Color = 0;
       state.plan.sheets.forEach(sheet => {
-        const key = sheet.material + ':' + (sheet.stockName || '');
+        // sheet.materialKey = materialGroupKey gravado pelo relabelResult (antes de relabelar s.material)
+        const key = (sheet.materialKey || '') + ':' + (sheet.stockName || 'Chapa');
         if (!estimateKeys.has(key)) return;
-        const isW = sheet.materialWhite !== undefined
-          ? sheet.materialWhite
-          : (String(sheet.material || '').split('|')[0] === '#ffffff');
+        const isW = sheet.materialWhite !== undefined ? sheet.materialWhite
+          : (String(sheet.materialKey || '').split('|')[0] === '#ffffff');
         if (isW) est22White += TAPE_PER_SHEET;
         else     est22Color += TAPE_PER_SHEET;
       });
