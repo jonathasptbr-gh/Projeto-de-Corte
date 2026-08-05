@@ -4,7 +4,7 @@ PWA offline-first de plano de corte de chapas (MDF/madeira), com otimizador de a
 
 ## Versão
 
-A cada deploy deve-se incrementar `N` em **`sw.js`** (`const CACHE = 'projeto-corte-vN'`) **e** em **`app.js`** (`const APP_VERSION = 'vN'`, exibido no cabeçalho). Os dois devem ficar iguais. Versão atual: **v124**.
+A cada deploy deve-se incrementar `N` em **`sw.js`** (`const CACHE = 'projeto-corte-vN'`) **e** em **`app.js`** (`const APP_VERSION = 'vN'`, exibido no cabeçalho). Os dois devem ficar iguais. Versão atual: **v125**.
 
 O selo de versão no topo (`#app-version`) reflete o `app.js` que a tela carregou — serve para conferir, após um deploy, se o cache do Service Worker já atualizou (número novo) ou não (número antigo).
 
@@ -18,10 +18,11 @@ Não há `package.json`, transpiler, nem bundler.
 | `css/styles.css` | Todos os estilos; sem pré-processador. |
 | `js/csv.js` | Parser CSV tolerante (BOM, vírgula decimal, `;` ou `,`, dois formatos de cabeçalho). Exporta `window.CSV`. |
 | `js/optimizer.js` | Algoritmo de corte guilhotinado 2D (MaxRects/BSSF + busca por feixe). Exporta `window.Optimizer`. |
-| `js/render.js` | Geração SVG das chapas com réguas, rótulos, linhas de corte. Exporta `window.Render`. |
+| `js/icons.js` | Ícones em **SVG inline** (paths do Material Symbols embutidos). Exporta `window.Icons` (`html`, `el`, `hydrate`). Substituiu a fonte de ícones do CDN do Google, que quebrava offline. |
+| `js/render.js` | Geração SVG das chapas com réguas e rótulos. Exporta `window.Render`. |
 | `js/budget.js` | Cálculo de orçamento (materiais, mão de obra, markup, Pix). Exporta `window.Budget`. |
 | `js/app.js` | Controlador principal: estado, UI, tabs, projetos (localStorage), import/export CSV, plano de corte. |
-| `sw.js` | Service Worker: cache offline do app shell + recepção de CSV via Web Share Target. **App shell é cache-first PURO e atômico por versão** (o `install`/`addAll` troca o cache inteiro; **não** se regrava arquivos avulsos em runtime — isso misturava versões, ex.: HTML novo + JS antigo, e quebrava o `init`). Os ícones (Material Symbols, CDN do Google) ficam num cache próprio `FONT_CACHE` que **não** é apagado no `activate` — assim permanecem offline mesmo após um bump de versão. |
+| `sw.js` | Service Worker: cache offline do app shell + recepção de CSV via Web Share Target. **App shell é cache-first PURO e atômico por versão** (o `install`/`addAll` troca o cache inteiro; **não** se regrava arquivos avulsos em runtime — isso misturava versões, ex.: HTML novo + JS antigo, e quebrava o `init`). Não há mais cache de fontes/CDN: **todos os ícones são SVG local** (`js/icons.js`), então o app não faz nenhuma requisição externa. |
 | `manifest.json` | PWA manifest (ícones, share target, display standalone). |
 | `.github/workflows/deploy-pages.yml` | Deploy automático no GitHub Pages ao fazer push em `main`. Usa actions nativas (`configure-pages`, `upload-pages-artifact`, `deploy-pages`). **Não usar `enablement: true`** no passo `configure-pages` — causa falha imediata do workflow. |
 
@@ -41,6 +42,7 @@ Não há `package.json`, transpiler, nem bundler.
 - **Peças que não couberam** (`renderUnplaced`): no **topo** do plano (`#plan-unplaced`), com título "N peça(s) não couberam" e duas tabelas editáveis — **"Estoque"** (reusa `makeStockRow`) **antes** de **"Peças"** (reusa `makePanelRow`), pois mexer no estoque também resolve. Editar ali reflete direto nas listas originais (peças mapeadas por valor: `width/length/name/materialGroupKey`). A última coluna das peças (`Faltou`) mostra quantas unidades faltaram. O `render.js` **não** desenha mais o aviso no fim.
 - **Nome da chapa no plano** (`render.js`): cada chapa é rotulada `Material — {stockName}` e recebe número (` 1`, ` 2`…) **só quando há mais de uma do mesmo tipo** (material+nome). `stockName` vem do otimizador, por chapa (nome do tamanho de estoque de origem; ver "Múltiplos tamanhos"). Estoque tem coluna **"Nome"** (texto livre, `s.name`, padrão "Chapa") para diferenciar chapas parecidas.
 - **SVG do plano** (`render.js`): o **nome** da peça fica no quadrante superior-esquerdo (≈25%/25%), fora das linhas centrais onde ficam os números das bordas; as **medidas das sobras** vão nas bordas (largura no topo, comprimento à esquerda), como nas peças. Fontes têm piso menor para peças pequenas.
+- **Réguas da guilhotina** (`render.js`, v125): as marcas vêm de `axisTicks()` — projeta as peças no eixo, junta só as que se **sobrepõem** (encostar não impede o corte) e marca o **fim de cada bloco** (mais o início do primeiro, para a sobra da ponta). Garante que nenhuma peça é atravessada por uma marca, ou seja, toda linha da régua é um corte de ponta a ponta realmente executável. A **medida** de cada tira (`stripSize()`) é a da **MAIOR peça contida nela, na medida REAL** (`realW`/`realH`) — **não** a distância entre os cortes, que embute o kerf (serra + folga) e a folga do "slot" e levava o usuário a **descontar o kerf de novo** ao cortar. Tira sem peça nenhuma é sobra pura → mostra a distância bruta, o mesmo número impresso dentro do retângulo de sobra. Consequência esperada: os rótulos **não somam** a medida da chapa — a diferença é exatamente o material consumido pelos cortes. `reconstructCuts()` (DP memoizada) foi **removida**: só servia às réguas.
 
 ## Bugs conhecidos no Android Chrome (S24 Ultra)
 
