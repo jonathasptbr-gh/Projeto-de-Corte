@@ -32,7 +32,7 @@
   // Serve para desligar peças sem excluí-las.
   // Versão exibida no cabeçalho. Reflete o app.js carregado na tela (útil para
   // saber se o cache do Service Worker já atualizou). Manter igual ao N de sw.js.
-  const APP_VERSION = 'v124';
+  const APP_VERSION = 'v125';
 
   const clampQty = v => Math.min(MAX_QTY, Math.max(1, Math.round(parseNum(v) || 1)));
 
@@ -392,7 +392,7 @@
   // ---------- Construtores de células ----------
   function iconBtn(cls, icon, title, onClick) {
     const b = el('button', 'icon-btn ' + cls); b.type = 'button'; if (title) b.title = title;
-    b.innerHTML = `<span class="material-symbols-outlined">${icon}</span>`;
+    b.innerHTML = Icons.html(icon);
     b.addEventListener('click', onClick); return b;
   }
   function numInput(val, ph, mode, onCh) {
@@ -751,7 +751,7 @@
     const fitaEstBtn = el('button', 'fita-est-btn' + (s.fitaEstimate ? ' active' : ''));
     fitaEstBtn.type = 'button';
     fitaEstBtn.title = s.fitaEstimate ? 'Estimativa bruta ativa: 25m de fita 22 por chapa usada' : 'Estimativa bruta desativada (usa fitas alocadas nas peças)';
-    const fitaIcon = el('span', 'material-symbols-outlined'); fitaIcon.textContent = 'refresh'; fitaEstBtn.appendChild(fitaIcon);
+    fitaEstBtn.appendChild(Icons.el('refresh'));
     fitaEstBtn.addEventListener('click', () => {
       s.fitaEstimate = !s.fitaEstimate;
       fitaEstBtn.classList.toggle('active', s.fitaEstimate);
@@ -933,7 +933,7 @@
     const list = el('div', 'import-proj-list');
     const addItem = (icon, title, sub, onClick) => {
       const btn = el('button', 'import-proj-item'); btn.type = 'button';
-      btn.innerHTML = `<span class="material-symbols-outlined import-proj-icon">${icon}</span>` +
+      btn.innerHTML = Icons.html(icon, 'import-proj-icon') +
         `<span class="import-proj-info"><span class="import-proj-name">${esc(title)}</span>` +
         (sub ? `<span class="import-proj-sub">${esc(sub)}</span>` : '') + '</span>';
       btn.addEventListener('click', () => { close(); onClick(); });
@@ -1374,7 +1374,7 @@
     box.hidden = false;
     const total = items.length;
     const head = el('div', 'unplaced-head');
-    head.innerHTML = `<span class="material-symbols-outlined">warning</span><b>${total} peça(s) não couberam</b>`;
+    head.innerHTML = Icons.html('warning') + `<b>${total} peça(s) não couberam</b>`;
     box.appendChild(head);
     // Estoque PRIMEIRO (mudar o estoque também pode resolver)
     const stock = state.stock.filter(s => s.width > 0 && s.length > 0);
@@ -1421,8 +1421,8 @@
     if (!b) return;
     b.disabled = !!running;
     b.innerHTML = running
-      ? '<span class="material-symbols-outlined">hourglass_empty</span>Calculando…'
-      : '<span class="material-symbols-outlined">play_arrow</span>Calcular plano';
+      ? Icons.html('hourglass_empty') + 'Calculando…'
+      : Icons.html('play_arrow') + 'Calcular plano';
     b.classList.toggle('searching', !!running);
   }
   let _displayPct = 0, _targetPct = 0, _bandHi = 5;
@@ -1460,7 +1460,7 @@
       li.dataset.step = st.id;
       li.innerHTML =
         '<div class="ppm-step-top">'
-        + '<span class="ppm-step-dot"><span class="material-symbols-outlined">check</span></span>'
+        + '<span class="ppm-step-dot">' + Icons.html('check') + '</span>'
         + '<span class="ppm-step-label">' + st.label + '</span>'
         + '<span class="ppm-step-pct">0%</span>'
         + '</div>'
@@ -1887,7 +1887,7 @@
           `<input class="cfg-item-label" type="text" value="${attr(it.label)}" data-lbl="${i}" placeholder="Nome do item" />` +
           `<div class="cfg-item-meta">${badge}<span class="cfg-price-wrap">R$ <input class="cfg-item-price" type="number" step="0.01" min="0" value="${it.price}" data-prc="${i}" /></span></div>` +
         `</div>` +
-        `<button class="icon-btn del" data-del="${i}" title="Remover"><span class="material-symbols-outlined">delete</span></button>`;
+        `<button class="icon-btn del" data-del="${i}" title="Remover">${Icons.html('delete')}</button>`;
       list.appendChild(div);
     });
 

@@ -3,8 +3,8 @@
  *  - Peças iguais → mesma cor; vizinhas diferentes → cores distintas.
  *  - Cada peça mostra largura (lateral superior) e comprimento (esquerda),
  *    com fonte reduzida quando a peça é pequena (use zoom para ler).
- *  - Linhas de corte guilhotinado (seccionado), de lado a lado da seção.
- *  - Réguas externas (topo e esquerda) com a medida de cada corte paralelo.
+ *  - Réguas externas (topo e esquerda) marcando onde a guilhotina passa; a
+ *    medida de cada tira é a da MAIOR peça que sai dela (medida real, sem kerf).
  *  - Legenda multi-coluna no topo da chapa.
  * ============================================================ */
 (function (global) {
@@ -50,69 +50,6 @@
       colorOf[n] = c;
     });
     return colorOf;
-  }
-
-  // Reconstrói a sequência ÓTIMA de cortes guilhotinados a partir das peças
-  // posicionadas. Testa V e H em cada nível, filtra cortes degenerados (lado
-  // vazio) e usa memoização para garantir o mínimo de cortes. Desempate:
-  // prefere H (faixas inteiras) sobre V — remove sobra do grupo antes de
-  // separar peças individuais. Retorna [{orient:'v'|'h', pos, a, b}].
-  function reconstructCuts(W, H, placements) {
-    const cuts = [];
-    const memo = new Map();
-    const key = items => items.map(p => p.x + ',' + p.y).sort().join('|');
-    function minCuts(items) {
-      if (items.length <= 1) return 0;
-      const k = key(items);
-      if (memo.has(k)) return memo.get(k);
-      let best = Infinity;
-      Array.from(new Set(items.map(p => p.x + p.w))).forEach(X => {
-        const L = items.filter(p => p.x + p.w <= X + EPS), R = items.filter(p => p.x >= X - EPS);
-        if (L.length && R.length && items.every(p => p.x + p.w <= X + EPS || p.x >= X - EPS))
-          best = Math.min(best, 1 + minCuts(L) + minCuts(R));
-      });
-      Array.from(new Set(items.map(p => p.y + p.h))).forEach(Y => {
-        const T = items.filter(p => p.y + p.h <= Y + EPS), B = items.filter(p => p.y >= Y - EPS);
-        if (T.length && B.length && items.every(p => p.y + p.h <= Y + EPS || p.y >= Y - EPS))
-          best = Math.min(best, 1 + minCuts(T) + minCuts(B));
-      });
-      memo.set(k, isFinite(best) ? best : 0);
-      return memo.get(k);
-    }
-    function rec(x, y, w, h, items) {
-      if (items.length <= 1) return;
-      const target = minCuts(items);
-      const cands = [];
-      Array.from(new Set(items.map(p => p.x + p.w)))
-        .filter(X => X > x + EPS && X < x + w - EPS).sort((a, b) => a - b)
-        .forEach(X => {
-          const L = items.filter(p => p.x + p.w <= X + EPS), R = items.filter(p => p.x >= X - EPS);
-          if (L.length && R.length && items.every(p => p.x + p.w <= X + EPS || p.x >= X - EPS) &&
-              1 + minCuts(L) + minCuts(R) === target)
-            cands.push({ orient: 'v', pos: X, sA: L, sB: R });
-        });
-      Array.from(new Set(items.map(p => p.y + p.h)))
-        .filter(Y => Y > y + EPS && Y < y + h - EPS).sort((a, b) => a - b)
-        .forEach(Y => {
-          const T = items.filter(p => p.y + p.h <= Y + EPS), B = items.filter(p => p.y >= Y - EPS);
-          if (T.length && B.length && items.every(p => p.y + p.h <= Y + EPS || p.y >= Y - EPS) &&
-              1 + minCuts(T) + minCuts(B) === target)
-            cands.push({ orient: 'h', pos: Y, sA: T, sB: B });
-        });
-      if (!cands.length) return;
-      // Desempate: H antes de V (faixas agrupam peças antes de separar individualmente)
-      cands.sort((a, b) => (a.orient === 'h' ? 0 : 1) - (b.orient === 'h' ? 0 : 1));
-      const c = cands[0];
-      if (c.orient === 'v') {
-        cuts.push({ orient: 'v', pos: c.pos, a: y, b: y + h });
-        rec(x, y, c.pos - x, h, c.sA); rec(c.pos, y, x + w - c.pos, h, c.sB);
-      } else {
-        cuts.push({ orient: 'h', pos: c.pos, a: x, b: x + w });
-        rec(x, y, w, c.pos - y, c.sA); rec(x, c.pos, w, y + h - c.pos, c.sB);
-      }
-    }
-    rec(0, 0, W, H, placements.slice());
-    return cuts;
   }
 
   function sheetSVG(sheet, colorMap, showLabels, idx) {
@@ -190,27 +127,63 @@
       }
     });
 
-    // Réguas externas (cortes que atravessam a chapa inteira)
-    const cuts = reconstructCuts(rawW, rawH, sheet.placements);
+    // --- Réguas externas (guilhotina) ------------------------------------
     const rfs = Math.max(4, Math.min(W, H) * 0.024);
     const ruler = '#cc2200';
 
-    let colsX, rowsY;
-    if (!rot) {
-      // Caso normal: cortes verticais → régua topo; cortes horizontais → régua esquerda.
-      const vFull = cuts.filter(c => c.orient === 'v' && c.a <= EPS && c.b >= rawH - EPS).map(c => c.pos);
-      const hFull = cuts.filter(c => c.orient === 'h' && c.a <= EPS && c.b >= rawW - EPS).map(c => c.pos);
-      colsX = Array.from(new Set([0, ...vFull, rawW])).sort((a, b) => a - b);
-      rowsY = Array.from(new Set([0, ...hFull, rawH])).sort((a, b) => a - b);
-    } else {
-      // Após 90° CW: corte vertical (orig. x=pos) → horizontal de display em display_y=pos.
-      // Corte horizontal (orig. y=pos) → vertical de display em display_x=rawH-pos.
-      const vFull = cuts.filter(c => c.orient === 'v' && c.a <= EPS && c.b >= rawH - EPS).map(c => c.pos);
-      const hFull = cuts.filter(c => c.orient === 'h' && c.a <= EPS && c.b >= rawW - EPS).map(c => c.pos);
-      // Colunas no display (régua topo): vêm dos cortes horizontais originais → display_x = rawH-y
-      colsX = Array.from(new Set([0, ...hFull.map(y => rawH - y), rawH])).sort((a, b) => a - b);
-      // Linhas no display (régua esquerda): vêm dos cortes verticais originais → display_y = x
-      rowsY = Array.from(new Set([0, ...vFull, rawW])).sort((a, b) => a - b);
+    // Peças no espaço de DISPLAY (já com a rotação portrait aplicada), com o
+    // espaço OCUPADO (w/h, o "slot") e a medida REAL da peça (rw/rh).
+    const dispPieces = sheet.placements.map(p => {
+      const pr = mapRect(p.x, p.y, p.w, p.h);
+      const realW = p.realW || p.w, realH = p.realH || p.h;
+      return {
+        x: pr.x - ox, y: pr.y - oy, w: pr.w, h: pr.h,
+        rw: rot ? realH : realW,   // extensão real no eixo X do display
+        rh: rot ? realW : realH    // extensão real no eixo Y do display
+      };
+    });
+
+    // Onde a guilhotina pode passar de ponta a ponta: projeta as peças no eixo e
+    // junta só as que se SOBREPÕEM (encostar não impede o corte). O fim de cada
+    // bloco é uma linha de corte válida — nenhuma peça a atravessa. O início do
+    // primeiro bloco entra também, para a sobra da ponta ganhar sua medida em
+    // vez de ser somada à tira vizinha.
+    function axisTicks(axis, limit) {
+      const ticks = [0, limit];
+      const push = v => {
+        if (v > EPS && v < limit - EPS && !ticks.some(t => Math.abs(t - v) < EPS)) ticks.push(v);
+      };
+      const iv = dispPieces
+        .map(d => (axis === 'x' ? [d.x, d.x + d.w] : [d.y, d.y + d.h]))
+        .sort((a, b) => a[0] - b[0]);
+      let s = null, e = null;
+      iv.forEach(([a, b], i) => {
+        if (s === null) { s = a; e = b; push(a); return; } // início do 1º bloco
+        if (a < e - EPS) { e = Math.max(e, b); return; }   // sobrepõe → mesmo bloco
+        push(e); s = a; e = b;
+      });
+      if (s !== null) push(e);
+      return ticks.sort((x, y) => x - y);
+    }
+    const colsX = axisTicks('x', W);
+    const rowsY = axisTicks('y', H);
+
+    // Medida da tira [a,b]: a MAIOR peça inteiramente contida nela, na medida
+    // REAL. A distância entre dois cortes não serve como medida — ela embute o
+    // kerf (serra + folga) do corte de entrada e, quando o otimizador arredonda
+    // o "slot", também essa folga; esse número levava a descontar o kerf DE NOVO
+    // na hora de cortar. Tira sem peça nenhuma é sobra pura → mostra a distância
+    // bruta, o mesmo número impresso dentro do retângulo de sobra.
+    function stripSize(a, b, axis) {
+      let max = -Infinity;
+      for (const d of dispPieces) {
+        const s = axis === 'x' ? d.x : d.y;
+        const occ = axis === 'x' ? d.w : d.h;
+        const real = axis === 'x' ? d.rw : d.rh;
+        if (s < a - EPS || s + occ > b + EPS) continue; // fora desta tira
+        if (real > max) max = real;
+      }
+      return max === -Infinity ? b - a : Math.min(max, b - a);
     }
 
     const ty = oy - 5.5;
@@ -218,7 +191,7 @@
     colsX.forEach(X => parts.push(`<line x1="${ox + X}" y1="${ty}" x2="${ox + X}" y2="${oy}" stroke="${ruler}" stroke-width="0.4"/>`));
     for (let i = 0; i < colsX.length - 1; i++) {
       const mid = ox + (colsX[i] + colsX[i + 1]) / 2;
-      parts.push(`<text x="${mid}" y="${ty - 1.5}" font-size="${rfs}" text-anchor="middle" fill="${ruler}">${fmt(colsX[i + 1] - colsX[i])}</text>`);
+      parts.push(`<text x="${mid}" y="${ty - 1.5}" font-size="${rfs}" text-anchor="middle" fill="${ruler}">${fmt(stripSize(colsX[i], colsX[i + 1], 'x'))}</text>`);
     }
 
     const tx = ox - 5.5;
@@ -226,7 +199,7 @@
     rowsY.forEach(Y => parts.push(`<line x1="${tx}" y1="${oy + Y}" x2="${ox}" y2="${oy + Y}" stroke="${ruler}" stroke-width="0.4"/>`));
     for (let i = 0; i < rowsY.length - 1; i++) {
       const mid = oy + (rowsY[i] + rowsY[i + 1]) / 2;
-      parts.push(`<text x="${tx - 1.5}" y="${mid}" font-size="${rfs}" text-anchor="middle" dominant-baseline="central" fill="${ruler}" transform="rotate(-90 ${tx - 1.5} ${mid})">${fmt(rowsY[i + 1] - rowsY[i])}</text>`);
+      parts.push(`<text x="${tx - 1.5}" y="${mid}" font-size="${rfs}" text-anchor="middle" dominant-baseline="central" fill="${ruler}" transform="rotate(-90 ${tx - 1.5} ${mid})">${fmt(stripSize(rowsY[i], rowsY[i + 1], 'y'))}</text>`);
     }
 
     parts.push(`</svg>`);
