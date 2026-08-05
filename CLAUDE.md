@@ -4,7 +4,7 @@ PWA offline-first de plano de corte de chapas (MDF/madeira), com otimizador de a
 
 ## Versão
 
-A cada deploy deve-se incrementar `N` em **`sw.js`** (`const CACHE = 'projeto-corte-vN'`) **e** em **`app.js`** (`const APP_VERSION = 'vN'`, exibido no cabeçalho). Os dois devem ficar iguais. Versão atual: **v126**.
+A cada deploy deve-se incrementar `N` em **`sw.js`** (`const CACHE = 'projeto-corte-vN'`) **e** em **`app.js`** (`const APP_VERSION = 'vN'`, exibido no cabeçalho). Os dois devem ficar iguais. Versão atual: **v127**.
 
 O selo de versão no topo (`#app-version`) reflete o `app.js` que a tela carregou — serve para conferir, após um deploy, se o cache do Service Worker já atualizou (número novo) ou não (número antigo).
 
@@ -91,6 +91,29 @@ O mesmo padrão foi aplicado em `renderPlanEmpty()`.
 - **Veio (`grain`):** `'v'` = vertical (ao longo do comprimento), `'h'` = horizontal, `''` = sem restrição.
 - **Fita de borda (`bands`):** **por lado** — `p.bands[side]` = `{ w:22|45, color:'#hex' }` ou `false` (`side` ∈ top/left/bottom/right). `top`/`bottom` acompanham a largura; `left`/`right` o comprimento. `bandSpecOf(p,side)` normaliza formatos antigos (booleano; cor/largura global da v52) → `normalizeData` migra. `bandFallbackColor(p)` cai na cor do material, ou **branco** quando não há. **Botão na linha** (`refreshFitaButton`): mini-retângulo com fundo **cinza** (p/ enxergar fita branca); cada lado com fita vira uma linha na sua cor — fina p/ 22, grossa p/ 45. **Modal** (`openBandModal`): ilustração com **proporção limitada** (`maxRatio` 2.4, p/ não estourar a tela), lados sem fita em linha **sólida cinza**; um "pincel" (chip cor+largura) é aplicado por lado ao tocar (toque de novo retira) — **cada lado é independente**. `openBandMatPicker` lista **Branco sempre** + cores dos materiais × {22,45}. `buildPlanInputs` grava fitas concretas no plano.
 - **Orçamento de fita** (`budget.js`): métricas separadas por largura×cor — `band22White/band45White/band22Color/band45Color` (auto nos itens). **Fita 45 é dividida por 2** (a fita larga é compartilhada por 2 peças coladas). Branco é detectado pela COR (`#ffffff`). **Metragem FINAL (v118)**: cada `band*` agora é a metragem **com margem de desperdício/retrabalho** = `arredondaCima5( metragemTotalFria × 1,05 + ladosFitados × 0,05m )` (arredondada de 5 em 5 m p/ cima) — é essa que **multiplica o preço unitário** (subtotal). A metragem total "fria" fica em `band*Raw` e é exibida **entre parênteses** ao lado, na coluna Qtd (`.bgt-raw`). `fitasTotal`/`totalN` continuam usando a metragem fria (não inflam a complexidade). Na fita **45**, tanto a metragem **quanto a contagem de lados** são divididas por 2 (tira compartilhada por 2 peças).
+
+## Kerf entre peças (invariante do otimizador)
+
+**Duas peças vizinhas na chapa NUNCA podem ficar a menos de `kerf` uma da
+outra** — a serra come esse material, então um vão menor que o kerf é um corte
+fisicamente impossível (ex.: uma peça de 36 e uma de 5 numa tira de exatos 41).
+Três pontos garantem isso; ao mexer em qualquer um deles, revalidar:
+
+1. **`splitRect`** — ao consumir `pw+kerf`/`ph+kerf`, os retalhos que ficam **ao
+   lado** da peça herdam a medida da PEÇA (`pw`/`ph`), não a medida com kerf
+   (`usedW`/`usedH`). Usar `usedW` ali deixava a peça seguinte alcançar a coluna
+   vizinha com vão zero (bug até a v126).
+2. **`usableFree()` / `freeGreedy()` / `freeExact()`** — `guillotineOffcuts*`
+   decompõem a sobra pela GEOMETRIA pura (retângulos encostados nas peças), o
+   que serve para **exibir** a sobra mas não para posicionar. Todo ponto que usa
+   esses retalhos como espaço de posicionamento passa por `usableFree`, que
+   desconta o kerf de cada borda **interna** (borda da chapa não desconta).
+   Só `refineOffcuts` (exibição) e `maxOff` (métrica de área) usam os retalhos crus.
+3. **`consolidateByFreeArea`** — as posições candidatas são `q.x+q.w+kerf` (não a
+   borda crua) e o teste de colisão usa margem de kerf nos dois eixos.
+
+Custo medido: ~0,8% de chapas a mais (118 → 119 em 60 planos aleatórios), sem
+nenhuma peça deixando de caber.
 
 ## Identidade de material no otimizador
 

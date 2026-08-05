@@ -114,11 +114,15 @@
       else if (splitPref === 'maxrect') cutVertical = vertBig >= horizBig;
       else cutVertical = remRight >= remBottom;
       if (cutVertical) {
+        // Corte vertical em r.x+pw (a serra come [r.x+pw, r.x+pw+kerf] na altura
+        // toda): a coluna da peça vai só até pw. Usar usedW aqui deixava a peça
+        // seguinte encostar na coluna da direita, com vão ZERO — corte impossível.
         rects.push({ x: r.x + usedW, y: r.y, w: remRight, h: r.h });
-        rects.push({ x: r.x, y: r.y + usedH, w: usedW, h: remBottom });
+        rects.push({ x: r.x, y: r.y + usedH, w: pw, h: remBottom });
       } else {
+        // Idem no corte horizontal: a faixa da peça tem altura ph, não usedH.
         rects.push({ x: r.x, y: r.y + usedH, w: r.w, h: remBottom });
-        rects.push({ x: r.x + usedW, y: r.y, w: remRight, h: usedH });
+        rects.push({ x: r.x + usedW, y: r.y, w: remRight, h: ph });
       }
       sheet.cuts += 2;
     } else if (remRight > EPS) {
@@ -208,6 +212,33 @@
     mergeFree(out);
     return out;
   }
+
+  // Retalhos utilizáveis para POSICIONAR peças novas.
+  //
+  // guillotineOffcuts* decompõem a sobra pela GEOMETRIA pura: os retângulos
+  // nascem encostados nas peças (x = p.x + p.w). Isso serve para EXIBIR a
+  // sobra, mas não para encaixar peça nova — toda borda que faz divisa com
+  // material ainda vai perder o kerf da serra ao ser separada. Sem descontar,
+  // o packer encostava peças umas nas outras (ex.: uma de 36 e uma de 5 em
+  // exatos 41 de tira), gerando um corte fisicamente impossível.
+  //
+  // Só as bordas INTERNAS descontam; borda da chapa já é aresta pronta.
+  function usableFree(rects, W, H, k) {
+    if (!(k > 0)) return rects;
+    const out = [];
+    for (const r of rects) {
+      const dl = r.x > EPS ? k : 0;
+      const dt = r.y > EPS ? k : 0;
+      const dr = (r.x + r.w) < W - EPS ? k : 0;
+      const db = (r.y + r.h) < H - EPS ? k : 0;
+      const w = r.w - dl - dr, h = r.h - dt - db;
+      if (w > EPS && h > EPS) out.push({ x: r.x + dl, y: r.y + dt, w, h });
+    }
+    return out;
+  }
+  // Atalhos: decompõe e já desconta o kerf das bordas internas.
+  function freeGreedy(sheet, o) { return usableFree(guillotineOffcutsGreedy(sheet), sheet.W, sheet.H, o.kerf); }
+  function freeExact(sheet, o) { return usableFree(guillotineOffcuts(sheet), sheet.W, sheet.H, o.kerf); }
 
   // Versão gulosa (rápida) — usada como fallback quando há muitas peças.
   function guillotineOffcutsGreedy(sheet) {
@@ -385,7 +416,7 @@
     }
     // Durante a BUSCA usa a decomposição rápida (gulosa); o resultado final
     // recebe a decomposição ótima (maior retalho) em refineOffcuts().
-    sheets.forEach(s => { s.free = guillotineOffcutsGreedy(s); s.cuts = countGuillotineCuts(s.W, s.H, s.placements); });
+    sheets.forEach(s => { s.free = freeGreedy(s, o); s.cuts = countGuillotineCuts(s.W, s.H, s.placements); });
     return { sheets, unplaced };
   }
 
@@ -465,7 +496,7 @@
       }
       if (!best || !best.sheet.placements.length) { unplaced.push.apply(unplaced, remaining); break; }
       best.sheet.index = sheets.length + 1;
-      best.sheet.free = guillotineOffcutsGreedy(best.sheet);
+      best.sheet.free = freeGreedy(best.sheet, o);
       best.sheet.cuts = countGuillotineCuts(best.sheet.W, best.sheet.H, best.sheet.placements);
       sheets.push(best.sheet);
       remaining = best.rest;
@@ -570,7 +601,7 @@
     // seleção final pela métrica REAL (score/better), finalizando as sobras
     let best = null, bestScore = null;
     for (const st of beam) {
-      st.sheets.forEach(s => { s.free = guillotineOffcutsGreedy(s); s.cuts = countGuillotineCuts(s.W, s.H, s.placements); });
+      st.sheets.forEach(s => { s.free = freeGreedy(s, o); s.cuts = countGuillotineCuts(s.W, s.H, s.placements); });
       const res = { sheets: st.sheets, unplaced: st.unplaced };
       const sc = score(res);
       if (better(sc, bestScore, o.weights)) { best = res; bestScore = sc; }
@@ -653,7 +684,7 @@
       const r = fillOneSheetBeam(remaining, W, H, o, opts);
       if (!r.sheet.placements.length) { unplaced.push.apply(unplaced, remaining); break; }
       r.sheet.index = sheets.length + 1;
-      r.sheet.free = guillotineOffcutsGreedy(r.sheet);
+      r.sheet.free = freeGreedy(r.sheet, o);
       r.sheet.cuts = countGuillotineCuts(r.sheet.W, r.sheet.H, r.sheet.placements);
       sheets.push(r.sheet);
       remaining = r.rest;
@@ -719,7 +750,7 @@
       crossCursor += bandCross + k;
       if (!used.length) { unplaced.push(head); remaining.shift(); } // trava de segurança
     }
-    sheets.forEach(s => { s.free = guillotineOffcutsGreedy(s); s.cuts = countGuillotineCuts(s.W, s.H, s.placements); });
+    sheets.forEach(s => { s.free = freeGreedy(s, o); s.cuts = countGuillotineCuts(s.W, s.H, s.placements); });
     return { sheets, unplaced };
   }
 
@@ -836,7 +867,7 @@
         const pw = gr.swap ? it.h : it.w, ph = gr.swap ? it.w : it.h;
         for (const sheet of sheets) {
           if (it.__mat && sheet.material !== it.__mat) continue;
-          const free = guillotineOffcutsGreedy(sheet);
+          const free = freeGreedy(sheet, o);
           const f = findFit({ free }, pw, ph, gr.allowRotate, 'bssf');
           if (f) {
             const fw = f.rotated ? ph : pw, fh = f.rotated ? pw : ph;
@@ -884,7 +915,7 @@
         for (const tgt of targets) {
           // usa a decomposição ÓTIMA (guillotineOffcuts) — a mesma que o SVG
           // exibe como sobras — para encontrar a maior região contígua possível
-          const free = guillotineOffcuts(tgt);
+          const free = freeExact(tgt, o);
           const f = findFit({ free }, p.w, p.h, false, 'bssf');
           if (f) {
             const r = free[f.rectIdx];
@@ -976,9 +1007,12 @@
       for (let pi = src.placements.length - 1; pi >= 0; pi--) {
         const p = src.placements[pi];
         for (const tgt of targets) {
-          // Posições candidatas: coordenadas de bordas das peças existentes
+          // Posições candidatas: bordas das peças existentes JÁ AFASTADAS do
+          // kerf — encostar na borda de uma peça não é posição válida, a serra
+          // ainda vai comer `k` ali.
+          const k = o.kerf || 0;
           const xs = new Set([0]), ys = new Set([0]);
-          tgt.placements.forEach(q => { xs.add(q.x); xs.add(q.x + q.w); ys.add(q.y); ys.add(q.y + q.h); });
+          tgt.placements.forEach(q => { xs.add(q.x); xs.add(q.x + q.w + k); ys.add(q.y); ys.add(q.y + q.h + k); });
           const xArr = Array.from(xs).sort((a, b) => a - b);
           const yArr = Array.from(ys).sort((a, b) => a - b);
           let placed = false;
@@ -986,10 +1020,12 @@
             if (x + p.w > tgt.W + EPS) continue;
             for (const y of yArr) {
               if (y + p.h > tgt.H + EPS) continue;
-              // 1. Sem sobreposição com peças existentes
+              // 1. Sem sobreposição E com folga de kerf: só há conflito quando
+              // as peças se cruzam nos DOIS eixos considerando a margem da
+              // serra. Vão de exatamente k é permitido (é o corte entre elas).
               if (tgt.placements.some(q =>
-                x < q.x + q.w - EPS && x + p.w > q.x + EPS &&
-                y < q.y + q.h - EPS && y + p.h > q.y + EPS)) continue;
+                x < q.x + q.w + k - EPS && x + p.w + k > q.x + EPS &&
+                y < q.y + q.h + k - EPS && y + p.h + k > q.y + EPS)) continue;
               // 2. Layout completo (peças antigas + nova) ainda é guilhotinável
               if (!isGuillotineFeasible(tgt.W, tgt.H, tgt.placements.concat([{ x, y, w: p.w, h: p.h }]))) continue;
               tgt.placements.push({ ...p, x, y });
@@ -1006,7 +1042,7 @@
     for (let i = sheets.length - 1; i >= 0; i--) {
       if (!sheets[i].placements.length) sheets.splice(i, 1);
     }
-    sheets.forEach(s => { s.free = guillotineOffcuts(s); s.cuts = countGuillotineCuts(s.W, s.H, s.placements); });
+    sheets.forEach(s => { s.free = freeExact(s, o); s.cuts = countGuillotineCuts(s.W, s.H, s.placements); });
   }
 
 
@@ -1045,7 +1081,7 @@
           const currentMax = Math.max(srcOff, tgtOff);
 
           // Sobras disponíveis no destino (decomposição ótima)
-          const tgtFree = guillotineOffcuts(tgt);
+          const tgtFree = freeExact(tgt, o);
 
           for (let pi = 0; pi < src.placements.length; pi++) {
             const p = src.placements[pi];
@@ -1086,7 +1122,7 @@
     }
 
     sheets.forEach(s => {
-      s.free = guillotineOffcutsGreedy(s);
+      s.free = freeGreedy(s, o);
       s.cuts = countGuillotineCuts(s.W, s.H, s.placements);
     });
   }
@@ -1127,7 +1163,7 @@
         const ns = res.sheets[0];
         ns.material = sA.material;
         ns.stockName = (fillRate(sB) >= fillRate(sA) ? sB : sA).stockName || '';
-        ns.free = guillotineOffcutsGreedy(ns);
+        ns.free = freeGreedy(ns, o);
         ns.cuts = countGuillotineCuts(ns.W, ns.H, ns.placements);
         sheets.splice(j, 1);
         sheets.splice(i, 1);
