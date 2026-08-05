@@ -168,22 +168,31 @@
     const colsX = axisTicks('x', W);
     const rowsY = axisTicks('y', H);
 
-    // Medida da tira [a,b]: a MAIOR peça inteiramente contida nela, na medida
-    // REAL. A distância entre dois cortes não serve como medida — ela embute o
-    // kerf (serra + folga) do corte de entrada e, quando o otimizador arredonda
-    // o "slot", também essa folga; esse número levava a descontar o kerf DE NOVO
-    // na hora de cortar. Tira sem peça nenhuma é sobra pura → mostra a distância
-    // bruta, o mesmo número impresso dentro do retângulo de sobra.
+    // Medida da tira [a,b]: a EXTENSÃO REAL das peças dentro dela — da borda
+    // inicial da primeira até o fim real da que vai mais longe.
+    //
+    // Não é a distância entre os cortes: essa embute o kerf do corte de ENTRADA
+    // (e a folga do "slot", quando o otimizador arredonda), levando a descontar
+    // o kerf de novo na hora de cortar — uma tira de 40 aparecia como 40,8.
+    //
+    // Também não é a maior peça da tira: quando a tira leva peças em sequência
+    // (ex.: uma de 36 e uma de 5 lado a lado), o kerf ENTRE elas é material que
+    // precisa existir mesmo — a tira tem de ser cortada com 41,8, não com 41,
+    // senão o corte é fisicamente impossível.
+    //
+    // Tira sem peça nenhuma é sobra pura → distância bruta, o mesmo número
+    // impresso dentro do retângulo de sobra.
     function stripSize(a, b, axis) {
-      let max = -Infinity;
+      let lo = Infinity, hi = -Infinity;
       for (const d of dispPieces) {
         const s = axis === 'x' ? d.x : d.y;
         const occ = axis === 'x' ? d.w : d.h;
         const real = axis === 'x' ? d.rw : d.rh;
         if (s < a - EPS || s + occ > b + EPS) continue; // fora desta tira
-        if (real > max) max = real;
+        if (s < lo) lo = s;
+        if (s + real > hi) hi = s + real;
       }
-      return max === -Infinity ? b - a : Math.min(max, b - a);
+      return lo === Infinity ? b - a : Math.min(hi - lo, b - a);
     }
 
     const ty = oy - 5.5;
