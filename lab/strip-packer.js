@@ -147,6 +147,30 @@ function packSheet(W, H, pool, kerf, sheetGrain, cfg) {
   const placements = [];
   const regions = [{ x: 0, y: 0, w: W, h: H }];
   let guard = 0;
+
+  // "semente": planta a MAIOR peça restante no canto antes de começar. Sem
+  // isso o guloso às vezes enche as primeiras chapas com peças médias e deixa
+  // uma peça grande sem par no fim — o que custa uma chapa inteira a mais.
+  if (cfg.seedBig) {
+    let pick = null;
+    pool.forEach((entry, idx) => {
+      if (entry.qty <= 0) return;
+      orientations(entry.piece, sheetGrain).forEach(or => {
+        if (or.w > W || or.h > H) return;
+        const area = or.w * or.h;
+        if (!pick || area > pick.area) pick = { idx, or, area };
+      });
+    });
+    if (pick) {
+      const or = pick.or;
+      pool[pick.idx].qty -= 1;
+      placements.push({ x: 0, y: 0, w: or.w, h: or.h,
+        name: pool[pick.idx].piece.name, rotated: MM(pool[pick.idx].piece.width) !== or.w });
+      regions.length = 0;
+      if (W - or.w > kerf) regions.push({ x: or.w + kerf, y: 0, w: W - or.w - kerf, h: or.h });
+      if (H - or.h > kerf) regions.push({ x: 0, y: or.h + kerf, w: W, h: H - or.h - kerf });
+    }
+  }
   while (regions.length && guard++ < 4000) {
     regions.sort((a, b) => order === 'small' ? (a.w * a.h - b.w * b.h) : (b.w * b.h - a.w * a.h));
     const region = regions.shift();
@@ -213,7 +237,7 @@ function packSheet(W, H, pool, kerf, sheetGrain, cfg) {
  * Roda cada chapa com algumas estratégias e fica com a melhor.
  */
 function pack(cs, cfg) {
-  cfg = Object.assign({ mode: 'density', order: 'big', axisPref: 'auto' }, cfg || {});
+  cfg = Object.assign({ mode: 'density', order: 'big', axisPref: 'auto', seedBig: false }, cfg || {});
   const kerf = MM(cs.kerf || 0);
   const st = cs.stock[0];
   const W = MM(st.width), H = MM(st.length);
@@ -257,7 +281,8 @@ const VARIANTS = [];
 for (const mode of ['density', 'area', 'thick'])
   for (const order of ['big', 'small'])
     for (const axisPref of ['auto', 'h', 'v'])
-      VARIANTS.push({ mode, order, axisPref });
+      for (const seedBig of [false, true])
+        VARIANTS.push({ mode, order, axisPref, seedBig });
 
 function planScore(res) {
   const fills = res.sheets

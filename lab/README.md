@@ -46,8 +46,9 @@ Detalhes que importam:
   `cap + kerf`), então N peças em fila gastam exatamente N−1 cortes.
 - Uma chapa é enchida ao máximo antes de abrir a próxima — a sobra se acumula
   naturalmente na última.
-- **Multi-start**: 18 variantes (3 critérios de tira × 2 ordens de região ×
-  3 preferências de eixo); fica o melhor plano pelo critério do app.
+- **Multi-start**: 36 variantes (3 critérios de tira × 2 ordens de região ×
+  3 preferências de eixo × plantar ou não a maior peça no canto); fica o melhor
+  plano pelo critério do app.
 
 ## Resultados
 
@@ -55,32 +56,48 @@ Casos reais, contra a **busca completa** do app (o que aparece na tela):
 
 | Caso | app (busca completa) | experimental |
 |---|---|---|
-| cristaleira (9 pç, 1 chapa) | 79,4% · 1,4 s | 79,4% · **0,03 s** |
-| escola (50 pç, 3 chapas) | 89,6 / 87,8 / 68,7 · 62,4 s | **95,8 / 89,8 / 60,5** · **1,3 s** |
-| balcão dark grey (30 pç) | 92,7 / 40,8 · 39,8 s | **93,4 / 40,1** · **0,3 s** |
-| balcão oak (12 pç) | 80,5% · 3,8 s | 80,5% · **0,02 s** |
+| cristaleira (9 pç, 1 chapa) | 79,4% · 1,4 s | 79,4% · **0,06 s** |
+| escola (50 pç, 3 chapas) | 89,6 / 87,8 / 68,7 · 62,4 s | **95,8 / 89,8 / 60,5** · **2,0 s** |
+| balcão dark grey (30 pç) | 92,7 / 40,8 · 39,8 s | **94,9 / 38,6** · **0,7 s** |
+| balcão oak (12 pç) | 80,5% · 3,8 s | 80,5% · **0,07 s** |
 
 Nesses 4 casos: **2 melhores, 2 empates, 0 piores** — em uma fração do tempo
-(48× mais rápido na escola, 130× no balcão).
+(30× mais rápido na escola, 55× no balcão).
 
 40 projetos aleatórios, contra a busca rápida do app:
 
 ```
-experimental: menos chapas=1 · MAIS chapas=5 · distribuição melhor=19 · pior=13 · empate=2
-híbrido     : menos chapas=1 · MAIS chapas=0 · distribuição melhor=19 · pior=0  · empate=20
+experimental: menos chapas=1 · MAIS chapas=4 · distribuição melhor=23 · pior=11 · empate=1
+híbrido     : menos chapas=1 · MAIS chapas=0 · distribuição melhor=23 · pior=0  · empate=16
 ```
 
 O validador rodou em **104 planos experimentais** (4 reais + 100 aleatórios):
 nenhum inválido — sem peça fora da chapa, sem vizinha a menos de kerf, todos
 cortáveis por guilhotina e com o multiset de peças intacto.
 
-Leitura: sozinho, o algoritmo de tiras **não substitui** o do app — em 5 de 40
+Leitura: sozinho, o algoritmo de tiras **não substitui** o do app — em 4 de 40
 projetos ele enche demais as primeiras chapas e sobra peça grande sem par no
 fim, gastando uma chapa a mais. Mas como **candidato adicional** (o "híbrido":
 gera o plano por tiras e fica com ele só quando vence pelo critério do app —
 menos peças fora, menos chapas, chapas mais cheias) ele nunca piora e melhora
 metade dos casos. E custa pouco: décimos de segundo contra dezenas de segundos
 da busca atual.
+
+## Limitações do protótipo
+
+Ainda não é um substituto pronto — o experimental cobre menos terreno que o
+otimizador do app:
+
+- **um tamanho de chapa** (`cs.stock[0]`), sem a cascata de tamanhos do app;
+- **um material por rodada** (o app agrupa por cor+espessura e roda cada grupo);
+- não calcula `free`/`cuts` (sobras e nº de cortes) — quem consome o plano no
+  app precisaria rodar o pós-processamento normal;
+- não tem teto de chapas por linha de estoque além do `qty` da primeira linha.
+
+Nada disso é impeditivo para a integração sugerida abaixo (o plano por tiras
+entraria como candidato, e o resto do fluxo do app continua igual), mas explica
+por que os números daqui não são "o app com o algoritmo novo" — são "o algoritmo
+novo no cenário que ele já cobre".
 
 ## Próximo passo sugerido
 
