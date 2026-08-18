@@ -32,7 +32,7 @@
   // Serve para desligar peças sem excluí-las.
   // Versão exibida no cabeçalho. Reflete o app.js carregado na tela (útil para
   // saber se o cache do Service Worker já atualizou). Manter igual ao N de sw.js.
-  const APP_VERSION = 'v128';
+  const APP_VERSION = 'v129';
 
   const clampQty = v => Math.min(MAX_QTY, Math.max(1, Math.round(parseNum(v) || 1)));
 
@@ -328,12 +328,31 @@
     return hasName ? rest : s;
   }
 
+  // Nome-base do material: sem "Maple" (formato) e sem a espessura embutida.
+  function materialBaseName(raw) {
+    return stripMaple(raw)
+      .replace(/\b\d+(?:[.,]\d+)?\s*mm\b/gi, ' ')
+      .replace(/\s+/g, ' ')
+      .replace(/^[\s\-\u2013\u2014_/,.]+|[\s\-\u2013\u2014_/,.]+$/g, '')
+      .trim();
+  }
+  // Chave do material = NOME real + espessura (ex.: "Dark grey 18mm").
+  // Até a v128 tudo virava "Branco"/"Cor" + espessura, o que FUNDIA materiais
+  // diferentes de mesma espessura num só (ex.: "Dark grey - Maple" e
+  // "Oak 03 - Maple", ambos 18mm → "Cor 18mm", com a cor do primeiro).
   function normalizeMaterial(raw, thMm) {
     const s = String(raw || '');
-    const base = /white|branc/i.test(s) ? 'Branco' : 'Cor';
     let th = thMm > 0 ? Math.round(thMm) : 0;
     if (!th) { const m = s.match(/(\d+(?:[.,]\d+)?)\s*mm/i); if (m) th = Math.round(parseFloat(m[1].replace(',', '.'))); }
+    const base = materialBaseName(s) || (/white|branc/i.test(s) ? 'Branco' : 'Cor');
     return th ? `${base} ${th}mm` : base;
+  }
+  // Reaproveita uma chave já existente que difira só por caixa (ex.: "DARK GREY
+  // 18mm" e "Dark grey 18mm" no mesmo CSV) para não duplicar o material.
+  function canonMaterialKey(key) {
+    const k = String(key || '').toLowerCase();
+    const known = Object.keys(state.materialColors || {}).concat(state.materials || []);
+    return known.find(m => String(m).toLowerCase() === k) || key;
   }
   function nameSortKey(name) {
     const n = String(name || '').trim().toUpperCase();
@@ -912,7 +931,7 @@
     panels.forEach(p => {
       p.name = capFirst((p.name || '').trim());
       const raw = stripMaple(p.material); // "Maple" = formato (tábua), não material
-      p.material = normalizeMaterial(raw, p.thickness);
+      p.material = canonMaterialKey(normalizeMaterial(raw, p.thickness));
       if (!state.materialColors[p.material]) state.materialColors[p.material] = colorFromName(raw) || fallbackColor(p.material);
       const arr = state.materialNames[p.material] || (state.materialNames[p.material] = []);
       if (raw && arr.indexOf(raw) < 0) arr.push(raw);
