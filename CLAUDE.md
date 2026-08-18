@@ -4,7 +4,7 @@ PWA offline-first de plano de corte de chapas (MDF/madeira), com otimizador de a
 
 ## Versão
 
-A cada deploy deve-se incrementar `N` em **`sw.js`** (`const CACHE = 'projeto-corte-vN'`) **e** em **`app.js`** (`const APP_VERSION = 'vN'`, exibido no cabeçalho). Os dois devem ficar iguais. Versão atual: **v131**.
+A cada deploy deve-se incrementar `N` em **`sw.js`** (`const CACHE = 'projeto-corte-vN'`) **e** em **`app.js`** (`const APP_VERSION = 'vN'`, exibido no cabeçalho). Os dois devem ficar iguais. Versão atual: **v132**.
 
 O selo de versão no topo (`#app-version`) reflete o `app.js` que a tela carregou — serve para conferir, após um deploy, se o cache do Service Worker já atualizou (número novo) ou não (número antigo).
 
@@ -145,6 +145,33 @@ Três pontos garantem isso; ao mexer em qualquer um deles, revalidar:
 
 Custo medido: ~0,8% de chapas a mais (118 → 119 em 60 planos aleatórios), sem
 nenhuma peça deixando de caber.
+
+## Sobras concentradas na última chapa (invariante)
+
+A regra do plano é **encher cada chapa ao máximo antes de abrir a próxima**: a
+sobra tem de se acumular na **última** chapa, não se espalhar por todas.
+
+`consolidateRemnants` persegue outro objetivo — maximizar o MAIOR retalho
+contíguo de um PAR de chapas — e, ao fazer isso, espalhava a sobra: num projeto
+real de 50 peças o plano chegava nessa etapa como **89,6 / 87,8 / 68,7** e saía
+dela como **89,1 / 78,7 / 78,3** (três chapas pela metade em vez de duas cheias
+e a sobra inteira na última). As etapas anteriores (`consolidateSheets`,
+`consolidateByFreeArea`, `repackMerge`) já entregavam a distribuição certa.
+
+`consolidateRemnantsSafe()` (v132) roda a etapa sobre um **snapshot** e só fica
+com o resultado quando o **perfil de ocupação** (`fillProfile()` — fração de área
+usada por chapa, da mais cheia para a mais vazia; o mesmo critério 3 do
+`better()`) **não piora** lexicograficamente, ou quando a etapa **elimina uma
+chapa** (isso sempre vale mais). É esta função que `optimize()` e
+`createSearch().result()` chamam.
+
+**Não** basta proibir o movimento "da chapa cheia para a mais vazia" dentro do
+`consolidateRemnants`: um movimento desses pode ser o passo intermediário que
+libera vários outros — medido, essa versão piorava 3 em 40 projetos aleatórios.
+A trava tem de ser na **aceitação do resultado**, não no movimento.
+
+Verificado em 120 projetos aleatórios (`optimize`, mesmas sementes nos dois
+lados): 0 pioras, 2 melhoras, 118 iguais — e nenhuma chapa a mais.
 
 ## Identidade de material no otimizador
 

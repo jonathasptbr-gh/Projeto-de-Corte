@@ -1127,6 +1127,43 @@
     });
   }
 
+  // Ocupação de cada chapa (área real das peças / área da chapa), da mais cheia
+  // para a mais vazia — a mesma métrica do critério 3 do `better()`.
+  function fillProfile(sheets) {
+    return sheets
+      .map(s => s.placements.reduce((a, p) => a + (p.realW || p.w) * (p.realH || p.h), 0) / (s.W * s.H))
+      .sort((a, b) => b - a);
+  }
+  // consolidateRemnants com trava de aceitação: ele persegue o MAIOR RETALHO,
+  // e ao fazer isso pode espalhar a sobra por todas as chapas (um plano
+  // 89,6/87,8/68,7 virava 89,1/78,7/78,3 — três chapas pela metade em vez de
+  // duas cheias e a sobra inteira na última). A regra do plano é encher cada
+  // chapa ao máximo antes de abrir a próxima, então aqui rodamos a etapa sobre
+  // um snapshot e só ficamos com ela quando a distribuição NÃO piora — ou
+  // quando ela elimina alguma chapa, o que sempre vale mais.
+  function consolidateRemnantsSafe(sheets, o) {
+    if (sheets.length < 2) return;
+    const before = fillProfile(sheets);
+    const snapSheets = sheets.slice();
+    const snapPlacements = sheets.map(s => s.placements.slice());
+    consolidateRemnants(sheets, o);
+    if (sheets.length < snapSheets.length) return; // eliminou chapa → mantém
+    const after = fillProfile(sheets);
+    let keep = true;
+    for (let i = 0; i < Math.max(after.length, before.length); i++) {
+      const a = after[i] || 0, b = before[i] || 0;
+      if (Math.abs(a - b) > 1e-6) { keep = a > b; break; }
+    }
+    if (keep) return;
+    // Reverte: devolve as chapas e os placements originais.
+    sheets.length = 0;
+    snapSheets.forEach((s, i) => { s.placements = snapPlacements[i]; sheets.push(s); });
+    sheets.forEach(s => {
+      s.free = freeGreedy(s, o);
+      s.cuts = countGuillotineCuts(s.W, s.H, s.placements);
+    });
+  }
+
   // todas as suas peças numa única. Quando consolidateSheets falha porque não
   // existe espaço contíguo suficiente no layout atual, um re-empacotamento
   // completo deste subconjunto de peças pode descobrir um arranjo que cabe numa
@@ -1232,7 +1269,7 @@
     consolidateByFreeArea(sheets, o);
     let _rLen;
     do { _rLen = sheets.length; repackMerge(sheets, o); } while (sheets.length < _rLen);
-    consolidateRemnants(sheets, o); // melhora qualidade das sobras sem reduzir chapas
+    consolidateRemnantsSafe(sheets, o); // melhora as sobras sem espalhá-las pelas chapas
     // numera por (material + nome do estoque) após consolidação
     const perKey = {};
     sheets.forEach(s => { const k = s.material + '|' + (s.stockName || ''); (perKey[k] = perKey[k] || []).push(s); });
@@ -1370,7 +1407,7 @@
       let _prevLen;
       do { _prevLen = sheets.length; repackMerge(sheets, o); } while (sheets.length < _prevLen);
       report(0.66);
-      consolidateRemnants(sheets, o); // melhora qualidade das sobras sem reduzir chapas
+      consolidateRemnantsSafe(sheets, o); // melhora as sobras sem espalhá-las pelas chapas
       report(0.78);
       // Numera após consolidação (chapas podem ter sido removidas/reordenadas)
       const perMat = {};
