@@ -32,7 +32,7 @@
   // Serve para desligar peças sem excluí-las.
   // Versão exibida no cabeçalho. Reflete o app.js carregado na tela (útil para
   // saber se o cache do Service Worker já atualizou). Manter igual ao N de sw.js.
-  const APP_VERSION = 'v129';
+  const APP_VERSION = 'v130';
 
   const clampQty = v => Math.min(MAX_QTY, Math.max(1, Math.round(parseNum(v) || 1)));
 
@@ -1047,30 +1047,290 @@
         top: b.top ? '1' : '', left: b.left ? '1' : '', bottom: b.bottom ? '1' : '', right: b.right ? '1' : '',
       };
     });
+    const text = '﻿' + CSV.stringify(rows, headers); // BOM p/ acentos no Excel
+    const pname = (($('#project-name') && $('#project-name').textContent) || 'pecas').trim().replace(/[^\w.-]+/g, '_') || 'pecas';
+    shareOrDownload(text, `${pname}_${new Date().toISOString().slice(0, 10)}.csv`, 'text/csv',
+      'CSV exportado (verifique seus Downloads).');
+  }
+  // Entrega um arquivo de texto gerado pelo app: no celular abre o
+  // compartilhamento; no resto (ou se o share falhar) baixa o arquivo.
+  function shareOrDownload(text, fname, mime, okMsg) {
     try {
-      const text = '﻿' + CSV.stringify(rows, headers); // BOM p/ acentos no Excel
-      const pname = (($('#project-name') && $('#project-name').textContent) || 'pecas').trim().replace(/[^\w.-]+/g, '_') || 'pecas';
-      const fname = `${pname}_${new Date().toISOString().slice(0, 10)}.csv`;
-      const file = new File([text], fname, { type: 'text/csv' });
+      const file = new File([text], fname, { type: mime });
       if (navigator.canShare && navigator.canShare({ files: [file] })) {
         navigator.share({ files: [file], title: fname }).catch(err => {
           if (err && err.name === 'AbortError') return; // usuário cancelou
-          downloadBlob(file, fname); // compartilhamento falhou → baixa
+          downloadBlob(file, fname, okMsg); // compartilhamento falhou → baixa
         });
         return;
       }
-      downloadBlob(file, fname);
+      downloadBlob(file, fname, okMsg);
     } catch (e) {
       toast('Não consegui exportar: ' + ((e && e.message) || e));
     }
   }
-  function downloadBlob(file, fname) {
+  function downloadBlob(file, fname, okMsg) {
     const url = URL.createObjectURL(file);
     const a = document.createElement('a');
     a.href = url; a.download = fname; a.rel = 'noopener';
     document.body.appendChild(a); a.click();
     setTimeout(() => { a.remove(); URL.revokeObjectURL(url); }, 1500);
-    toast('CSV exportado (verifique seus Downloads).');
+    toast(okMsg || 'Arquivo exportado (verifique seus Downloads).');
+  }
+
+
+  // ---------- Registro completo (exportação para diagnóstico) ----------
+  // Junta num arquivo só TUDO que descreve o projeto: opções, materiais e suas
+  // configurações, estoque, peças (com fitas) e o resultado do plano de corte —
+  // chapa a chapa, com a posição de cada peça, as sobras e o que não coube.
+  // Dois formatos: .md (legível, p/ colar num chat) e .json (fiel, p/ reprocessar).
+  const cm2m2 = a => Math.round((a / 10000) * 1000) / 1000; // cm² → m²
+  const pct = (part, all) => (all ? (part / all * 100) : 0).toFixed(1).replace('.', ',') + '%';
+  // Tabela markdown (escapa '|' e quebras de linha no conteúdo).
+  function mdTable(headers, rows) {
+    const cell = v => String(v == null ? '' : v).replace(/\|/g, '\\|').replace(/\s*\n\s*/g, ' ');
+    return '| ' + headers.map(cell).join(' | ') + ' |\n'
+      + '|' + headers.map(() => '---').join('|') + '|\n'
+      + rows.map(r => '| ' + r.map(cell).join(' | ') + ' |\n').join('');
+  }
+  // Fita de um lado da peça: "22 #ffffff" ou "—".
+  function bandTxt(p, side) {
+    const sp = bandSpecOf(p, side);
+    return sp ? sp.w + ' ' + String(sp.color || '').toLowerCase() : '—';
+  }
+  // Fitas gravadas numa peça POSICIONADA (o plano guarda {w,color} por lado).
+  function placementBands(pl) {
+    const b = pl.bands || {};
+    const one = s => (b[s] && b[s].w) ? String(b[s].w) : '—';
+    return BAND_SIDES.map(one).join('/');
+  }
+  // Rótulo legível de uma chave de grupo do otimizador ("#hex|espessura").
+  function groupLabelOf(groupKey) {
+    const p = state.panels.find(q => q.material && materialGroupKey(q.material) === groupKey);
+    return p ? matLabel(p.material) : String(groupKey || '');
+  }
+  const planSheetName = (s, typeCount) =>
+    (s.stockName || 'Chapa') + (typeCount[s.material + '|' + (s.stockName || '')] > 1 ? ' ' + s.index : '');
+
+  function buildReportMd() {
+    const proj = activeProject();
+    const ps = validPanels();
+    const st = state.stock.filter(s => s.width > 0 && s.length > 0);
+    const mats = materialsOrdered();
+    const plan = (state.plan && state.plan.sheets && state.plan.sheets.length) ? state.plan : null;
+    const out = [];
+    const add = s => out.push(s);
+
+    add('# Registro — ' + ((proj && proj.name) || 'Projeto'));
+    add('');
+    add(`Gerado em ${new Date().toLocaleString('pt-BR')} · app ${APP_VERSION} · medidas em **cm**`);
+    add('');
+
+    // --- Configurações ---
+    add('## Configurações');
+    add('');
+    add(`- Kerf (espessura de corte): **${numFmt(state.options.kerf)} cm**`);
+    add(`- Materiais: **${mats.length}** · Estoque: **${st.length} linha(s)**`);
+    add(`- Peças: **${ps.length} linha(s)** / **${ps.reduce((a, p) => a + (p.qty || 1), 0)} unidade(s)**`);
+    const semMat = ps.filter(p => !p.material);
+    if (semMat.length) add(`- Peças sem material (fora do plano): **${semMat.length} linha(s)**`);
+    add(`- Plano: **${plan ? (planStale ? 'calculado, DESATUALIZADO (as peças mudaram depois)' : 'calculado') : 'não calculado'}**`);
+    add('- Regras fixas do otimizador: considerar material e veio, rotação permitida, pesos padrão');
+    add('');
+
+    // --- Materiais ---
+    add('## Materiais');
+    add('');
+    add(!mats.length ? '_Sem materiais._\n' : mdTable(
+      ['#', 'Chave', 'Rótulo', 'Nomes do CSV', 'Cor', 'Espessura', 'Grupo no corte (cor|esp)', 'Linhas', 'Un.', 'Área m²', 'Chapas'],
+      mats.map((m, i) => {
+        const pl = ps.filter(p => p.material === m);
+        const area = pl.reduce((a, p) => a + p.width * p.length * (p.qty || 1), 0);
+        return [i + 1, m, matLabel(m), matNatives(m).join(' / ') || '—', matColor(m),
+          matThickness(m) ? matThickness(m) + 'mm' : '—', materialGroupKey(m),
+          pl.length, pl.reduce((a, p) => a + (p.qty || 1), 0), numFmt(cm2m2(area)),
+          st.filter(s => s.material === m).length];
+      })));
+    if (mats.length) {
+      add('> Materiais com a MESMA cor e espessura são intercambiáveis para o otimizador (mesmo "grupo no corte").');
+      add('');
+    }
+
+    // --- Estoque ---
+    add('## Estoque (chapas)');
+    add('');
+    add(st.length ? mdTable(
+      ['#', 'Material', 'Nome', 'Largura', 'Comprimento', 'Qtd (teto)', 'Veio', 'Fita estimada', 'Área un. m²'],
+      st.map((s, i) => [i + 1, s.material ? matLabel(s.material) : '— (sem material)', s.name || 'Chapa',
+        numFmt(s.width), numFmt(s.length), (s.qty > 0 ? s.qty : 'sem limite'),
+        s.grain || '—', s.fitaEstimate ? 'sim' : 'não', numFmt(cm2m2(s.width * s.length))])
+    ) : '_Sem chapas cadastradas._\n');
+
+    // --- Peças ---
+    add('## Peças');
+    add('');
+    add(ps.length ? mdTable(
+      ['#', 'Nome', 'Largura', 'Comprimento', 'Qtd', 'Material', 'Veio', 'Fita topo', 'Fita esq.', 'Fita base', 'Fita dir.', 'Área total m²'],
+      ps.map((p, i) => [i + 1, p.name || '', numFmt(p.width), numFmt(p.length), p.qty || 1,
+        p.material ? matLabel(p.material) : '— (fora do plano)', p.grain || '—',
+        bandTxt(p, 'top'), bandTxt(p, 'left'), bandTxt(p, 'bottom'), bandTxt(p, 'right'),
+        numFmt(cm2m2(p.width * p.length * (p.qty || 1)))])
+    ) : '_Sem peças._\n');
+
+    // --- Plano de corte ---
+    add('## Plano de corte');
+    add('');
+    if (!plan) { add('_Plano não calculado._'); add(''); }
+    else {
+      const sheets = plan.sheets;
+      const placed = sheets.reduce((a, s) => a + s.placements.length, 0);
+      const areaAll = sheets.reduce((a, s) => a + s.W * s.H, 0);
+      const usedAll = sheets.reduce((a, s) =>
+        a + s.placements.reduce((b, p) => b + (p.realW || p.w) * (p.realH || p.h), 0), 0);
+      add(`- Chapas: **${sheets.length}** · Peças posicionadas: **${placed}** · Não couberam: **${(plan.unplaced || []).length}**`);
+      add(`- Área das chapas: **${numFmt(cm2m2(areaAll))} m²** · usada: **${numFmt(cm2m2(usedAll))} m²** · aproveitamento: **${pct(usedAll, areaAll)}**`);
+      add(`- Cortes: **${sheets.reduce((a, s) => a + (s.cuts || 0), 0)}**`);
+      add('');
+
+      add('### Resumo por material');
+      add('');
+      add(mdTable(['Material', 'Chapas', 'Mínimo teórico', 'Peças', 'Área usada m²', 'Área chapas m²', 'Aprov.', 'Cortes'],
+        Object.keys(plan.byMaterial).map(mat => {
+          const d = plan.byMaterial[mat];
+          const min = Math.max(1, Math.ceil(d.usedArea / (d.area / d.sheets)));
+          return [mat, d.sheets, min, d.pieces, numFmt(cm2m2(d.usedArea)), numFmt(cm2m2(d.area)), pct(d.usedArea, d.area), d.cuts];
+        })));
+
+      add('### Chapa a chapa');
+      add('');
+      const typeCount = {};
+      sheets.forEach(s => { const k = s.material + '|' + (s.stockName || ''); typeCount[k] = (typeCount[k] || 0) + 1; });
+      sheets.forEach((s, idx) => {
+        const used = s.placements.reduce((a, p) => a + (p.realW || p.w) * (p.realH || p.h), 0);
+        add(`#### ${idx + 1}. ${s.material} — ${planSheetName(s, typeCount)} — ${numFmt(s.W)}×${numFmt(s.H)} cm`);
+        add('');
+        add(`Aproveitamento **${pct(used, s.W * s.H)}** · ${s.placements.length} peça(s) · cortes: ${s.cuts || 0}` +
+            (s.stockGrain ? ` · veio da chapa: ${s.stockGrain}` : ''));
+        add('');
+        add(mdTable(['Peça', 'X', 'Y', 'Largura', 'Comprimento', 'Girada', 'Fitas (T/E/B/D)'],
+          s.placements.slice()
+            .sort((a, b) => (a.y - b.y) || (a.x - b.x))
+            .map(p => [p.name || '', numFmt(p.x), numFmt(p.y),
+              numFmt(p.realW || p.w), numFmt(p.realH || p.h),
+              p.rotated ? 'sim' : 'não', placementBands(p)])));
+        const free = (s.free || []).filter(f => f.w >= 1 && f.h >= 1).sort((a, b) => b.w * b.h - a.w * a.h);
+        if (free.length) {
+          add('Sobras: ' + free.map(f => `${numFmt(f.w)}×${numFmt(f.h)} @ (${numFmt(f.x)}, ${numFmt(f.y)})`).join(' · '));
+          add('');
+        }
+      });
+
+      const un = plan.unplaced || [];
+      if (un.length) {
+        add('### Peças que não couberam');
+        add('');
+        const g = {};
+        un.forEach(it => {
+          const k = (it.name || '') + '|' + it.w + '|' + it.h + '|' + it.material;
+          if (!g[k]) g[k] = { name: it.name || '', w: it.w, h: it.h, mat: it.material, n: 0 };
+          g[k].n++;
+        });
+        add(mdTable(['Nome', 'Largura', 'Comprimento', 'Material', 'Faltou'],
+          Object.keys(g).map(k => {
+            const x = g[k];
+            return [x.name, numFmt(x.w), numFmt(x.h), groupLabelOf(x.mat), x.n + '×'];
+          })));
+      }
+
+      // --- Orçamento (a partir do plano) ---
+      add('## Orçamento (resumo)');
+      add('');
+      const metrics = getBudgetMetrics();
+      const items = db.budgetGlobal.items, qtys = state.budgetQtys;
+      if (metrics.bandManualMode) items.forEach(it => {
+        if (it.type === 'auto' && it.src && String(it.src).indexOf('band') === 0) metrics[it.src] = qtys[it.key] || 0;
+      });
+      const t = Budget.totals(items, qtys, metrics, state.budgetCfg);
+      // metragem "fria" entre parênteses só quando difere da final (com margem)
+      const raw = (v, fin) => (v == null || !v || v === fin) ? '' : ` (${numFmt(v)} sem margem)`;
+      add(mdTable(['Métrica do plano', 'Valor'], [
+        ['Chapas brancas', metrics.sheetsWhite], ['Chapas coloridas', metrics.sheetsColor],
+        ['Peças', metrics.pieces], ['Cortes', metrics.cuts],
+        ['Fita 22 branca (m)', numFmt(metrics.band22White) + raw(metrics.band22WhiteRaw, metrics.band22White)],
+        ['Fita 22 cor (m)', numFmt(metrics.band22Color) + raw(metrics.band22ColorRaw, metrics.band22Color)],
+        ['Fita 45 branca (m)', numFmt(metrics.band45White) + raw(metrics.band45WhiteRaw, metrics.band45White)],
+        ['Fita 45 cor (m)', numFmt(metrics.band45Color) + raw(metrics.band45ColorRaw, metrics.band45Color)],
+        ['Índice de complexidade (totalN)', numFmt(metrics.totalN)],
+      ]));
+      add(mdTable(['Total', 'R$'], [
+        ['Materiais', numFmt(t.entrada)], ['Mão de obra', numFmt(t.labor)],
+        ['Complexidade', numFmt(t.complexTotal)], ['Total', numFmt(t.pix)],
+        ['Crédito 6x', numFmt(t.credit6x)], ['Crédito 12x', numFmt(t.credit12x)],
+        ['Pix (cliente)', numFmt(t.pixClient)], ['Tempo de produção (dias)', numFmt(t.days)],
+      ]));
+    }
+    return out.join('\n');
+  }
+
+  // Mesmo conteúdo, sem formatação: o estado bruto do projeto + o plano salvo.
+  function buildReportJson() {
+    const proj = activeProject();
+    return JSON.stringify({
+      app: 'projeto-corte', version: APP_VERSION, exportedAt: new Date().toISOString(),
+      project: proj ? { id: proj.id, name: proj.name, createdAt: proj.createdAt, updatedAt: proj.updatedAt } : null,
+      options: state.options,
+      materials: materialsOrdered().map(m => ({
+        key: m, label: matLabel(m), natives: matNatives(m), color: matColor(m),
+        thickness: matThickness(m), group: materialGroupKey(m),
+      })),
+      stock: state.stock.filter(s => s.width > 0 && s.length > 0),
+      panels: validPanels(),
+      budgetCfg: state.budgetCfg, budgetQtys: state.budgetQtys, budgetItems: db.budgetGlobal.items,
+      planStale: planStale,
+      plan: state.plan || null,
+    }, null, 2);
+  }
+
+  // Popup temático com os formatos de exportação (mesmo padrão do "Importar CSV").
+  function openExportDialog() {
+    const ov = el('div', 'modal-overlay dialog-overlay');
+    const card = el('div', 'modal dialog');
+    const head = el('div', 'dialog-head'); head.textContent = 'Exportar registro';
+    const body = el('div', 'dialog-body');
+    const hint = el('p', 'dialog-msg'); hint.textContent = 'Escolha o que exportar:';
+    body.appendChild(hint);
+    const list = el('div', 'import-proj-list');
+    const addItem = (icon, title, sub, onClick) => {
+      const btn = el('button', 'import-proj-item'); btn.type = 'button';
+      btn.innerHTML = Icons.html(icon, 'import-proj-icon') +
+        `<span class="import-proj-info"><span class="import-proj-name">${esc(title)}</span>` +
+        `<span class="import-proj-sub">${esc(sub)}</span></span>`;
+      btn.addEventListener('click', () => { close(); onClick(); });
+      list.appendChild(btn);
+    };
+    const stamp = new Date().toISOString().slice(0, 10);
+    const base = (($('#project-name') && $('#project-name').textContent) || 'projeto')
+      .trim().replace(/[^\w.-]+/g, '_') || 'projeto';
+    addItem('list', 'Registro completo (.md)',
+      'Materiais, estoque, peças e o plano calculado — em texto legível',
+      () => shareOrDownload(buildReportMd(), `${base}_registro_${stamp}.md`, 'text/markdown', 'Registro exportado.'));
+    addItem('table_chart', 'Dados brutos (.json)',
+      'O estado completo do projeto e o plano, sem formatação',
+      () => shareOrDownload(buildReportJson(), `${base}_dados_${stamp}.json`, 'application/json', 'Dados exportados.'));
+    addItem('download', 'Peças (.csv)',
+      'Só a lista de peças, re-importável pelo app',
+      () => exportCSV());
+    body.appendChild(list);
+    const actions = el('div', 'modal-actions');
+    const cancelBtn = el('button', 'btn'); cancelBtn.textContent = 'Cancelar';
+    actions.appendChild(cancelBtn);
+    card.appendChild(head); card.appendChild(body); card.appendChild(actions); ov.appendChild(card);
+    document.body.appendChild(ov);
+    function close() { ov.remove(); document.removeEventListener('keydown', onKey); }
+    cancelBtn.addEventListener('click', close);
+    ov.addEventListener('click', e => { if (e.target === ov) close(); });
+    function onKey(e) { if (e.key === 'Escape') { e.preventDefault(); close(); } }
+    document.addEventListener('keydown', onKey);
   }
 
   function initImport() {
@@ -1082,6 +1342,7 @@
       e.target.value = '';
     });
     $('#export-csv').addEventListener('click', exportCSV);
+    const repBtn = $('#export-report'); if (repBtn) repBtn.addEventListener('click', openExportDialog);
     const addMatBtn = $('#add-material'); if (addMatBtn) addMatBtn.addEventListener('click', addMaterialManual);
     $('#clear-panels').addEventListener('click', async () => {
       if (validPanels().length) {
