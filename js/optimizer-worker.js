@@ -15,6 +15,35 @@ self.onmessage = function (e) {
     }
   } while (!(info.det >= info.totalDet && info.beam && info.beam.idx >= info.beam.total));
 
+  // FASE EXTRA — só quando ainda sobraram peças sem chapa.
+  // As fases determinística e beam podem terminar com peças de fora num caso que
+  // TEM solução (ex.: 1 chapa com teto de estoque): quem costuma achar é a fase
+  // de reinícios aleatórios do createSearch, que antes NUNCA rodava — o worker
+  // parava assim que o beam acabava. Agora, se sobrou peça, insistimos por até
+  // EXTRA_MS, parando assim que tudo encaixar (ou quando a busca convergir).
+  const EXTRA_MS = 10000;
+  if (search.unplacedFeasible() > 0 && search.result().unplaced.length > 0) {
+    const t0 = Date.now();
+    let bestRaw = search.unplacedRaw();
+    let lastPostX = 0;
+    while (Date.now() - t0 < EXTRA_MS) {
+      info = search.step();
+      const raw = search.unplacedRaw();
+      // Só reavalia o resultado completo (caro) quando o bruto melhora.
+      if (raw < bestRaw) {
+        bestRaw = raw;
+        if (search.result().unplaced.length === 0) break;
+      }
+      const now = Date.now();
+      if (now - lastPostX >= 50) {
+        lastPostX = now;
+        self.postMessage({ type: 'progress', det: info.det, totalDet: info.totalDet, beam: info.beam,
+          extra: { ms: now - t0, budget: EXTRA_MS } });
+      }
+      if (info.converged) break;
+    }
+  }
+
   // Fase de finalização (pós-processamento pesado: backfill, consolidações,
   // repackMerge, refino de sobras). Antes não emitia progresso → a barra travava.
   // Agora cada etapa reporta seu avanço (0..1) para a barra seguir fluindo.
