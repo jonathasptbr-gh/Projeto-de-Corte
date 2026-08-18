@@ -32,7 +32,7 @@
   // Serve para desligar peças sem excluí-las.
   // Versão exibida no cabeçalho. Reflete o app.js carregado na tela (útil para
   // saber se o cache do Service Worker já atualizou). Manter igual ao N de sw.js.
-  const APP_VERSION = 'v127';
+  const APP_VERSION = 'v128';
 
   const clampQty = v => Math.min(MAX_QTY, Math.max(1, Math.round(parseNum(v) || 1)));
 
@@ -69,6 +69,22 @@
       delete p.bandColor; delete p.bandWidth;
     });
     if (Array.isArray(d.stock)) d.stock.forEach(s => { if (s && s.material === 'Nenhum') s.material = ''; });
+    // Migração (v128): "Maple" acompanhado de outro nome é formato (tábua) e
+    // não material — sai dos nomes nativos e da cor derivada deles.
+    const names = coerceNames(d.materialNames);
+    const colors = (d.materialColors && typeof d.materialColors === 'object') ? Object.assign({}, d.materialColors) : {};
+    Object.keys(names).forEach(k => {
+      const arr = names[k];
+      if (!arr.some(n => /\bmaple\b/i.test(n))) return;
+      const legacy = matchColorWord(arr[0]); // cor que o nome antigo gerava
+      const clean = [];
+      arr.forEach(n => { const c = stripMaple(n); if (c && clean.indexOf(c) < 0) clean.push(c); });
+      names[k] = clean;
+      // Só recalcula a cor se ela era a auto-atribuída (não uma escolha do usuário).
+      if (legacy && colors[k] && String(colors[k]).toLowerCase() === String(legacy).toLowerCase()) {
+        colors[k] = colorFromName(clean[0]) || legacy;
+      }
+    });
     // Migrar quantidades do formato antigo (budgetItems.qty → budgetQtys).
     const budgetQtys = d.budgetQtys ? Object.assign({}, d.budgetQtys) : {};
     if (Array.isArray(d.budgetItems) && !d.budgetQtys) {
@@ -81,8 +97,8 @@
       stock: Array.isArray(d.stock) && d.stock.length ? d.stock : e.stock,
       // só o kerf persiste; demais configs foram removidas (ignora valores antigos)
       options: { kerf: (d.options && isFinite(parseFloat(d.options.kerf))) ? parseFloat(d.options.kerf) : e.options.kerf },
-      materialColors: (d.materialColors && typeof d.materialColors === 'object') ? d.materialColors : {},
-      materialNames: coerceNames(d.materialNames),
+      materialColors: colors,
+      materialNames: names,
       materials: Array.isArray(d.materials) ? d.materials.slice() : [],
       budgetQtys,
       budgetCfg: {
@@ -294,6 +310,24 @@
     alert: (message, o) => dialog(Object.assign({ title: 'Aviso', message, alert: true }, o)),
   };
 
+  // ---------- "Maple" = formato (tábua), não material ----------
+  // Alguns CSVs trazem "Maple" junto do material de verdade (ex.: "Maple Branco"),
+  // mas a palavra descreve o FORMATO da chapa (tábua), não a cor/material — e,
+  // sem ignorá-la, o material herdava o tom de madeira ("maple" está em
+  // COLOR_WORDS). Quando sobra OUTRO nome, "Maple" é descartado; sozinho
+  // ("Maple", "Maple 18mm") o nome é mantido como está.
+  function stripMaple(raw) {
+    const s = String(raw == null ? '' : raw);
+    if (!/\bmaple\b/i.test(s)) return s;
+    const rest = s.replace(/\bmaple\b/gi, ' ')
+      .replace(/\s+/g, ' ')
+      .replace(/^[\s\-\u2013\u2014_/,.]+|[\s\-\u2013\u2014_/,.]+$/g, '')
+      .trim();
+    // Espessura/números não contam como nome: "Maple 18mm" continua "Maple 18mm".
+    const hasName = /[a-z\u00e0-\u00ff]{2,}/i.test(rest.replace(/\d+(?:[.,]\d+)?\s*mm/gi, ' '));
+    return hasName ? rest : s;
+  }
+
   function normalizeMaterial(raw, thMm) {
     const s = String(raw || '');
     const base = /white|branc/i.test(s) ? 'Branco' : 'Cor';
@@ -338,7 +372,7 @@
     const th = matThickness(m);
     // Apenas o PRIMEIRO nome nativo importado (+ espessura).
     if (arr.length) return arr[0] + (th ? ` · ${th}mm` : '');
-    return m;
+    return stripMaple(m);
   }
 
   // --- Cores por material (tons amplos a partir do nome) ---
@@ -360,11 +394,13 @@
     [/vinh|bord[oô]|wine/, '#7a2230'],
   ];
   const FALLBACK_COLORS = ['#5b8def', '#e8743b', '#19a979', '#945ecf', '#13a4b4', '#e0566f', '#6c8893', '#ef7e32', '#7b9f35', '#c879b0'];
-  function colorFromName(s) {
+  function matchColorWord(s) {
     const t = String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
     for (const [re, hex] of COLOR_WORDS) if (re.test(t)) return hex;
     return null;
   }
+  // Cor derivada do nome, ignorando "Maple" (ver stripMaple).
+  function colorFromName(s) { return matchColorWord(stripMaple(s)); }
   function hashStr(s) { let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0; return h; }
   function fallbackColor(name) { return FALLBACK_COLORS[hashStr(String(name)) % FALLBACK_COLORS.length]; }
   function assignColor(name) { return colorFromName(name) || fallbackColor(name); }
@@ -557,7 +593,7 @@
     if (!Array.isArray(state.materials)) state.materials = [];
     state.materials.push(key);
     state.materialColors[key] = colorFromName(key) || fallbackColor(key);
-    const native = key.replace(/\s*\d+(?:[.,]\d+)?\s*mm$/i, '').trim();
+    const native = stripMaple(key.replace(/\s*\d+(?:[.,]\d+)?\s*mm$/i, '')).trim();
     if (native && native !== key) state.materialNames[key] = [native];
     save();
     renderMatLegend(); renderPanels(); renderStock();
@@ -875,7 +911,7 @@
   function applyParsedPanels(panels) {
     panels.forEach(p => {
       p.name = capFirst((p.name || '').trim());
-      const raw = p.material;
+      const raw = stripMaple(p.material); // "Maple" = formato (tábua), não material
       p.material = normalizeMaterial(raw, p.thickness);
       if (!state.materialColors[p.material]) state.materialColors[p.material] = colorFromName(raw) || fallbackColor(p.material);
       const arr = state.materialNames[p.material] || (state.materialNames[p.material] = []);
