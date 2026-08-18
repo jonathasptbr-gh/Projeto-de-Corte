@@ -4,7 +4,7 @@ PWA offline-first de plano de corte de chapas (MDF/madeira), com otimizador de a
 
 ## Versão
 
-A cada deploy deve-se incrementar `N` em **`sw.js`** (`const CACHE = 'projeto-corte-vN'`) **e** em **`app.js`** (`const APP_VERSION = 'vN'`, exibido no cabeçalho). Os dois devem ficar iguais. Versão atual: **v130**.
+A cada deploy deve-se incrementar `N` em **`sw.js`** (`const CACHE = 'projeto-corte-vN'`) **e** em **`app.js`** (`const APP_VERSION = 'vN'`, exibido no cabeçalho). Os dois devem ficar iguais. Versão atual: **v131**.
 
 O selo de versão no topo (`#app-version`) reflete o `app.js` que a tela carregou — serve para conferir, após um deploy, se o cache do Service Worker já atualizou (número novo) ou não (número antigo).
 
@@ -46,6 +46,34 @@ Não há `package.json`, transpiler, nem bundler.
 - **Nome da chapa no plano** (`render.js`): cada chapa é rotulada `Material — {stockName}` e recebe número (` 1`, ` 2`…) **só quando há mais de uma do mesmo tipo** (material+nome). `stockName` vem do otimizador, por chapa (nome do tamanho de estoque de origem; ver "Múltiplos tamanhos"). Estoque tem coluna **"Nome"** (texto livre, `s.name`, padrão "Chapa") para diferenciar chapas parecidas.
 - **SVG do plano** (`render.js`): o **nome** da peça fica no quadrante superior-esquerdo (≈25%/25%), fora das linhas centrais onde ficam os números das bordas; as **medidas das sobras** vão nas bordas (largura no topo, comprimento à esquerda), como nas peças. Fontes têm piso menor para peças pequenas.
 - **Réguas da guilhotina** (`render.js`, v125/v126): as marcas vêm de `axisTicks()` — projeta as peças no eixo, junta só as que se **sobrepõem** (encostar não impede o corte) e marca o **fim de cada bloco** (mais o início do primeiro, para a sobra da ponta). Garante que nenhuma peça é atravessada por uma marca, ou seja, toda linha da régua é um corte de ponta a ponta realmente executável. A **medida** de cada tira (`stripSize()`) é a **EXTENSÃO REAL das peças dentro dela** — da borda inicial da primeira até o fim real (`realW`/`realH`) da que vai mais longe. Não é a distância entre os cortes (embute o kerf do corte de ENTRADA e a folga do "slot", e levava a descontar o kerf de novo: uma tira de 40 aparecia como 40,8) **nem a maior peça da tira** — quando a tira leva peças em sequência (ex.: 36 + kerf + 5), o kerf ENTRE elas é material que tem de existir, então a tira é 41,8 e não 41; medir pela maior peça produzia um corte **fisicamente impossível** (bug v125, corrigido na v126). Tira sem peça nenhuma é sobra pura → distância bruta, o mesmo número impresso dentro do retângulo de sobra. Consequência esperada: os rótulos **não somam** a medida da chapa — a diferença é o material consumido pelos cortes de separação entre tiras. `reconstructCuts()` (DP memoizada) foi **removida**: só servia às réguas.
+
+## Fase extra da busca (peças que sobraram)
+
+`optimizer-worker.js` rodava a busca **só** até o fim das fases determinística
+(360 combinações) e **beam** (20 passadas) — a fase de **reinícios aleatórios**
+do `createSearch` (embaralha a ordem + combo aleatório) **nunca** era executada.
+Em casos com solução óbvia para um humano, isso deixava peça de fora para sempre:
+9 peças (Tb 40×140, 2× Lc 38×121,6, 5× Pc 34×86,4, Uc 86,4×121,6) numa única chapa
+184×274 (`qty` 1, veio `v`) — nenhuma das 380 estratégias fixas encaixava a 5ª
+`Pc`, e o reinício aleatório resolvia em ~60 passos (~40 ms).
+
+Agora, **quando ainda sobram peças**, o worker continua a busca por até
+`EXTRA_MS` (10 s), parando assim que tudo encaixa (ou quando `converged`):
+
+- **Gatilho**: `search.unplacedFeasible() > 0` **e** `search.result().unplaced.length > 0`.
+  `unplacedFeasible()` (em `optimizer.js`) conta só as peças que ainda **caberiam**
+  numa chapa vazia do grupo respeitando o veio — peça maior que a chapa nunca vai
+  entrar, então a fase extra é **pulada** (nada de gastar 10 s à toa).
+- **Parada barata**: `unplacedRaw()` (contagem no melhor de cada grupo, sem
+  pós-processamento) — o `result()` completo, que custa ~1,5 s num projeto grande,
+  só é chamado quando o bruto MELHORA.
+- **Progresso**: a fase extra reporta `extra:{ms,budget}` no `progress`; no
+  `app.js` a faixa do beam passou a ser 42→66% e a fase extra ocupa 66→80%.
+
+Efeito medido (app real, via Playwright): a cristaleira acima passou de
+**8 peças / 1 fora / 73,6%** para **9 peças / 0 fora / 79,4%**, +0,3 s. O projeto
+grande (43 peças, 3 materiais) não dispara a fase extra: mesmas 4 chapas, ~30 s
+antes e depois.
 
 ## Bugs conhecidos no Android Chrome (S24 Ultra)
 

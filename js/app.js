@@ -32,7 +32,7 @@
   // Serve para desligar peças sem excluí-las.
   // Versão exibida no cabeçalho. Reflete o app.js carregado na tela (útil para
   // saber se o cache do Service Worker já atualizou). Manter igual ao N de sw.js.
-  const APP_VERSION = 'v130';
+  const APP_VERSION = 'v131';
 
   const clampQty = v => Math.min(MAX_QTY, Math.max(1, Math.round(parseNum(v) || 1)));
 
@@ -1840,12 +1840,16 @@
         // retrocesso. _bandHi é o teto até onde o trickle pode subir sozinho
         // enquanto não há sinal novo (nunca passa do topo da fase atual).
         let tp;
-        if (!msg.beam || msg.det < msg.totalDet) {
+        if (msg.extra) {
+          // fase extra (insistindo nas peças que sobraram): 66→80%
+          tp = 66 + Math.min(1, (msg.extra.ms || 0) / (msg.extra.budget || 1)) * 14;
+          _bandHi = 80;
+        } else if (!msg.beam || msg.det < msg.totalDet) {
           tp = 5 + (msg.totalDet ? (msg.det / msg.totalDet) * 37 : 0);
           _bandHi = 42;
         } else {
-          tp = 42 + (msg.beam.idx / msg.beam.total) * 38;
-          _bandHi = 80;
+          tp = 42 + (msg.beam.idx / msg.beam.total) * 24;
+          _bandHi = 66;
         }
         _targetPct = Math.max(_targetPct, tp);
       } else if (msg.type === 'finalize_start') {

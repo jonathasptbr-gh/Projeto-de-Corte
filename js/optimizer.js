@@ -1388,7 +1388,33 @@
       return { sheets, unplaced, byMaterial };
     }
 
-    return { step, result, totalDet };
+    // Nº de peças ainda SEM chapa no melhor de cada grupo (leitura barata — o
+    // result() completo é caro). É um teto: o pós-processamento do result()
+    // (backfill/consolidação) ainda pode encaixar algumas destas.
+    function unplacedRaw() {
+      return groups.reduce((a, g) => a + (g.best ? g.best.unplaced.length : g.items.length), 0);
+    }
+    // Destas, quantas ainda CABERIAM numa chapa vazia do grupo (respeitando o
+    // veio). Peça maior que a chapa nunca vai entrar: insistir na busca por ela
+    // é tempo jogado fora.
+    function unplacedFeasible() {
+      let n = 0;
+      groups.forEach(g => {
+        const list = g.best ? g.best.unplaced : g.items;
+        list.forEach(it => {
+          const fits = g.sizes.some(sz => {
+            const d = grainOrient({ ...it, __sg: sz.grain }, o);
+            const pw = d.swap ? it.h : it.w, ph = d.swap ? it.w : it.h;
+            return (pw <= sz.W + 1e-6 && ph <= sz.H + 1e-6)
+              || (d.allowRotate && ph <= sz.W + 1e-6 && pw <= sz.H + 1e-6);
+          });
+          if (fits) n++;
+        });
+      });
+      return n;
+    }
+
+    return { step, result, totalDet, unplacedRaw, unplacedFeasible };
   }
 
   global.Optimizer = { optimize, createSearch, defaultWeights, refineOffcuts };
