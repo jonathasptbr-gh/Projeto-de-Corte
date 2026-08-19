@@ -71,6 +71,14 @@ experimental: menos chapas=1 · MAIS chapas=4 · distribuição melhor=23 · pio
 híbrido     : menos chapas=1 · MAIS chapas=0 · distribuição melhor=23 · pior=0  · empate=16
 ```
 
+12 projetos aleatórios, contra a **busca completa** (o cenário mais duro — ali o
+app tem dezenas de segundos para refinar):
+
+```
+experimental: menos chapas=0 · MAIS chapas=2 · distribuição melhor=6 · pior=4 · empate=0
+híbrido     : menos chapas=0 · MAIS chapas=0 · distribuição melhor=6 · pior=0 · empate=6
+```
+
 O validador rodou em **104 planos experimentais** (4 reais + 100 aleatórios):
 nenhum inválido — sem peça fora da chapa, sem vizinha a menos de kerf, todos
 cortáveis por guilhotina e com o multiset de peças intacto.
