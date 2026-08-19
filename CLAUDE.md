@@ -4,7 +4,7 @@ PWA offline-first de plano de corte de chapas (MDF/madeira), com otimizador de a
 
 ## Versão
 
-A cada deploy deve-se incrementar `N` em **`sw.js`** (`const CACHE = 'projeto-corte-vN'`) **e** em **`app.js`** (`const APP_VERSION = 'vN'`, exibido no cabeçalho). Os dois devem ficar iguais. Versão atual: **v132**.
+A cada deploy deve-se incrementar `N` em **`sw.js`** (`const CACHE = 'projeto-corte-vN'`) **e** em **`app.js`** (`const APP_VERSION = 'vN'`, exibido no cabeçalho). Os dois devem ficar iguais. Versão atual: **v133**.
 
 O selo de versão no topo (`#app-version`) reflete o `app.js` que a tela carregou — serve para conferir, após um deploy, se o cache do Service Worker já atualizou (número novo) ou não (número antigo).
 
@@ -46,6 +46,65 @@ Não há `package.json`, transpiler, nem bundler.
 - **Nome da chapa no plano** (`render.js`): cada chapa é rotulada `Material — {stockName}` e recebe número (` 1`, ` 2`…) **só quando há mais de uma do mesmo tipo** (material+nome). `stockName` vem do otimizador, por chapa (nome do tamanho de estoque de origem; ver "Múltiplos tamanhos"). Estoque tem coluna **"Nome"** (texto livre, `s.name`, padrão "Chapa") para diferenciar chapas parecidas.
 - **SVG do plano** (`render.js`): o **nome** da peça fica no quadrante superior-esquerdo (≈25%/25%), fora das linhas centrais onde ficam os números das bordas; as **medidas das sobras** vão nas bordas (largura no topo, comprimento à esquerda), como nas peças. Fontes têm piso menor para peças pequenas.
 - **Réguas da guilhotina** (`render.js`, v125/v126): as marcas vêm de `axisTicks()` — projeta as peças no eixo, junta só as que se **sobrepõem** (encostar não impede o corte) e marca o **fim de cada bloco** (mais o início do primeiro, para a sobra da ponta). Garante que nenhuma peça é atravessada por uma marca, ou seja, toda linha da régua é um corte de ponta a ponta realmente executável. A **medida** de cada tira (`stripSize()`) é a **EXTENSÃO REAL das peças dentro dela** — da borda inicial da primeira até o fim real (`realW`/`realH`) da que vai mais longe. Não é a distância entre os cortes (embute o kerf do corte de ENTRADA e a folga do "slot", e levava a descontar o kerf de novo: uma tira de 40 aparecia como 40,8) **nem a maior peça da tira** — quando a tira leva peças em sequência (ex.: 36 + kerf + 5), o kerf ENTRE elas é material que tem de existir, então a tira é 41,8 e não 41; medir pela maior peça produzia um corte **fisicamente impossível** (bug v125, corrigido na v126). Tira sem peça nenhuma é sobra pura → distância bruta, o mesmo número impresso dentro do retângulo de sobra. Consequência esperada: os rótulos **não somam** a medida da chapa — a diferença é o material consumido pelos cortes de separação entre tiras. `reconstructCuts()` (DP memoizada) foi **removida**: só servia às réguas.
+
+## Prioridade do plano (v133)
+
+Área não é o único preço de um plano: cada **giro de 90°** é um reposicionamento
+na máquina e cada **estágio** de guilhotina é uma nova rodada de cortes. Medindo
+os planos (ver `lab/`), o de MAIOR aproveitamento era às vezes o mais caro de
+executar — 7 estágios contra 5 no projeto "escola".
+
+**`state.options.priority`** (seletor em Opções, `#opt-priority`, padrão
+`balanced`) decide o desempate entre planos com o mesmo número de chapas:
+
+| Valor | Rótulo | Critério |
+|---|---|---|
+| `area` | Máximo aproveitamento | comportamento histórico: chapas mais cheias, sobras, cortes |
+| `balanced` | Equilibrado (padrão) | chapas cheias com **3% de folga** → giros → estágios → cortes → aproveitamento fino |
+| `simple` | Menos cortes e ajustes | giros → estágios → cortes, com trava de **8%** para as chapas cheias não esvaziarem |
+
+Nos dois perfis novos a comparação de ocupação **ignora a última chapa**
+(`cmpFillsHead`): é onde a sobra deve se acumular e ela varia demais para servir
+de critério.
+
+Peças fora e nº de chapas continuam **antes de tudo** em qualquer prioridade —
+nenhum ganho de operação justifica gastar chapa a mais.
+
+### Peças novas no `optimizer.js`
+
+- **`guillotineCost(W,H,placements,kerf)` / `operCost(res,kerf)`** — reconstroem
+  a árvore de cortes na ordem de execução mais barata e devolvem `{cuts, turns,
+  stages}`. O kerf entra na conta (cortar em X deixa o pedaço da direita em
+  X+kerf), então o vão da serra não vira "sobra a refilar". `score()` só calcula
+  isso quando a prioridade não é `area`.
+- **`packStrips(list,W,H,o,cfg)`** — empacotador por TIRAS: corta uma tira de
+  lado a lado e resolve, dentro dela, um **knapsack 1D exato** (DP com limite de
+  quantidade por tipo) nos dois eixos; apara da tira, vão abaixo de cada peça e
+  resto da chapa viram novas regiões. Trabalha em **décimos de cm inteiros**.
+  Entra na busca como **36 variantes** (`STRIP_CFGS`) no primeiro `step()`.
+  **É ele que dá aos perfis planos bons para escolher** — sem ele a prioridade
+  quase não mudava o resultado (±2%).
+- **`finishBest()`** — quando a prioridade não é `area`, finaliza o plano em três
+  variantes (`FINISH_VARIANTS`: com/sem `consolidateByFreeArea`, com/sem
+  `consolidateRemnants`) e fica com a melhor pelo critério. Sem isso o
+  pós-processamento reorganizava o layout DEPOIS da escolha e diluía o critério.
+
+### Efeito medido (busca completa, casos reais)
+
+| Caso | v132 | v133 |
+|---|---|---|
+| escola (50 pç) | 89,6/87,8/68,7 · 88 cortes · 38 giros · 5 estágios | **95,3/91,7/59,1 · 81 · 32 · 3** |
+| balcão dark grey | 92,7/40,8 · 50 · 24 · 5 | **93,4/40,1 · 47 · 17 · 3** |
+| balcão oak | 80,5 · 18 · 9 · 5 | **80,5 · 17 · 6 · 3** |
+| cristaleira | 79,4 · 16 · 9 · 4 | igual, mas já na fase determinística |
+
+Nos casos reais os três perfis quase sempre **convergem para o mesmo plano** (só
+o balcão oak diferencia: 17/6 no equilibrado contra 19/7 no de área). O ganho
+veio do empacotador por tiras; o seletor é o desempate fino. Custo: o perfil
+padrão é ~25% mais lento que `area` (74 s contra 58 s na escola).
+
+87 planos (4 reais + 25 aleatórios × 3 perfis) passaram pelo validador do `lab/`
+sem nenhuma falha de kerf, guilhotina, peça fora ou veio.
 
 ## Fase extra da busca (peças que sobraram)
 
@@ -213,7 +272,9 @@ material de peça sem nenhuma chapa correspondente → peças vão para "não co
 
 ## Opções da UI
 
-A **única opção ajustável** é o **kerf** (`#opt-kerf` → `state.options.kerf`). As
+As opções ajustáveis são o **kerf** (`#opt-kerf` → `state.options.kerf`) e a
+**prioridade do plano** (`#opt-priority` → `state.options.priority`, ver seção
+"Prioridade do plano"). As
 demais (nome nos painéis, considerar material, considerar grão e os 5 pesos do
 otimizador) foram **removidas da UI** e são **fixas no padrão**: `considerMaterial`
 e `considerGrain` sempre `true`, `showLabels` sempre `true`, `weights =

@@ -36,6 +36,14 @@
           <label class="opt">Espessura de corte (kerf)
             <input type="number" id="opt-kerf" step="0.1" min="0" value="0.8" />
           </label>
+          <label class="opt">Prioridade do plano
+            <select id="opt-priority">
+              <option value="balanced">Equilibrado</option>
+              <option value="area">Máximo aproveitamento</option>
+              <option value="simple">Menos cortes e ajustes</option>
+            </select>
+            <span class="opt-hint" id="opt-priority-hint"></span>
+          </label>
         </div>
         <div class="opt-actions">
           <button type="button" class="btn small" id="export-report" title="Exportar registro completo (materiais, peças, estoque e plano)">
