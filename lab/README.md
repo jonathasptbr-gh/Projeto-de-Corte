@@ -138,6 +138,30 @@ chapa** e economizou **7% dos cortes e 22,5% dos giros**, derrubando o pior caso
 de 7 para 3 estágios. E o plano de maior área (`tiras/área`) é justamente o mais
 caro de executar — 7 estágios na escola.
 
+Em 30 projetos aleatórios (26 com o mesmo número de chapas), o retrato é outro:
+
+```
+app         1ª chapa 92,7% · sobra na última 60,0% · cortes 1698 · giros 905 · estágios médio 4,5 (máx 8)
+tiras/área  1ª chapa 93,8% · sobra na última 54,1% · cortes 1686 · giros 860 · estágios médio 4,0 (máx 5)
+tiras/oper  1ª chapa 90,7% · sobra na última 48,2% · cortes 1627 · giros 762 · estágios médio 3,8 (máx 5)
+
+tiras/oper vs app:        1ª chapa -2,2% · cortes -4,2% · giros -15,8%
+tiras/área vs app:        1ª chapa +1,2% · cortes -0,7% · giros -5,0%
+```
+
+**Aqui existe trade-off de verdade**: economizar 16% dos giros custa 2,2% da
+primeira chapa e espalha mais a sobra. A diferença entre os dois retratos não é
+ruído — é a natureza dos projetos. Projeto real de marcenaria tem poucas medidas
+distintas repetidas muitas vezes, e medidas repetidas formam tiras cheias
+naturalmente: dá para ter área E simplicidade. Projeto aleatório tem 50 medidas
+diferentes, e aí encher a chapa exige um quebra-cabeça de vários estágios.
+
+**Conclusão para o produto**: não existe um critério único que sirva sempre. Um
+"híbrido" guiado só por área escolheria, na escola, justamente o plano de 7
+estágios. O caminho é **prioridade escolhida pelo usuário** — com padrão
+equilibrado (área primeiro, custo de execução como desempate), que nos projetos
+reais medidos sai de graça.
+
 ## Limitações do protótipo
 
 Ainda não é um substituto pronto — o experimental cobre menos terreno que o
@@ -157,14 +181,25 @@ novo no cenário que ele já cobre".
 ## Próximo passo sugerido
 
 Integrar o `strip-packer` ao `createSearch` como mais uma estratégia (uma
-passada no primeiro `step()`, junto de `packMaxFill`/`packShelf`), deixando o
-`better()` decidir. Ganho esperado: os planos do tipo "escola" (sobra
-concentrada e chapas mais cheias) sem risco de regressão, já que o critério só
-troca de plano quando o novo é melhor.
+passada no primeiro `step()`, junto de `packMaxFill`/`packShelf`) **e** dar ao
+`better()` um critério de custo de execução, exposto como prioridade na UI:
 
-O que ainda vale investigar antes disso:
+| Prioridade | Ordem dos critérios |
+|---|---|
+| Máximo aproveitamento | peças fora → chapas → chapas cheias → sobras → cortes |
+| **Equilibrado (padrão)** | peças fora → chapas → chapas cheias (com tolerância) → **giros/estágios** → cortes |
+| Menos cortes e ajustes | peças fora → chapas → **giros → estágios → cortes** → chapas cheias |
+
+A infraestrutura para isso já existe: `better()` compara por pesos
+(`defaultWeights`), e os pesos foram removidos da UI mas continuam aceitos pelo
+`optimize`/`createSearch`. Falta acrescentar os giros/estágios como critério
+(`cutplan.js` mostra como medir) e escolher o perfil na tela.
+
+O que ainda vale investigar:
 
 - reduzir os casos em que o guloso gasta uma chapa a mais (reserva de peças
   grandes para a última chapa, ou um passo de rebalanceamento final);
 - aproveitar o knapsack para **preencher as aparas** das chapas já fechadas
-  pelo otimizador atual — atacaria o mesmo problema por outro lado.
+  pelo otimizador atual — atacaria o mesmo problema por outro lado;
+- medir o custo de execução também em tempo de máquina (uma passada de serra
+  longa custa mais que uma curta) — hoje contamos passadas, não metros.
