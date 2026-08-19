@@ -15,6 +15,7 @@ const fs = require('fs');
 const path = require('path');
 const { REAIS, randomCases } = require('./cases');
 const { validate, metrics } = require('./validate');
+const { planCost } = require('./cutplan');
 const strip = require('./strip-packer');
 
 // carrega o optimizer.js do app (IIFE que exporta em window.Optimizer)
@@ -66,10 +67,14 @@ function report(cs, runs) {
   runs.forEach(({ tag, res, ms }) => {
     const v = validate(cs, res);
     const m = metrics(res);
-    linhas.push({ tag, m, ms, v });
+    const c = planCost(res, cs.kerf);
+    linhas.push({ tag, m, ms, v, c });
     console.log(
       `  ${tag.padEnd(12)} chapas=${m.sheets} fora=${m.unplaced} · ${m.fillStr}` +
-      ` · geral ${(m.overall * 100).toFixed(1)}% · ${(ms / 1000).toFixed(1)}s` +
+      ` · geral ${(m.overall * 100).toFixed(1)}% · ${(ms / 1000).toFixed(1)}s`);
+    console.log(
+      `  ${''.padEnd(12)} cortes=${c.cuts} · giros=${c.turns} · estágios=${c.stages}` +
+      ` · ${c.cutsPerPiece.toFixed(2)} cortes/peça` + (c.falhas ? ` · ${c.falhas} chapa(s) sem árvore` : '') +
       (v.ok ? '' : `  ← PLANO INVÁLIDO (${v.errs.length})`));
     if (!v.ok) v.errs.slice(0, 4).forEach(e => console.log(`       ! ${e}`));
   });
@@ -97,6 +102,10 @@ function main() {
   const zero = () => ({ melhorChapas: 0, piorChapas: 0, melhorDist: 0, piorDist: 0, igual: 0 });
   const resumo = zero(), resumoHib = zero();
   let invalidos = 0;
+  // custo operacional acumulado (app x experimental)
+  const oper = { appCuts: 0, expCuts: 0, appTurns: 0, expTurns: 0,
+    cutsMenos: 0, cutsMais: 0, cutsIgual: 0, turnsMenos: 0, turnsMais: 0, turnsIgual: 0,
+    stagesApp: {}, stagesExp: {} };
   const compara = (alvo, base, acc) => {
     if (alvo.unplaced !== base.unplaced) { (alvo.unplaced < base.unplaced ? acc.melhorChapas++ : acc.piorChapas++); return; }
     if (alvo.sheets !== base.sheets) { (alvo.sheets < base.sheets ? acc.melhorChapas++ : acc.piorChapas++); return; }
@@ -121,6 +130,15 @@ function main() {
     if (!b.v.ok) { invalidos++; return; }
     compara(b.m, a.m, resumo);
     compara(metrics(hyb.res), a.m, resumoHib);
+    // custo operacional só é comparável quando os planos têm o mesmo nº de chapas
+    oper.appCuts += a.c.cuts; oper.expCuts += b.c.cuts;
+    oper.appTurns += a.c.turns; oper.expTurns += b.c.turns;
+    oper.stagesApp[a.c.stages] = (oper.stagesApp[a.c.stages] || 0) + 1;
+    oper.stagesExp[b.c.stages] = (oper.stagesExp[b.c.stages] || 0) + 1;
+    if (a.m.sheets === b.m.sheets && a.m.unplaced === b.m.unplaced) {
+      if (b.c.cuts < a.c.cuts) oper.cutsMenos++; else if (b.c.cuts > a.c.cuts) oper.cutsMais++; else oper.cutsIgual++;
+      if (b.c.turns < a.c.turns) oper.turnsMenos++; else if (b.c.turns > a.c.turns) oper.turnsMais++; else oper.turnsIgual++;
+    }
   });
 
   const linha = (tag, acc) => console.log(
@@ -130,6 +148,15 @@ function main() {
   linha('experimental', resumo);
   linha('híbrido     ', resumoHib);
   if (invalidos) console.log(`  planos experimentais INVÁLIDOS: ${invalidos}`);
+  console.log(`\n--- custo operacional ---`);
+  console.log(`  cortes no total: app=${oper.appCuts} · experimental=${oper.expCuts}` +
+    ` (${oper.appCuts ? ((oper.expCuts / oper.appCuts - 1) * 100).toFixed(1) : '0'}%)`);
+  console.log(`  giros no total:  app=${oper.appTurns} · experimental=${oper.expTurns}` +
+    ` (${oper.appTurns ? ((oper.expTurns / oper.appTurns - 1) * 100).toFixed(1) : '0'}%)`);
+  console.log(`  por caso (mesmo nº de chapas) — cortes: exp menos=${oper.cutsMenos} mais=${oper.cutsMais} igual=${oper.cutsIgual}`);
+  console.log(`  por caso (mesmo nº de chapas) — giros:  exp menos=${oper.turnsMenos} mais=${oper.turnsMais} igual=${oper.turnsIgual}`);
+  const st = o => Object.keys(o).sort().map(k => `${k}:${o[k]}`).join(' ');
+  console.log(`  estágios (nº de casos por profundidade): app [${st(oper.stagesApp)}] · experimental [${st(oper.stagesExp)}]`);
 }
 
 main();

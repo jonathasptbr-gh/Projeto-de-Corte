@@ -18,7 +18,9 @@ node lab/bench.js --full --rand 12
 | `cases.js` | Casos reais (extraídos de registros `.md` exportados pelo app) + gerador aleatório determinístico. |
 | `validate.js` | Valida um plano: peça dentro da chapa, **kerf** entre vizinhas, layout **guilhotinável**, multiset de peças intacto, veio respeitado. Também calcula as métricas. |
 | `strip-packer.js` | O empacotador experimental (tiras por knapsack). |
+| `cutplan.js` | Custo **operacional** de um plano: cortes, giros de 90° e estágios de guilhotina. |
 | `bench.js` | Roda app × experimental × híbrido, valida e resume. |
+| `pareto.js` | Área × custo de execução: `app` vs `tiras/área` vs `tiras/operação`. |
 
 ## O problema atacado
 
@@ -90,6 +92,51 @@ gera o plano por tiras e fica com ele só quando vence pelo critério do app —
 menos peças fora, menos chapas, chapas mais cheias) ele nunca piora e melhora
 metade dos casos. E custa pouco: décimos de segundo contra dezenas de segundos
 da busca atual.
+
+## Área não é o único preço: cortes e giros
+
+`cutplan.js` reconstrói a árvore de cortes guilhotinados do plano (escolhendo a
+ordem de execução mais barata) e mede o que custa na máquina:
+
+- **cortes** — passadas de serra, incluindo os refilos que liberam a peça;
+- **giros** — passadas que mudam de direção em relação ao corte que gerou o
+  pedaço: cada uma é um reposicionamento de 90° na seccionadora;
+- **estágios** — alternâncias de direção no caminho mais fundo. 2 é o padrão
+  "tiras + peças"; 4+ é layout trabalhoso de executar.
+
+O analisador foi conferido em seis layouts montados à mão (peça exata, refilo de
+um lado, grade 2×2, colunas, escada) antes de valer como medida.
+
+Com isso, o `strip-packer` ganhou um segundo objetivo: entre os planos que
+empatam em peças e chapas, `objective:'oper'` fica com o **mais barato de
+executar** em vez do de maior aproveitamento.
+
+Casos reais (`node lab/pareto.js`):
+
+| Caso | estratégia | 1ª chapa | cortes | giros | estágios |
+|---|---|---|---|---|---|
+| escola | app | 91,5% | 88 | 38 | 5 |
+| | tiras/área | 95,8% | 81 | 40 | **7** |
+| | tiras/oper | 95,3% | 81 | **32** | **3** |
+| balcão dark grey | app | 92,7% | 50 | 24 | 5 |
+| | tiras/área | 94,9% | 50 | 26 | 5 |
+| | tiras/oper | 93,4% | **47** | **17** | **3** |
+| balcão oak | app | 80,5% | 18 | 9 | 5 |
+| | tiras/área | 80,5% | 19 | 8 | 3 |
+| | tiras/oper | 80,5% | **17** | **6** | **3** |
+
+Agregado nos 3 casos com o mesmo número de chapas:
+
+```
+app         1ª chapa 88,2% · cortes 156 · giros 71 · estágios máx 5
+tiras/área  1ª chapa 90,4% · cortes 150 · giros 74 · estágios máx 7
+tiras/oper  1ª chapa 89,7% · cortes 145 · giros 55 · estágios máx 3
+```
+
+Ou seja: pedir o plano mais simples custou **0,7% de aproveitamento na primeira
+chapa** e economizou **7% dos cortes e 22,5% dos giros**, derrubando o pior caso
+de 7 para 3 estágios. E o plano de maior área (`tiras/área`) é justamente o mais
+caro de executar — 7 estágios na escola.
 
 ## Limitações do protótipo
 
