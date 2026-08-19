@@ -301,12 +301,29 @@ function betterPlan(a, b) { // a é melhor que b?
   return false;
 }
 
-function packBest(cs) {
+// objective 'area' (padrão): o critério do app — menos peças fora, menos
+// chapas, chapas mais cheias.
+// objective 'oper': mesma exigência de peças/chapas, mas entre planos com a
+// mesma contagem escolhe o mais BARATO DE EXECUTAR (menos giros de 90°, menos
+// cortes, menos estágios) e só depois olha o aproveitamento. Serve para medir
+// o preço, em área, de um plano mais simples na máquina.
+function packBest(cs, opts) {
+  const objective = (opts && opts.objective) || 'area';
+  const cost = objective === 'oper' ? require('./cutplan').planCost : null;
   let best = null, bestSc = null, bestCfg = null;
   for (const cfg of VARIANTS) {
     const res = pack(cs, cfg);
     const sc = planScore(res);
-    if (betterPlan(sc, bestSc)) { best = res; bestSc = sc; bestCfg = cfg; }
+    if (cost) sc.oper = cost(res, cs.kerf);
+    let win;
+    if (!bestSc) win = true;
+    else if (sc.unplaced !== bestSc.unplaced) win = sc.unplaced < bestSc.unplaced;
+    else if (sc.sheets !== bestSc.sheets) win = sc.sheets < bestSc.sheets;
+    else if (cost && sc.oper.turns !== bestSc.oper.turns) win = sc.oper.turns < bestSc.oper.turns;
+    else if (cost && sc.oper.cuts !== bestSc.oper.cuts) win = sc.oper.cuts < bestSc.oper.cuts;
+    else if (cost && sc.oper.stages !== bestSc.oper.stages) win = sc.oper.stages < bestSc.oper.stages;
+    else win = betterPlan(sc, bestSc);
+    if (win) { best = res; bestSc = sc; bestCfg = cfg; }
   }
   if (best) best.__cfg = bestCfg;
   return best;
