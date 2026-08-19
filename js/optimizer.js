@@ -603,8 +603,8 @@
     for (const st of beam) {
       st.sheets.forEach(s => { s.free = freeGreedy(s, o); s.cuts = countGuillotineCuts(s.W, s.H, s.placements); });
       const res = { sheets: st.sheets, unplaced: st.unplaced };
-      const sc = score(res);
-      if (better(sc, bestScore, o.weights)) { best = res; bestScore = sc; }
+      const sc = score(res, o);
+      if (better(sc, bestScore, o.weights, o.priority)) { best = res; bestScore = sc; }
     }
     return best || { sheets: [], unplaced: items.slice() };
   }
@@ -700,6 +700,209 @@
   //  axis 'v' = faixas verticais (colunas de altura cheia H, espessura=largura)
   //  axis 'h' = faixas horizontais (tiras de largura cheia W, espessura=altura)
   //  groupTol = agrupa alturas de faixa próximas (<= tol) → menos trim no topo
+  // ---------- Empacotador por TIRAS (knapsack) ----------
+  // Raciocina como quem opera a seccionadora: corta uma TIRA de lado a lado e
+  // resolve, dentro dela, "quais peças enfileirar para gastar o mínimo de
+  // material" — um knapsack 1D exato (DP com limite de quantidade por tipo),
+  // testado nos dois eixos. O que sobra (apara no fim da tira, vão abaixo de
+  // uma peça mais baixa, resto da chapa) vira nova região, tratada igual.
+  // Rende planos de poucos ESTÁGIOS de guilhotina, que é o que a máquina
+  // gosta, e costuma encher melhor a primeira chapa.
+  // Validado no laboratório (`lab/`) contra o restante do otimizador.
+  const STRIP_SCALE = 10; // trabalha em décimos de cm inteiros (kerf sem erro de float)
+
+  // knapsack 1D limitado: cada peça custa (len + kerf), capacidade (cap + kerf)
+  // — assim N peças em fila gastam os N-1 cortes reais entre elas.
+  function stripKnapsack(cap, items, kerf) {
+    const C = cap + kerf;
+    if (C <= 0 || !items.length) return { value: 0, take: items.map(() => 0) };
+    let dp = new Float64Array(C + 1);
+    const choice = [];
+    for (let t = 0; t < items.length; t++) {
+      const cost = items[t].len + kerf, val = items[t].area, q = items[t].qty;
+      const next = new Float64Array(C + 1), cnt = new Uint8Array(C + 1);
+      for (let j = 0; j <= C; j++) {
+        let bestV = dp[j], bestK = 0;
+        for (let k = 1; k <= q; k++) {
+          const need = k * cost;
+          if (need > j) break;
+          const cand = dp[j - need] + k * val;
+          if (cand > bestV + 1e-9) { bestV = cand; bestK = k; }
+        }
+        next[j] = bestV; cnt[j] = bestK;
+      }
+      choice.push(cnt); dp = next;
+    }
+    const take = new Array(items.length).fill(0);
+    let j = C;
+    for (let t = items.length - 1; t >= 0; t--) {
+      take[t] = choice[t][j];
+      j -= take[t] * (items[t].len + kerf);
+    }
+    return { value: dp[C], take };
+  }
+
+  // Melhor tira para uma região, num eixo ('h' corre em X, 'v' corre em Y).
+  function stripBest(region, pool, kerf, axis, mode) {
+    const along = axis === 'h' ? region.w : region.h;
+    const cross = axis === 'h' ? region.h : region.w;
+    const cand = [], thick = new Set();
+    pool.forEach((e, idx) => {
+      if (e.qty <= 0) return;
+      e.orients.forEach(or => {
+        const len = axis === 'h' ? or.w : or.h;
+        const th = axis === 'h' ? or.h : or.w;
+        if (len <= along && th <= cross) { cand.push({ idx, len, thick: th, area: or.w * or.h, or }); thick.add(th); }
+      });
+    });
+    if (!cand.length) return null;
+    let best = null;
+    thick.forEach(t => {
+      const byIdx = new Map();
+      cand.forEach(c => {
+        if (c.thick > t) return;
+        const cur = byIdx.get(c.idx);
+        if (!cur || c.len < cur.len) byIdx.set(c.idx, c);
+      });
+      if (!byIdx.size) return;
+      const idxs = Array.from(byIdx.keys());
+      const res = stripKnapsack(along, idxs.map(i => {
+        const c = byIdx.get(i);
+        return { len: c.len, area: c.area, qty: pool[i].qty };
+      }), kerf);
+      if (res.value <= 0) return;
+      let effT = 0;
+      idxs.forEach((i, k) => { if (res.take[k] > 0) effT = Math.max(effT, byIdx.get(i).thick); });
+      if (!effT) return;
+      const density = res.value / (along * effT);
+      const sc = mode === 'area' ? res.value : mode === 'thick' ? effT * 1e6 + density : density;
+      if (!best || sc > best.sc + 1e-9) {
+        best = { sc, value: res.value, thickness: effT,
+          picks: idxs.map((i, k) => ({ idx: i, n: res.take[k], or: byIdx.get(i) })).filter(x => x.n > 0) };
+      }
+    });
+    return best;
+  }
+
+  // Empacota UMA chapa por tiras. pool: [{ item, qty, orients }] (escala inteira).
+  function stripPackSheet(W, H, pool, kerf, cfg) {
+    const placements = [];
+    const regions = [{ x: 0, y: 0, w: W, h: H }];
+    // "semente": planta a maior peça no canto — evita sobrar peça grande no fim
+    if (cfg.seedBig) {
+      let pick = null;
+      pool.forEach((e, idx) => {
+        if (e.qty <= 0) return;
+        e.orients.forEach(or => {
+          if (or.w > W || or.h > H) return;
+          if (!pick || or.w * or.h > pick.or.w * pick.or.h) pick = { idx, or };
+        });
+      });
+      if (pick) {
+        pool[pick.idx].qty--;
+        placements.push({ idx: pick.idx, or: pick.or, x: 0, y: 0 });
+        regions.length = 0;
+        if (W - pick.or.w > kerf) regions.push({ x: pick.or.w + kerf, y: 0, w: W - pick.or.w - kerf, h: pick.or.h });
+        if (H - pick.or.h > kerf) regions.push({ x: 0, y: pick.or.h + kerf, w: W, h: H - pick.or.h - kerf });
+      }
+    }
+    let guard = 0;
+    while (regions.length && guard++ < 3000) {
+      regions.sort((a, b) => cfg.order === 'small' ? (a.w * a.h - b.w * b.h) : (b.w * b.h - a.w * a.h));
+      const region = regions.shift();
+      if (region.w <= 0 || region.h <= 0 || !pool.some(e => e.qty > 0)) continue;
+      const hS = cfg.axisPref === 'v' ? null : stripBest(region, pool, kerf, 'h', cfg.mode);
+      const vS = cfg.axisPref === 'h' ? null : stripBest(region, pool, kerf, 'v', cfg.mode);
+      let axis = 'h', strip = hS;
+      if (vS && (!hS || vS.sc > hS.sc + 1e-9)) { axis = 'v'; strip = vS; }
+      if (!strip) continue;
+      const seq = [];
+      strip.picks.sort((a, b) => (axis === 'h' ? b.or.thick - a.or.thick : b.or.thick - a.or.thick)).forEach(p => {
+        for (let i = 0; i < p.n; i++) seq.push(p);
+        pool[p.idx].qty -= p.n;
+      });
+      let cursor = 0;
+      seq.forEach(p => {
+        const or = p.or.or;
+        const pw = axis === 'h' ? or.w : or.w, ph = axis === 'h' ? or.h : or.h;
+        const x = axis === 'h' ? region.x + cursor : region.x;
+        const y = axis === 'h' ? region.y : region.y + cursor;
+        placements.push({ idx: p.idx, or, x, y });
+        const slack = strip.thickness - (axis === 'h' ? ph : pw);
+        if (slack > kerf) {
+          regions.push(axis === 'h'
+            ? { x, y: y + ph + kerf, w: pw, h: slack - kerf }
+            : { x: x + pw + kerf, y, w: slack - kerf, h: ph });
+        }
+        cursor += (axis === 'h' ? pw : ph) + kerf;
+      });
+      const rest = (axis === 'h' ? region.w : region.h) - (cursor - kerf);
+      if (rest > kerf) {
+        regions.push(axis === 'h'
+          ? { x: region.x + cursor, y: region.y, w: rest - kerf, h: strip.thickness }
+          : { x: region.x, y: region.y + cursor, w: strip.thickness, h: rest - kerf });
+      }
+      const left = (axis === 'h' ? region.h : region.w) - strip.thickness;
+      if (left > kerf) {
+        regions.push(axis === 'h'
+          ? { x: region.x, y: region.y + strip.thickness + kerf, w: region.w, h: left - kerf }
+          : { x: region.x + strip.thickness + kerf, y: region.y, w: left - kerf, h: region.h });
+      }
+    }
+    return placements;
+  }
+
+  // Interface no formato dos demais empacotadores: recebe as peças já
+  // expandidas e devolve { sheets, unplaced } para um tamanho de chapa.
+  function packStrips(list, W, H, o, cfg) {
+    const S = STRIP_SCALE;
+    const kerf = Math.round((o.kerf || 0) * S);
+    const Wi = Math.round(W * S), Hi = Math.round(H * S);
+    const cap = sheetCap(o);
+    // agrupa por (medida + orientação permitida): o knapsack trabalha por tipo
+    const byKey = new Map();
+    list.forEach(it => {
+      const g = grainOrient(it, o);
+      const w = Math.round(it.w * S), h = Math.round(it.h * S);
+      const orients = g.swap ? [{ w: h, h: w }]
+        : (g.allowRotate && w !== h ? [{ w, h }, { w: h, h: w }] : [{ w, h }]);
+      const k = orients.map(or => or.w + 'x' + or.h).join('|') + '#' + (it.name || '');
+      if (!byKey.has(k)) byKey.set(k, { qty: 0, orients, items: [], used: 0 });
+      const e = byKey.get(k);
+      e.qty++; e.items.push(it);
+    });
+    const pool = Array.from(byKey.values());
+    const sheets = [];
+    while (pool.some(e => e.qty > 0) && sheets.length < cap) {
+      const trial = pool.map(e => ({ qty: e.qty, orients: e.orients }));
+      const pl = stripPackSheet(Wi, Hi, trial, kerf, cfg);
+      if (!pl.length) break;
+      const sheet = newSheet(list[0].__mat, W, H, sheets.length + 1);
+      pl.forEach(p => {
+        const src = pool[p.idx];
+        const it = src.items[src.used++]; // consome as unidades daquele tipo na ordem
+        if (!it) return;
+        const w = p.or.w / S, h = p.or.h / S;
+        sheet.placements.push({
+          x: p.x / S, y: p.y / S, w, h, realW: w, realH: h,
+          name: it.name, rotated: Math.abs(w - it.w) > EPS, bands: it.bands,
+        });
+      });
+      for (let i = 0; i < pool.length; i++) pool[i].qty = trial[i].qty;
+      sheets.push(sheet);
+    }
+    const unplaced = [];
+    pool.forEach(e => { for (let i = e.used; i < e.items.length; i++) unplaced.push(e.items[i]); });
+    sheets.forEach(s => { s.free = freeGreedy(s, o); s.cuts = countGuillotineCuts(s.W, s.H, s.placements); });
+    return { sheets, unplaced };
+  }
+  // Variantes do empacotador por tiras testadas na busca.
+  const STRIP_CFGS = [];
+  ['density', 'area', 'thick'].forEach(mode =>
+    ['big', 'small'].forEach(order =>
+      ['auto', 'h', 'v'].forEach(axisPref =>
+        [false, true].forEach(seedBig => STRIP_CFGS.push({ mode, order, axisPref, seedBig })))));
+
   function packShelf(items, W, H, o, opts) {
     opts = opts || {};
     const axis = opts.axis || 'v';
@@ -785,6 +988,90 @@
     return minCuts(placements.slice());
   }
 
+  // ---------- Custo OPERACIONAL do layout ----------
+  // Área não é o único preço do plano: cada corte é uma passada na
+  // seccionadora e cada GIRO de 90° é um reposicionamento (esquadro, encosto,
+  // conferência). Aqui reconstruímos a árvore de cortes na ordem de execução
+  // mais barata e medimos:
+  //   cuts   — passadas de serra (inclui o refilo que solta a peça da sobra);
+  //   turns  — passadas que mudam de direção em relação ao corte que gerou
+  //            aquele pedaço, ou seja, giros de material na máquina;
+  //   stages — alternâncias de direção no caminho mais fundo (2 = "tiras +
+  //            peças", padrão da seccionadora; 4+ é layout trabalhoso).
+  // O kerf entra na conta: cortar em X deixa o pedaço da direita começando em
+  // X+kerf, então o vão da serra não vira "sobra a refilar".
+  function guillotineCost(W, H, placements, kerf) {
+    const memo = new Map();
+    let nodes = 0;
+    const ZERO = { cuts: 0, turns: 0, depth: 0 };
+    const FAIL = { cuts: 999, turns: 999, depth: 9 };
+    const cheaper = (a, b) => !b || a.turns < b.turns || (a.turns === b.turns && a.cuts < b.cuts);
+    const join = (turned, a, b) => ({
+      cuts: 1 + a.cuts + b.cuts,
+      turns: (turned ? 1 : 0) + a.turns + b.turns,
+      depth: (turned ? 1 : 0) + Math.max(a.depth, b.depth),
+    });
+    // refilos que liberam UMA peça da sobra da região em que ela está
+    function trim(x, y, w, h, r, dir) {
+      const vCuts = (r.x - x > EPS ? 1 : 0) + ((x + w) - (r.x + r.w) > EPS ? 1 : 0);
+      const hCuts = (r.y - y > EPS ? 1 : 0) + ((y + h) - (r.y + r.h) > EPS ? 1 : 0);
+      if (!vCuts && !hCuts) return ZERO;
+      const both = vCuts > 0 && hCuts > 0;
+      const firstV = vCuts > 0 && (dir === 'V' || dir === '' || !hCuts);
+      const turnFirst = (dir !== '' && dir !== (firstV ? 'V' : 'H')) ? 1 : 0;
+      const turnSecond = both ? 1 : 0;
+      return { cuts: vCuts + hCuts, turns: turnFirst + turnSecond, depth: turnFirst + turnSecond };
+    }
+    function best(x, y, w, h, items, dir) {
+      if (!items.length) return ZERO;
+      if (items.length === 1) return trim(x, y, w, h, items[0], dir);
+      const k = [x, y, w, h].map(v => v.toFixed(1)).join(',') + '#' + dir + '#' +
+        items.map(r => r.x.toFixed(1) + ':' + r.y.toFixed(1)).sort().join('|');
+      if (memo.has(k)) return memo.get(k);
+      if (++nodes > 40000) return FAIL; // layout complicado demais: não vale o tempo
+      let out = null;
+      const xs = new Set(), ys = new Set();
+      items.forEach(r => { xs.add(r.x + r.w); ys.add(r.y + r.h); });
+      for (const X of xs) {
+        if (X <= x + EPS || X >= x + w - EPS) continue;
+        if (!items.every(r => r.x + r.w <= X + EPS || r.x >= X + kerf - EPS)) continue;
+        const L = items.filter(r => r.x + r.w <= X + EPS);
+        const R = items.filter(r => r.x >= X + kerf - EPS);
+        if (!L.length || !R.length || L.length + R.length !== items.length) continue;
+        const cand = join(dir !== '' && dir !== 'V',
+          best(x, y, X - x, h, L, 'V'), best(X + kerf, y, x + w - X - kerf, h, R, 'V'));
+        if (cheaper(cand, out)) out = cand;
+      }
+      for (const Y of ys) {
+        if (Y <= y + EPS || Y >= y + h - EPS) continue;
+        if (!items.every(r => r.y + r.h <= Y + EPS || r.y >= Y + kerf - EPS)) continue;
+        const T = items.filter(r => r.y + r.h <= Y + EPS);
+        const B = items.filter(r => r.y >= Y + kerf - EPS);
+        if (!T.length || !B.length || T.length + B.length !== items.length) continue;
+        const cand = join(dir !== '' && dir !== 'H',
+          best(x, y, w, Y - y, T, 'H'), best(x, Y + kerf, w, y + h - Y - kerf, B, 'H'));
+        if (cheaper(cand, out)) out = cand;
+      }
+      if (!out) out = FAIL;
+      memo.set(k, out);
+      return out;
+    }
+    const rects = placements.map(p => ({
+      x: p.x, y: p.y, w: p.realW != null ? p.realW : p.w, h: p.realH != null ? p.realH : p.h,
+    }));
+    const r = best(0, 0, W, H, rects, '');
+    return { cuts: r.cuts, turns: r.turns, stages: r.depth + 1 };
+  }
+  // Custo operacional somado de todas as chapas de um resultado.
+  function operCost(res, kerf) {
+    let cuts = 0, turns = 0, stages = 0;
+    res.sheets.forEach(s => {
+      const c = guillotineCost(s.W, s.H, s.placements, kerf || 0);
+      cuts += c.cuts; turns += c.turns; stages = Math.max(stages, c.stages);
+    });
+    return { cuts, turns, stages };
+  }
+
   // Áreas das sobras reaproveitáveis (ignora fiapos), em ordem decrescente.
   function offAreas(sheets) {
     const a = [];
@@ -794,6 +1081,15 @@
   }
   function defaultWeights() {
     return { unplaced: 10, sheets: 10, fill: 5, offcut: 5, cuts: 5 };
+  }
+  // Compara a ocupação IGNORANDO a última chapa (a da sobra). Serve aos perfis
+  // que aceitam ceder aproveitamento: o que não se pode perder é o enchimento
+  // das chapas cheias — a última é justamente onde a sobra deve se acumular, e
+  // ela varia demais para servir de critério.
+  function cmpFillsHead(a, b, tol) {
+    const ha = a.length > 1 ? a.slice(0, -1) : a;
+    const hb = b.length > 1 ? b.slice(0, -1) : b;
+    return cmpFills(ha, hb, tol);
   }
   // tol opcional: substitui o padrão 1e-4 quando o chamador passa um peso customizado
   function cmpFills(a, b, tol) {
@@ -805,8 +1101,11 @@
     }
     return 0;
   }
-  function score(res) {
-    return {
+  // o: opções do plano. Quando a prioridade NÃO é 'area', mede também o custo
+  // operacional (giros/estágios) — cálculo extra que só se paga quando o
+  // critério de escolha vai usá-lo.
+  function score(res, o) {
+    const sc = {
       sheets: res.sheets.length,
       unplaced: res.unplaced.length,
       // fração ocupada por chapa (área REAL das peças, não o slot), da mais cheia para a mais vazia
@@ -814,22 +1113,59 @@
       off: offAreas(res.sheets),
       cuts: res.sheets.reduce((a, s) => a + s.cuts, 0),
     };
+    if (o && o.priority && o.priority !== 'area') sc.oper = operCost(res, o.kerf);
+    return sc;
   }
   // Compara dois resultados pelas 5 premissas, em ordem de prioridade.
   // w.X = peso 1–10: peso maior → tolerância menor → critério mais exigente.
-  function better(a, b, w) {
+  // priority: 'area' (só aproveitamento, comportamento histórico),
+  //           'balanced' (aproveitamento com tolerância; empate resolve pelo
+  //                       custo de execução) — PADRÃO,
+  //           'simple' (custo de execução antes do aproveitamento).
+  // Peças fora e nº de chapas vêm sempre primeiro: nenhum ganho de operação
+  // justifica gastar chapa a mais.
+  function better(a, b, w, priority) {
     if (!b) return true;
     if (!w) w = defaultWeights();
+    const prio = priority || 'area';
     // 1. Menos peças não-posicionadas (peso≥9→tol 0, ≥5→tol 1, <5→tol 2)
     const unplTol = w.unplaced >= 9 ? 0 : w.unplaced >= 5 ? 1 : 2;
     if (Math.abs(a.unplaced - b.unplaced) > unplTol) return a.unplaced < b.unplaced;
     // 2. Menos chapas usadas
     const shTol = w.sheets >= 9 ? 0 : w.sheets >= 5 ? 1 : 2;
     if (Math.abs(a.sheets - b.sheets) > shTol) return a.sheets < b.sheets;
-    // 3. Chapas mais cheias (peso 10→tol 0,1%; peso 1→tol 5%)
+    // 2b. Custo de execução — antes do aproveitamento em 'simple';
+    // em 'balanced' entra depois, como desempate das chapas cheias.
+    const operCmp = () => {
+      if (!a.oper || !b.oper) return 0;
+      if (a.oper.turns !== b.oper.turns) return a.oper.turns < b.oper.turns ? 1 : -1;
+      if (a.oper.stages !== b.oper.stages) return a.oper.stages < b.oper.stages ? 1 : -1;
+      if (a.oper.cuts !== b.oper.cuts) return a.oper.cuts < b.oper.cuts ? 1 : -1;
+      return 0;
+    };
+    if (prio === 'simple') {
+      // mesmo priorizando a máquina, as chapas cheias não podem esvaziar:
+      // diferença grande (>8%) nelas ainda decide antes do custo de corte
+      const flRough = cmpFillsHead(a.fills, b.fills, 0.08);
+      if (flRough !== 0) return flRough > 0;
+      const oc = operCmp();
+      if (oc !== 0) return oc > 0;
+    }
+    // 3. Chapas mais cheias (peso 10→tol 0,1%; peso 1→tol 5%). Em 'balanced' a
+    // tolerância é maior: diferenças pequenas de aproveitamento não valem um
+    // plano mais trabalhoso de cortar.
     const fillTol = 0.001 + (10 - w.fill) * (0.049 / 9);
-    const fl = cmpFills(a.fills, b.fills, fillTol);
+    const fl = prio === 'balanced'
+      ? cmpFillsHead(a.fills, b.fills, 0.03)  // 3% de folga nas chapas cheias
+      : cmpFills(a.fills, b.fills, fillTol);
     if (fl !== 0) return fl > 0;
+    if (prio === 'balanced') {
+      const oc = operCmp();
+      if (oc !== 0) return oc > 0;
+      // empate no custo de execução → volta ao aproveitamento fino
+      const fl2 = cmpFills(a.fills, b.fills, 0.001);
+      if (fl2 !== 0) return fl2 > 0;
+    }
     // 4. Maior retalho único aproveitável (peso 10→tol 1%; peso 1→tol 30%)
     const a0 = a.off[0] || 0, b0 = b.off[0] || 0;
     const offFactor = 0.01 + (10 - w.offcut) * (0.29 / 9);
@@ -1215,7 +1551,7 @@
     o.maxSheets = (maxSheets != null && maxSheets > 0) ? maxSheets : Infinity; // teto de chapas (estoque)
     annotateGroups(items, GROUP_TOL); // peças similares (<=5cm) usam a maior medida
     let best = null, bestScore = null;
-    const consider = res => { const sc = score(res); if (better(sc, bestScore, o.weights)) { best = res; bestScore = sc; } };
+    const consider = res => { const sc = score(res, o); if (better(sc, bestScore, o.weights, o.priority)) { best = res; bestScore = sc; } };
     for (const key of Object.keys(ORDERS)) {
       const list = items.slice().sort(ORDERS[key]);
       for (const pref of ['maxrect', 'wide', 'tall']) {
@@ -1243,8 +1579,50 @@
     return best;
   }
 
+  // ---------- Finalização ----------
+  // As consolidações são o que dá o acabamento do plano — e também o que pode
+  // COMPLICAR o corte: consolidateByFreeArea encaixa peças em posições soltas
+  // (ganha área, custa estágios de guilhotina) e consolidateRemnants remaneja
+  // peças entre chapas. Quando a prioridade não é só aproveitamento, vale
+  // finalizar de mais de um jeito e ficar com o melhor pelo critério escolhido.
+  const FINISH_VARIANTS = {
+    full:   { freeArea: true,  remnants: true },   // acabamento completo (histórico)
+    plain:  { freeArea: false, remnants: true },   // sem encaixe em posição solta
+    simple: { freeArea: false, remnants: false },  // layout como saiu do empacotador
+  };
+  function finishPlan(baseSheets, rawUnplaced, o, variant, report) {
+    report = report || function () {};
+    const sheets = baseSheets.map(s => ({ ...s, placements: s.placements.slice() }));
+    report(0.08);
+    const unplaced = backfillUnplaced(sheets, rawUnplaced.slice(), o);
+    report(0.22);
+    consolidateSheets(sheets, o);
+    report(0.34);
+    if (variant.freeArea) consolidateByFreeArea(sheets, o);
+    report(0.46);
+    let prev;
+    do { prev = sheets.length; repackMerge(sheets, o); } while (sheets.length < prev);
+    report(0.66);
+    if (variant.remnants) consolidateRemnantsSafe(sheets, o);
+    report(0.78);
+    return { sheets, unplaced };
+  }
+  // Roda as variantes de finalização que fazem sentido para a prioridade e
+  // devolve a melhor. Em 'area' só a completa (comportamento de sempre).
+  function finishBest(baseSheets, rawUnplaced, o, report) {
+    const names = (!o.priority || o.priority === 'area') ? ['full'] : ['full', 'plain', 'simple'];
+    let best = null, bestScore = null;
+    names.forEach((n, i) => {
+      const res = finishPlan(baseSheets, rawUnplaced, o, FINISH_VARIANTS[n],
+        f => report(((i + f) / names.length) * 0.78));
+      const sc = score(res, o);
+      if (better(sc, bestScore, o.weights, o.priority)) { best = res; bestScore = sc; }
+    });
+    return best;
+  }
+
   function optimize(panels, stockList, options) {
-    const o = Object.assign({ kerf: 0, considerMaterial: true, considerGrain: true, allowRotate: true, weights: defaultWeights() }, options);
+    const o = Object.assign({ kerf: 0, considerMaterial: true, considerGrain: true, allowRotate: true, weights: defaultWeights(), priority: 'area' }, options);
     const items = expand(panels);
     const groups = {};
     items.forEach(it => { const key = o.considerMaterial ? it.material : '__all__'; (groups[key] = groups[key] || []).push(it); });
@@ -1264,12 +1642,9 @@
       res.sheets.forEach(s => sheets.push(s));
       res.unplaced.forEach(u => unplaced.push(u));
     });
-    const finalUnplaced = backfillUnplaced(sheets, unplaced, o);
-    consolidateSheets(sheets, o);
-    consolidateByFreeArea(sheets, o);
-    let _rLen;
-    do { _rLen = sheets.length; repackMerge(sheets, o); } while (sheets.length < _rLen);
-    consolidateRemnantsSafe(sheets, o); // melhora as sobras sem espalhá-las pelas chapas
+    const fin = finishBest(sheets, unplaced, o, function () {});
+    sheets.length = 0; fin.sheets.forEach(x => sheets.push(x));
+    const finalUnplaced = fin.unplaced;
     // numera por (material + nome do estoque) após consolidação
     const perKey = {};
     sheets.forEach(s => { const k = s.material + '|' + (s.stockName || ''); (perKey[k] = perKey[k] || []).push(s); });
@@ -1290,7 +1665,7 @@
   // cada material. O app chama step() em lotes e renderiza quando melhora;
   // pode pausar a qualquer momento e usar o melhor plano até então. ----
   function createSearch(panels, stockList, options) {
-    const o = Object.assign({ kerf: 0, considerMaterial: true, considerGrain: true, allowRotate: true, weights: defaultWeights() }, options);
+    const o = Object.assign({ kerf: 0, considerMaterial: true, considerGrain: true, allowRotate: true, weights: defaultWeights(), priority: 'area' }, options);
     const items = expand(panels);
     const groupsMap = {};
     items.forEach(it => { const key = o.considerMaterial ? it.material : '__all__'; (groupsMap[key] = groupsMap[key] || []).push(it); });
@@ -1329,8 +1704,8 @@
     // Aplica um combo em CASCATA pelos tamanhos do grupo (packOnce por tamanho).
     function tryOn(g, c) {
       const res = runCascade(g.items, g.sizes, o, (it, W, H) => packOnce(it.slice().sort(ORDERS[c.ok]), W, H, o, c.pref, c.mode, c.place, c.block, c.gr));
-      const sc = score(res);
-      if (better(sc, g.bestScore, o.weights)) { g.best = res; g.bestScore = sc; return true; }
+      const sc = score(res, o);
+      if (better(sc, g.bestScore, o.weights, o.priority)) { g.best = res; g.bestScore = sc; return true; }
       return false;
     }
 
@@ -1340,8 +1715,12 @@
         // 1º passo: "encher ao máximo" + guilhotina em faixas (2 estágios)
         maxFillDone = true;
         for (const g of groups) {
-          const tryRes = res => { const sc = score(res); if (better(sc, g.bestScore, o.weights)) { g.best = res; g.bestScore = sc; improved = true; } };
+          const tryRes = res => { const sc = score(res, o); if (better(sc, g.bestScore, o.weights, o.priority)) { g.best = res; g.bestScore = sc; improved = true; } };
           tryRes(runCascade(g.items, g.sizes, o, (it, W, H) => packMaxFill(it, W, H, o)));
+          // empacotador por tiras (knapsack) — costuma encher melhor a 1ª chapa
+          // e dá layouts de poucos estágios de guilhotina
+          for (const cfg of STRIP_CFGS)
+            tryRes(runCascade(g.items, g.sizes, o, (it, W, H) => packStrips(it, W, H, o, cfg)));
           for (const axis of ['v', 'h']) for (const gt of [0, GROUP_TOL]) for (const ok of Object.keys(ORDERS))
             tryRes(runCascade(g.items, g.sizes, o, (it, W, H) => packShelf(it, W, H, o, { axis, groupTol: gt, order: it.slice().sort(ORDERS[ok]) })));
         }
@@ -1357,11 +1736,11 @@
         const job = beamSchedule[beamIdx++];
         for (const g of groups) {
           let r = runCascade(g.items, g.sizes, o, (it, W, H) => packBeam(it, W, H, o, { order: it.slice().sort(ORDERS[job.ok]), beamWidth: job.wgt }));
-          let sc = score(r);
-          if (better(sc, g.bestScore, o.weights)) { g.best = r; g.bestScore = sc; improved = true; }
+          let sc = score(r, o);
+          if (better(sc, g.bestScore, o.weights, o.priority)) { g.best = r; g.bestScore = sc; improved = true; }
           r = runCascade(g.items, g.sizes, o, (it, W, H) => packMaxFillBeam(it.slice().sort(ORDERS[job.ok]), W, H, o, { beamWidth: job.wgt }));
-          sc = score(r);
-          if (better(sc, g.bestScore, o.weights)) { g.best = r; g.bestScore = sc; improved = true; }
+          sc = score(r, o);
+          if (better(sc, g.bestScore, o.weights, o.priority)) { g.best = r; g.bestScore = sc; improved = true; }
         }
       } else {
         // reinícios aleatórios: embaralha a ordem + combo aleatório
@@ -1372,8 +1751,8 @@
             const base = it.slice().sort(ORDERS[ok]);
             return packOnce(useShuffle ? shuffle(base) : base, W, H, o, c.pref, c.mode, c.place, c.block, c.gr);
           });
-          const sc = score(res);
-          if (better(sc, g.bestScore, o.weights)) { g.best = res; g.bestScore = sc; improved = true; }
+          const sc = score(res, o);
+          if (better(sc, g.bestScore, o.weights, o.priority)) { g.best = res; g.bestScore = sc; improved = true; }
         }
       }
       stepCount++;
@@ -1389,25 +1768,16 @@
     // continue fluindo durante esta fase pesada (antes ela ficava sem sinal).
     function result(onStage) {
       const report = typeof onStage === 'function' ? onStage : function () {};
-      const sheets = [], rawUnplaced = [];
+      const base = [], rawUnplaced = [];
       // Copia os sheets para não corromper g.best ao fazer backfill/consolidação
       groups.forEach(g => {
         if (!g.best) return;
-        g.best.sheets.forEach(s => sheets.push({ ...s, placements: s.placements.slice() }));
+        g.best.sheets.forEach(s => base.push({ ...s, placements: s.placements.slice() }));
         g.best.unplaced.forEach(u => rawUnplaced.push(u));
       });
-      report(0.08);
-      const unplaced = backfillUnplaced(sheets, rawUnplaced, o);
-      report(0.22);
-      consolidateSheets(sheets, o);
-      report(0.34);
-      consolidateByFreeArea(sheets, o);
-      report(0.46);
-      // Tenta fundir chapas pouco cheias num único re-empacotamento
-      let _prevLen;
-      do { _prevLen = sheets.length; repackMerge(sheets, o); } while (sheets.length < _prevLen);
-      report(0.66);
-      consolidateRemnantsSafe(sheets, o); // melhora as sobras sem espalhá-las pelas chapas
+      // Finaliza (uma ou várias variantes, conforme a prioridade) e fica com a melhor
+      const fin = finishBest(base, rawUnplaced, o, report);
+      const sheets = fin.sheets, unplaced = fin.unplaced;
       report(0.78);
       // Numera após consolidação (chapas podem ter sido removidas/reordenadas)
       const perMat = {};
@@ -1454,5 +1824,5 @@
     return { step, result, totalDet, unplacedRaw, unplacedFeasible };
   }
 
-  global.Optimizer = { optimize, createSearch, defaultWeights, refineOffcuts };
+  global.Optimizer = { optimize, createSearch, defaultWeights, refineOffcuts, operCost, guillotineCost };
 })(window);

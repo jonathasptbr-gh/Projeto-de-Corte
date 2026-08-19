@@ -12,7 +12,8 @@
     return {
       panels: [],
       stock: [{ width: 184, length: 274, qty: 5, material: '', name: 'Chapa' }],
-      options: { kerf: 0.8 }, // única opção ajustável (material/grão/labels/pesos fixos no padrão)
+      // kerf + prioridade do plano (material/grão/labels/pesos seguem fixos no padrão)
+      options: { kerf: 0.8, priority: 'balanced' },
       materialColors: {},
       materialNames: {},
       materials: [],
@@ -28,11 +29,19 @@
   const DB_KEY = 'projeto-corte-db-v1';
   const OLD_KEY = 'projeto-corte-v1';
   const MAX_QTY = 999; // teto de quantidade por linha (peças/estoque) — evita travar a busca
+  // Prioridade do plano: decide o desempate entre planos com o mesmo número de
+  // chapas — aproveitamento de área ou custo de execução (cada giro de 90° é um
+  // reposicionamento na máquina; cada estágio, uma nova rodada de cortes).
+  const PRIORITIES = {
+    balanced: 'Enche as chapas e, entre planos equivalentes, escolhe o mais simples de cortar.',
+    area:     'Só aproveitamento: chapas mais cheias, mesmo que o corte fique mais trabalhoso.',
+    simple:   'Menos giros de 90° e menos estágios de guilhotina, cedendo um pouco de aproveitamento.',
+  };
   // "Sem material" (material vazio) = peça FORA do plano de corte (símbolo —).
   // Serve para desligar peças sem excluí-las.
   // Versão exibida no cabeçalho. Reflete o app.js carregado na tela (útil para
   // saber se o cache do Service Worker já atualizou). Manter igual ao N de sw.js.
-  const APP_VERSION = 'v132';
+  const APP_VERSION = 'v133';
 
   const clampQty = v => Math.min(MAX_QTY, Math.max(1, Math.round(parseNum(v) || 1)));
 
@@ -95,8 +104,11 @@
     const out = {
       panels: Array.isArray(d.panels) ? d.panels : e.panels,
       stock: Array.isArray(d.stock) && d.stock.length ? d.stock : e.stock,
-      // só o kerf persiste; demais configs foram removidas (ignora valores antigos)
-      options: { kerf: (d.options && isFinite(parseFloat(d.options.kerf))) ? parseFloat(d.options.kerf) : e.options.kerf },
+      // kerf + prioridade persistem; demais configs foram removidas (ignora valores antigos)
+      options: {
+        kerf: (d.options && isFinite(parseFloat(d.options.kerf))) ? parseFloat(d.options.kerf) : e.options.kerf,
+        priority: PRIORITIES[d.options && d.options.priority] ? d.options.priority : e.options.priority,
+      },
       materialColors: colors,
       materialNames: names,
       materials: Array.isArray(d.materials) ? d.materials.slice() : [],
@@ -904,15 +916,27 @@
   }
 
   // ---------- Opções ----------
-  // Única opção restante: kerf. (Material/grão/labels/pesos são fixos no padrão.)
+  // Ajustáveis: kerf e PRIORIDADE do plano. (Material/grão/labels/pesos são
+  // fixos no padrão.) A prioridade decide o desempate entre planos com o mesmo
+  // número de chapas: aproveitamento de área ou custo de execução (cada giro de
+  // 90° é um reposicionamento na máquina; cada estágio, uma nova rodada de cortes).
   function refreshOptionsUI() {
     const k = $('#opt-kerf'); if (k) k.value = state.options.kerf;
+    const p = $('#opt-priority'); if (p) p.value = state.options.priority || 'balanced';
+    const h = $('#opt-priority-hint'); if (h) h.textContent = PRIORITIES[state.options.priority] || '';
   }
   function initOptions() {
     refreshOptionsUI();
-    const k = $('#opt-kerf'); if (!k) return;
-    k.addEventListener('change', e => {
+    const k = $('#opt-kerf');
+    if (k) k.addEventListener('change', e => {
       state.options.kerf = parseFloat(e.target.value) || 0;
+      save();
+      if (validPanels().length) markPlanStale();
+    });
+    const p = $('#opt-priority');
+    if (p) p.addEventListener('change', e => {
+      state.options.priority = PRIORITIES[e.target.value] ? e.target.value : 'balanced';
+      refreshOptionsUI();
       save();
       if (validPanels().length) markPlanStale();
     });
@@ -1130,6 +1154,7 @@
     add('## Configurações');
     add('');
     add(`- Kerf (espessura de corte): **${numFmt(state.options.kerf)} cm**`);
+    add(`- Prioridade do plano: **${state.options.priority || 'balanced'}** — ${PRIORITIES[state.options.priority] || ''}`);
     add(`- Materiais: **${mats.length}** · Estoque: **${st.length} linha(s)**`);
     add(`- Peças: **${ps.length} linha(s)** / **${ps.reduce((a, p) => a + (p.qty || 1), 0)} unidade(s)**`);
     const semMat = ps.filter(p => !p.material);
@@ -1551,6 +1576,7 @@
     const gstock = validStock().map(s => Object.assign({}, s, { material: materialGroupKey(s.material) }));
     const opts = {
       kerf: state.options.kerf,
+      priority: state.options.priority || 'balanced',
       considerMaterial: true, // fixos (opções removidas da UI)
       considerGrain: true,
       allowRotate: true,
