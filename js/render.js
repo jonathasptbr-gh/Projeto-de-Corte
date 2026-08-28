@@ -52,7 +52,7 @@
     return colorOf;
   }
 
-  function sheetSVG(sheet, colorMap, showLabels, idx) {
+  function sheetSVG(sheet, colorMap, showLabels, idx, minStrip) {
     const rawW = sheet.W, rawH = sheet.H;
     const stockGrain = sheet.stockGrain || '';
 
@@ -128,6 +128,7 @@
     });
 
     // --- Réguas externas (guilhotina) ------------------------------------
+    const minCut = isFinite(minStrip) ? minStrip : 0.2;
     const rfs = Math.max(4, Math.min(W, H) * 0.024);
     const ruler = '#cc2200';
 
@@ -163,8 +164,27 @@
         push(e); s = a; e = b;
       });
       if (s !== null) push(e);
-      return ticks.sort((x, y) => x - y);
+      return prune(ticks.sort((x, y) => x - y));
     }
+
+    // Tira até o kerf de largura não existe como tira: o próprio corte come
+    // esse material, não sobra o que separar. Acontece na PONTA da chapa — no
+    // plano do balcão a S1b de 6 cm terminava a 0,1 cm da borda, e a marca extra
+    // imprimia um "0,1" colado no "6" da tira vizinha, que se lia como "60,1".
+    // Some com a marca (nunca com as bordas 0 e limit) e a lasca fica dentro da
+    // tira ao lado, que segue rotulada pela extensão real das peças (6).
+    function prune(ticks) {
+      const out = ticks.slice();
+      for (let i = 0; i < out.length - 1;) {
+        if (out[i + 1] - out[i] > minCut + EPS) { i++; continue; }
+        const drop = (i + 1 < out.length - 1) ? i + 1 : i; // marca interna do par
+        if (drop === 0 || drop === out.length - 1) { i++; continue; } // só bordas: nada a podar
+        out.splice(drop, 1);
+        i = Math.max(0, drop - 1);
+      }
+      return out;
+    }
+
     const colsX = axisTicks('x', W);
     const rowsY = axisTicks('y', H);
 
@@ -235,6 +255,9 @@
 
   function renderSheets(container, result, opts) {
     container.innerHTML = '';
+    // Tira mais fina que o kerf não é tira: a serra não consegue separá-la.
+    const kerf = opts && isFinite(parseFloat(opts.kerf)) ? Math.max(0, parseFloat(opts.kerf)) : 0.8;
+    const minStrip = Math.max(kerf, 0.2);
     const colorMap = buildColorMap(result);
     // conta chapas por tipo (material+nome) → nº só aparece se houver mais de uma
     const typeCount = {};
@@ -251,7 +274,7 @@
         `<h3>${esc(sheet.material)} — ${esc(nm)}${suffix}</h3>` +
         `<div class="sub">${fmt(sheet.W)} × ${fmt(sheet.H)} · ${sheet.placements.length} peças · aproveit. ${eff.toFixed(1)}%</div>` +
         sheetLegend(sheet, colorMap) +
-        sheetSVG(sheet, colorMap, opts.showLabels, idx);
+        sheetSVG(sheet, colorMap, opts.showLabels, idx, minStrip);
       container.appendChild(card);
     });
     // As peças que não couberam são listadas no TOPO do plano, em tabela
