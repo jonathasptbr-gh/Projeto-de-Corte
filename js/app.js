@@ -41,7 +41,7 @@
   // Serve para desligar peças sem excluí-las.
   // Versão exibida no cabeçalho. Reflete o app.js carregado na tela (útil para
   // saber se o cache do Service Worker já atualizou). Manter igual ao N de sw.js.
-  const APP_VERSION = 'v133';
+  const APP_VERSION = 'v134';
 
   const clampQty = v => Math.min(MAX_QTY, Math.max(1, Math.round(parseNum(v) || 1)));
 
@@ -1693,7 +1693,7 @@
     });
 
     renderUnplaced(result);
-    Render.renderSheets(sheetsEl, result, { showLabels: true });
+    Render.renderSheets(sheetsEl, result, { showLabels: true, kerf: state.options.kerf });
   }
   function metric(k, v) { return `<div class="metric"><div class="v">${v}</div><div class="k">${k}</div></div>`; }
 
