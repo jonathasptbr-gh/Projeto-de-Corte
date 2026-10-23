@@ -487,8 +487,7 @@ table.grid.breakdown .ok { color: var(--blue); font-weight: 700; }
 /* Módulos do orçamento (tipo, material, L × A × P, qtd → m³) */
 .mod-wrap { padding: 10px; }
 .mod-total { margin-left: auto; font-size: .82rem; color: var(--muted); white-space: nowrap; }
-.mod-meta { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 10px; }
-.mod-meta label, .mod-row2 label { display: flex; flex-direction: column; gap: 3px; font-size: .74rem; color: var(--muted); min-width: 0; }
+.mod-row2 label { display: flex; flex-direction: column; gap: 3px; font-size: .74rem; color: var(--muted); min-width: 0; }
 .mod-wrap input {
   width: 100%; min-width: 0; font: inherit; font-size: .88rem; color: var(--text);
   border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; background: #fafbfa;
@@ -498,8 +497,17 @@ table.grid.breakdown .ok { color: var(--blue); font-weight: 700; }
 .mod-empty { margin: 4px 0; }
 .mod-item { border: 1px solid var(--line); border-radius: 10px; padding: 8px; background: #fff; }
 .mod-row1 { display: flex; align-items: center; gap: 6px; }
-.mod-row1 .mod-name { flex: 1.3 1 0; }
-.mod-row1 .mod-mat { flex: 1 1 0; }
+.mod-pick {
+  flex: 1 1 0; min-width: 0; display: flex; align-items: center; gap: 6px; height: 34px;
+  font: inherit; font-size: .88rem; font-weight: 600; color: var(--text); text-align: left;
+  border: 1px solid var(--line); border-radius: 8px; padding: 0 8px; background: #fafbfa; cursor: pointer;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.mod-pick.mod-cat { flex: 1.2 1 0; display: block; line-height: 32px; }
+.mod-pick.empty { color: var(--muted); font-weight: 400; border-style: dashed; }
+.mod-pick .mat-chip { flex: 0 0 auto; }
+.mod-mat-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.mat-pick-add { color: var(--blue); }
 .mod-idx {
   flex: 0 0 auto; width: 22px; height: 22px; border-radius: 50%; display: inline-flex;
   align-items: center; justify-content: center; font-size: .74rem; font-weight: 600;

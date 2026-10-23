@@ -21,15 +21,17 @@
       budgetCfg: Budget.defaultCfg(),
       budgetDescription: '',
       budgetPhoto: '',
-      // Dados p/ estimar orçamento sem plano detalhado (relatório geral):
-      budgetCategory: '',      // categoria do móvel (Cozinha, Guarda-roupa…)
-      budgetFinalPrice: null,  // valor efetivamente fechado com o cliente (R$)
-      budgetModules: [],       // [{id,name,material,width,height,depth,qty}] em cm
+      // Catálogo dos módulos do orçamento (relatório geral, análise por m³):
+      budgetModules: [],       // [{id,category,material,width,height,depth,qty}] em cm
       plan: null,
     };
   }
   let state = emptyData();                 // dados do projeto ativo (referência viva)
-  let db = { projects: [], activeId: null, budgetGlobal: { items: Budget.defaultItems() } };
+  // Categorias de módulo (tipo de móvel) — lista GLOBAL, compartilhada entre os
+  // projetos, p/ o mesmo módulo ter sempre o mesmo nome e agrupar na análise.
+  const DEFAULT_MODULE_CATEGORIES = ['Armário aéreo', 'Armário inferior', 'Balcão', 'Bancada', 'Cabeceira',
+    'Gaveteiro', 'Guarda-roupa', 'Mesa', 'Nicho', 'Painel', 'Prateleira', 'Torre'];
+  let db = { projects: [], activeId: null, budgetGlobal: { items: Budget.defaultItems() }, moduleCategories: DEFAULT_MODULE_CATEGORIES.slice() };
   const DB_KEY = 'projeto-corte-db-v1';
   const OLD_KEY = 'projeto-corte-v1';
   const MAX_QTY = 999; // teto de quantidade por linha (peças/estoque) — evita travar a busca
@@ -45,7 +47,7 @@
   // Serve para desligar peças sem excluí-las.
   // Versão exibida no cabeçalho. Reflete o app.js carregado na tela (útil para
   // saber se o cache do Service Worker já atualizou). Manter igual ao N de sw.js.
-  const APP_VERSION = 'v135';
+  const APP_VERSION = 'v136';
 
   const clampQty = v => Math.min(MAX_QTY, Math.max(1, Math.round(parseNum(v) || 1)));
 
@@ -130,8 +132,6 @@
       },
       budgetDescription: d.budgetDescription || '',
       budgetPhoto: d.budgetPhoto || '',
-      budgetCategory: typeof d.budgetCategory === 'string' ? d.budgetCategory : '',
-      budgetFinalPrice: isFinite(parseFloat(d.budgetFinalPrice)) ? parseFloat(d.budgetFinalPrice) : null,
       budgetModules: Array.isArray(d.budgetModules) ? d.budgetModules.filter(m => m && typeof m === 'object').map(normalizeModule) : [],
       plan: (d.plan && typeof d.plan === 'object' && Array.isArray(d.plan.sheets)) ? d.plan : null,
     };
@@ -141,7 +141,9 @@
     const n = v => { const x = parseFloat(v); return isFinite(x) && x > 0 ? x : 0; };
     return {
       id: m.id || genId(),
-      name: String(m.name || ''), material: String(m.material || ''),
+      // categoria = "tipo de móvel" (nome repetido entre projetos p/ agrupar na análise);
+      // v135 chamava de name. material = CHAVE do material do projeto (como nas peças).
+      category: String(m.category != null ? m.category : (m.name || '')).trim(), material: String(m.material || ''),
       width: n(m.width), height: n(m.height), depth: n(m.depth),
       qty: Math.max(1, Math.min(MAX_QTY, Math.round(n(m.qty) || 1))),
     };
@@ -193,13 +195,14 @@
       } else {
         db.budgetGlobal.items = db.budgetGlobal.items || Budget.defaultItems();
       }
+      db.moduleCategories = Array.isArray(db.moduleCategories) ? db.moduleCategories.filter(x => typeof x === 'string' && x.trim()) : DEFAULT_MODULE_CATEGORIES.slice();
       migrateFixacaoItem(); // antes do normalizeData (lê o fixacaoRate antigo cru)
       db.projects.forEach(p => { p.data = normalizeData(p.data); });
     } else {
       let old = null;
       try { old = JSON.parse(localStorage.getItem(OLD_KEY) || 'null'); } catch (e) {}
       const proj = makeProject('Projeto 1', old);
-      db = { projects: [proj], activeId: proj.id, budgetGlobal: { items: Budget.defaultItems() } };
+      db = { projects: [proj], activeId: proj.id, budgetGlobal: { items: Budget.defaultItems() }, moduleCategories: DEFAULT_MODULE_CATEGORIES.slice() };
     }
     if (!db.projects.find(p => p.id === db.activeId)) db.activeId = db.projects[0].id;
     state = activeProject().data;
@@ -209,6 +212,7 @@
     const build = (withPlan) => ({
       activeId: db.activeId,
       budgetGlobal: db.budgetGlobal,
+      moduleCategories: db.moduleCategories,
       projects: db.projects.map(p => ({
         id: p.id, name: p.name, createdAt: p.createdAt, updatedAt: p.updatedAt,
         data: withPlan ? p.data : Object.assign({}, p.data, { plan: null }),
@@ -522,7 +526,8 @@
   }
 
   // Popup temático para escolher o material de uma peça/chapa.
-  function openMaterialPicker(cur, onPick) {
+  // opts.allowAdd: inclui "Novo material" (cria pelo mesmo fluxo da legenda e já escolhe).
+  function openMaterialPicker(cur, onPick, opts) {
     const list = materialsOrdered();
     const ov = el('div', 'modal-overlay dialog-overlay');
     const card = el('div', 'modal dialog');
@@ -540,6 +545,16 @@
     };
     list.forEach(m => addOpt(m, matLabel(m)));
     addOpt('', 'Sem material');
+    if (opts && opts.allowAdd) {
+      const it = el('button', 'mat-pick-item mat-pick-add'); it.type = 'button';
+      it.innerHTML = Icons.html('add') + '<span class="mat-pick-name">Novo material</span>';
+      it.addEventListener('click', async () => {
+        ov.remove(); document.removeEventListener('keydown', onKey);
+        const key = await addMaterialManual();
+        if (key) onPick(key);
+      });
+      pick.appendChild(it);
+    }
     body.appendChild(pick);
     const actions = el('div', 'modal-actions');
     const cancelBtn = el('button', 'btn'); cancelBtn.textContent = 'Cancelar';
@@ -635,10 +650,10 @@
   // peças/estoque, mesmo sem nenhuma peça ainda usá-lo).
   async function addMaterialManual() {
     const name = await ui.prompt('Novo material', 'Nome (inclua a espessura, ex.: "Carvalho 18mm"):', '', { okText: 'Criar' });
-    if (name == null) return;
+    if (name == null) return null;
     const key = String(name).trim();
-    if (!key) return;
-    if (materialsOrdered().includes(key)) { toast('Esse material já existe.'); return; }
+    if (!key) return null;
+    if (materialsOrdered().includes(key)) { toast('Esse material já existe.'); return key; }
     if (!Array.isArray(state.materials)) state.materials = [];
     state.materials.push(key);
     state.materialColors[key] = colorFromName(key) || fallbackColor(key);
@@ -647,6 +662,7 @@
     save();
     renderMatLegend(); renderPanels(); renderStock();
     toast('Material criado');
+    return key;
   }
 
   // Exclui um material e TODAS as peças (e estoques) que o utilizam.
@@ -1331,7 +1347,6 @@
       stock: state.stock.filter(s => s.width > 0 && s.length > 0),
       panels: validPanels(),
       budgetCfg: state.budgetCfg, budgetQtys: state.budgetQtys, budgetItems: db.budgetGlobal.items,
-      budgetCategory: state.budgetCategory, budgetFinalPrice: state.budgetFinalPrice,
       budgetModules: state.budgetModules, budgetDescription: state.budgetDescription,
       planStale: planStale,
       plan: state.plan || null,
@@ -1420,19 +1435,17 @@
       const hasPlan = !!(state.plan && state.plan.sheets && state.plan.sheets.length);
       const { metrics, lines, t } = budgetBreakdown();
       const vol = modulesVolume(state.budgetModules);
-      const fin = state.budgetFinalPrice;
-      // Preço de referência p/ análise: o valor FECHADO quando informado; senão o Total calculado.
-      const ref = fin != null && fin > 0 ? fin : t.pix;
       const sheetsByMat = {};
       if (hasPlan) state.plan.sheets.forEach(s => { sheetsByMat[s.material] = (sheetsByMat[s.material] || 0) + 1; });
       return {
         id: p.id, name: p.name,
         createdAt: new Date(p.createdAt).toISOString(), updatedAt: new Date(p.updatedAt).toISOString(),
-        category: (state.budgetCategory || '').trim(),
         description: state.budgetDescription || '',
         hasPhoto: !!state.budgetPhoto,
         modules: state.budgetModules.map((m, i) => ({
-          n: i + 1, name: m.name, material: m.material,
+          n: i + 1, category: m.category,
+          material: m.material ? matLabel(m.material) : '', materialColor: m.material ? matColor(m.material) : '',
+          thickness: matThickness(m.material) ? +matThickness(m.material) : null,
           width: m.width, height: m.height, depth: m.depth, qty: m.qty || 1,
           volumeM3: r3(moduleVolume(m)),
         })),
@@ -1466,9 +1479,7 @@
           materials: r2(t.entrada), labor: r2(t.labor), complexity: r2(t.complexTotal),
           total: r2(t.pix), credit6x: r2(t.credit6x), credit12x: r2(t.credit12x),
           pixClient: r2(t.pixClient), productionDays: r2(t.days),
-          finalPrice: fin != null ? r2(fin) : null,
-          referencePrice: r2(ref),
-          pricePerM3: vol > 0 ? r2(ref / vol) : null,
+          pricePerM3: vol > 0 ? r2(t.pix / vol) : null,
           materialsPerM3: vol > 0 ? r2(t.entrada / vol) : null,
         },
       };
@@ -1499,21 +1510,21 @@
     const out = [];
     records.forEach(r => r.modules.forEach(m => {
       const frac = r.volumeM3 > 0 ? m.volumeM3 / r.volumeM3 : 0;
-      out.push({ project: r, m, frac, estValue: r2(r.budget.referencePrice * frac) });
+      out.push({ project: r, m, frac, estValue: r2(r.budget.total * frac) });
     }));
     return out;
   }
   function buildAllReport() {
     const records = db.projects.slice().sort((a, b) => a.createdAt - b.createdAt).map(projectRecord);
     const mods = moduleRows(records);
-    const withVol = records.filter(r => r.volumeM3 > 0 && r.budget.referencePrice > 0);
+    const withVol = records.filter(r => r.volumeM3 > 0 && r.budget.total > 0);
     return {
       app: 'projeto-corte', version: APP_VERSION, exportedAt: new Date().toISOString(),
       units: { dimensions: 'cm', volume: 'm3', area: 'm2', money: 'BRL', band: 'm' },
       notes: [
-        'referencePrice = finalPrice (valor fechado) quando informado; senão budget.total (Materiais + Mão de obra + Complexidade).',
-        'pricePerM3 = referencePrice / volumeM3 (soma L×A×P×qtd dos módulos).',
-        'byModuleType: preço de cada projeto rateado entre seus módulos pela fração de volume.',
+        'budget.total = Materiais + Mão de obra + Complexidade (o Total da aba Orçamento).',
+        'pricePerM3 = budget.total / volumeM3 (soma L×A×P×qtd dos módulos).',
+        'byModuleCategory / byModuleMaterial: total de cada projeto rateado entre seus módulos pela fração de volume.',
       ],
       budgetItems: db.budgetGlobal.items,
       summary: {
@@ -1521,10 +1532,9 @@
         projectsWithVolumeAndPrice: withVol.length,
         pricePerM3: (() => {
           const v = withVol.reduce((a, r) => a + r.volumeM3, 0);
-          return v > 0 ? r2(withVol.reduce((a, r) => a + r.budget.referencePrice, 0) / v) : null;
+          return v > 0 ? r2(withVol.reduce((a, r) => a + r.budget.total, 0) / v) : null;
         })(),
-        byCategory: aggregateBy(records, r => r.category, r => r.volumeM3, r => r.volumeM3 > 0 ? r.budget.referencePrice : 0, '(sem categoria)'),
-        byModuleType: aggregateBy(mods, x => (x.m.name || '').trim(), x => x.m.volumeM3, x => x.estValue, '(sem tipo)'),
+        byModuleCategory: aggregateBy(mods, x => (x.m.category || '').trim(), x => x.m.volumeM3, x => x.estValue, '(sem categoria)'),
         byModuleMaterial: aggregateBy(mods, x => (x.m.material || '').trim(), x => x.m.volumeM3, x => x.estValue, '(sem material)'),
       },
       projects: records,
@@ -1544,69 +1554,67 @@
   }
   function buildAllProjectsCsv(rep) {
     const items = rep.budgetItems;
-    const head = ['id', 'projeto', 'categoria', 'criado', 'atualizado', 'modulos_un', 'volume_m3',
+    const head = ['id', 'projeto', 'criado', 'atualizado', 'modulos_un', 'volume_m3',
       'pecas_un', 'area_pecas_m2', 'plano_calculado', 'chapas', 'chapas_brancas', 'chapas_cor', 'cortes',
       'fita22_branca_m', 'fita22_cor_m', 'fita45_branca_m', 'fita45_cor_m', 'indice_complexidade']
       .concat(...items.map(it => [it.label + ' (qtd)', it.label + ' (R$)']))
       .concat(['materiais_rs', 'mao_obra_pct', 'mao_obra_rs', 'complexidade_rs', 'total_rs',
-        'credito6x_rs', 'credito12x_rs', 'pix_cliente_rs', 'dias_producao', 'valor_fechado_rs',
-        'preco_referencia_rs', 'rs_por_m3', 'materiais_rs_por_m3', 'materiais_do_projeto', 'modulos', 'descricao']);
+        'credito6x_rs', 'credito12x_rs', 'pix_cliente_rs', 'dias_producao', 'rs_por_m3', 'materiais_rs_por_m3', 'materiais_do_projeto', 'modulos', 'descricao']);
     const rows = rep.projects.map(r => {
       const b = r.budget, pl = r.plan;
-      return [r.id, r.name, r.category, r.createdAt.slice(0, 10), r.updatedAt.slice(0, 10), r.modulesUnits, r.volumeM3,
+      return [r.id, r.name, r.createdAt.slice(0, 10), r.updatedAt.slice(0, 10), r.modulesUnits, r.volumeM3,
         r.pieces.units, r.pieces.areaM2, pl.calculated, pl.sheets, pl.sheetsWhite, pl.sheetsColor, pl.cuts,
         pl.band22WhiteM, pl.band22ColorM, pl.band45WhiteM, pl.band45ColorM, pl.complexityIndex]
         .concat(...items.map(it => { const l = b.lines.find(x => x.key === it.key); return l ? [l.qty, l.subtotal] : ['', '']; }))
         .concat([b.materials, b.cfg.laborPct, b.labor, b.complexity, b.total, b.credit6x, b.credit12x, b.pixClient,
-          b.productionDays, b.finalPrice, b.referencePrice, b.pricePerM3, b.materialsPerM3,
+          b.productionDays, b.pricePerM3, b.materialsPerM3,
           r.materials.map(m => `${m.label} (${m.sheets} ch)`).join(' | '),
-          r.modules.map(m => `${m.qty}× ${m.name || '?'} ${numIn(m.width)}×${numIn(m.height)}×${numIn(m.depth)} ${m.material}`).join(' | '),
+          r.modules.map(m => `${m.qty}× ${m.category || '?'} ${numIn(m.width)}×${numIn(m.height)}×${numIn(m.depth)} ${m.material}`).join(' | '),
           r.description]);
     });
     return csvOf(head, rows);
   }
   function buildAllModulesCsv(rep) {
-    const head = ['projeto_id', 'projeto', 'categoria', 'modulo_n', 'tipo', 'material', 'largura_cm', 'altura_cm',
+    const head = ['projeto_id', 'projeto', 'modulo_n', 'categoria', 'material', 'espessura_mm', 'largura_cm', 'altura_cm',
       'profundidade_cm', 'qtd', 'volume_m3', 'volume_projeto_m3', 'fracao_volume', 'total_projeto_rs',
-      'valor_fechado_rs', 'preco_referencia_projeto_rs', 'valor_rateado_modulo_rs', 'rs_por_m3_projeto'];
+      'valor_rateado_modulo_rs', 'rs_por_m3_projeto'];
     const rows = moduleRows(rep.projects).map(({ project: r, m, frac, estValue }) =>
-      [r.id, r.name, r.category, m.n, m.name, m.material, m.width, m.height, m.depth, m.qty, m.volumeM3,
-        r.volumeM3, r3(frac), r.budget.total, r.budget.finalPrice, r.budget.referencePrice, estValue, r.budget.pricePerM3]);
+      [r.id, r.name, m.n, m.category, m.material, m.thickness, m.width, m.height, m.depth, m.qty, m.volumeM3,
+        r.volumeM3, r3(frac), r.budget.total, estValue, r.budget.pricePerM3]);
     return csvOf(head, rows);
   }
   function buildAllReportMd(rep) {
     const out = [], add = s => out.push(s);
     const money = v => v == null ? '—' : brl(v);
     const vol = v => volFmt(v || 0);
-    const aggTable = list => mdTable(['Grupo', 'Registros', 'Volume m³', 'R$ (ref.)', 'R$/m³', 'Faixa R$/m³'],
+    const aggTable = list => mdTable(['Grupo', 'Registros', 'Volume m³', 'R$ (rateado)', 'R$/m³', 'Faixa R$/m³'],
       list.map(x => [x.key, x.count, vol(x.volumeM3), money(x.price), money(x.pricePerM3),
         x.minPerM3 != null ? `${brl(x.minPerM3)} – ${brl(x.maxPerM3)}` : '—']));
     add('# Relatório de orçamentos — todos os projetos');
     add('');
     add(`Gerado em ${new Date().toLocaleString('pt-BR')} · app ${APP_VERSION} · ${rep.projects.length} projeto(s) · medidas em cm, volume em m³`);
     add('');
-    add('> **Preço de referência** = valor fechado quando informado; senão o Total calculado (materiais + mão de obra + complexidade). ' +
-      '**R$/m³** = preço de referência ÷ volume dos módulos (L × A × P × qtd). ' +
-      'Por tipo/material de módulo, o preço do projeto é rateado entre os módulos pela fração de volume.');
+    add('> **Total** = materiais + mão de obra + complexidade (o Total da aba Orçamento). ' +
+      '**R$/m³** = Total ÷ volume dos módulos (L × A × P × qtd). ' +
+      'Por categoria/material de módulo, o Total do projeto é rateado entre os módulos pela fração de volume.');
     add('');
     add('## Resumo');
     add('');
     add(`- Projetos com volume e preço: **${rep.summary.projectsWithVolumeAndPrice}** de ${rep.summary.projects}`);
     add(`- R$/m³ geral: **${money(rep.summary.pricePerM3)}**`);
     add('');
-    add('### Por categoria'); add(''); add(aggTable(rep.summary.byCategory));
-    if (rep.summary.byModuleType.length) { add('### Por tipo de módulo'); add(''); add(aggTable(rep.summary.byModuleType)); }
+    if (rep.summary.byModuleCategory.length) { add('### Por categoria de módulo'); add(''); add(aggTable(rep.summary.byModuleCategory)); }
     if (rep.summary.byModuleMaterial.length) { add('### Por material de módulo'); add(''); add(aggTable(rep.summary.byModuleMaterial)); }
     add('## Projetos');
     add('');
-    add(mdTable(['Projeto', 'Categoria', 'Módulos', 'Volume m³', 'Total', 'Fechado', 'R$/m³'],
-      rep.projects.map(r => [r.name, r.category || '—', r.modulesUnits, vol(r.volumeM3),
-        money(r.budget.total), money(r.budget.finalPrice), money(r.budget.pricePerM3)])));
+    add(mdTable(['Projeto', 'Módulos', 'Volume m³', 'Total', 'R$/m³'],
+      rep.projects.map(r => [r.name, r.modulesUnits, vol(r.volumeM3),
+        money(r.budget.total), money(r.budget.pricePerM3)])));
     rep.projects.forEach(r => {
       const b = r.budget;
       add(`### ${r.name}`);
       add('');
-      add(`- Categoria: **${r.category || '—'}** · criado ${r.createdAt.slice(0, 10)} · atualizado ${r.updatedAt.slice(0, 10)}`);
+      add(`- Criado ${r.createdAt.slice(0, 10)} · atualizado ${r.updatedAt.slice(0, 10)}`);
       add(`- Volume: **${vol(r.volumeM3)} m³** em ${r.modulesUnits} módulo(s) · peças: ${r.pieces.units} un. / ${numFmt(r.pieces.areaM2)} m²`);
       add(`- Plano: ${r.plan.calculated ? `${r.plan.sheets} chapa(s) (${r.plan.sheetsWhite} branca(s), ${r.plan.sheetsColor} de cor), ${r.plan.cuts} cortes` +
         (r.plan.unplaced ? `, ${r.plan.unplaced} peça(s) fora` : '') + (r.plan.stale ? ' — desatualizado' : '') : 'não calculado'}`);
@@ -1619,8 +1627,8 @@
         add('');
       }
       if (r.modules.length) {
-        add(mdTable(['#', 'Tipo', 'Material', 'L', 'A', 'P', 'Qtd', 'm³'],
-          r.modules.map(m => [m.n, m.name || '—', m.material || '—', numFmt(m.width), numFmt(m.height), numFmt(m.depth), m.qty, vol(m.volumeM3)])));
+        add(mdTable(['#', 'Categoria', 'Material', 'L', 'A', 'P', 'Qtd', 'm³'],
+          r.modules.map(m => [m.n, m.category || '—', m.material || '—', numFmt(m.width), numFmt(m.height), numFmt(m.depth), m.qty, vol(m.volumeM3)])));
       } else { add('_Sem módulos cadastrados._'); add(''); }
       const used = b.lines.filter(l => l.qty || l.subtotal);
       if (used.length) add(mdTable(['Item', 'Qtd', 'Unit.', 'Subtotal'],
@@ -1629,7 +1637,7 @@
         ['Materiais', brl(b.materials)], [`Mão de obra (${numFmt(b.cfg.laborPct)}%)`, brl(b.labor)],
         ['Complexidade', brl(b.complexity)], ['**Total**', '**' + brl(b.total) + '**'],
         ['Crédito 6x', brl(b.credit6x)], ['Crédito 12x', brl(b.credit12x)], ['Pix (cliente)', brl(b.pixClient)],
-        ['Valor fechado', money(b.finalPrice)], ['R$/m³ (ref.)', money(b.pricePerM3)],
+        ['R$/m³', money(b.pricePerM3)],
         ['Tempo de produção', numFmt(b.productionDays) + ' dias'],
       ]));
     });
@@ -1639,13 +1647,13 @@
     const stamp = new Date().toISOString().slice(0, 10);
     const rep = () => buildAllReport();
     choiceDialog('Relatório de todos os projetos', `${db.projects.length} projeto(s) — orçamentos, módulos e observações:`, [
-      ['list', 'Relatório (.md)', 'Resumo por categoria e tipo de módulo + cada projeto com orçamento e observações',
+      ['list', 'Relatório (.md)', 'Resumo por categoria e material de módulo + cada projeto com orçamento e observações',
         () => shareOrDownload(buildAllReportMd(rep()), `orcamentos_${stamp}.md`, 'text/markdown', 'Relatório exportado.')],
       ['table_chart', 'Dados completos (.json)', 'Tudo estruturado, com resumos — ideal p/ análise e calculadora',
         () => shareOrDownload(JSON.stringify(rep(), null, 2), `orcamentos_${stamp}.json`, 'application/json', 'Dados exportados.')],
-      ['download', 'Projetos (.csv)', '1 linha por projeto: categoria, m³, itens e totais do orçamento',
+      ['download', 'Projetos (.csv)', '1 linha por projeto: m³, itens e totais do orçamento',
         () => shareOrDownload(buildAllProjectsCsv(rep()), `orcamentos_projetos_${stamp}.csv`, 'text/csv', 'Planilha exportada.')],
-      ['download', 'Módulos (.csv)', '1 linha por módulo: tipo, material, L×A×P, m³ e valor rateado',
+      ['download', 'Módulos (.csv)', '1 linha por módulo: categoria, material, L×A×P, m³ e valor rateado',
         () => shareOrDownload(buildAllModulesCsv(rep()), `orcamentos_modulos_${stamp}.csv`, 'text/csv', 'Planilha exportada.')],
     ]);
   }
@@ -2428,33 +2436,60 @@
     renderChart();
   }
 
-  // ---------- Módulos + categoria (estimativa por m³) ----------
-  // Cada projeto guarda a categoria do móvel, o valor fechado e a lista de módulos
-  // (tipo, material, L × A × P em cm, qtd). Com isso o relatório geral cruza
-  // R$ × m³ × categoria/tipo e permite estimar orçamentos sem plano de corte.
-  const DEFAULT_CATEGORIES = ['Cozinha', 'Guarda-roupa', 'Closet', 'Banheiro', 'Lavanderia',
-    'Painel / Rack', 'Escritório', 'Quarto', 'Área gourmet', 'Comercial', 'Outro'];
-  const DEFAULT_MODULE_TYPES = ['Armário aéreo', 'Armário inferior', 'Balcão', 'Torre', 'Gaveteiro',
-    'Nicho', 'Prateleira', 'Painel', 'Bancada', 'Porta', 'Cabeceira', 'Mesa'];
-  function uniqueSorted(list) {
-    const seen = new Map();
-    list.forEach(x => { const t = String(x || '').trim(); if (t && !seen.has(t.toLowerCase())) seen.set(t.toLowerCase(), t); });
-    return Array.from(seen.values()).sort((a, b) => a.localeCompare(b, 'pt'));
-  }
-  function fillDatalist(id, values) {
-    const dl = $(id); if (!dl) return;
-    dl.innerHTML = values.map(v => `<option value="${attr(v)}"></option>`).join('');
-  }
+  // ---------- Módulos (catálogo do orçamento p/ análise por m³) ----------
+  // Cada módulo tem CATEGORIA (tipo de móvel, escolhida de uma lista global p/
+  // repetir exatamente o mesmo nome entre projetos), MATERIAL (os mesmos
+  // materiais das peças — chave, cor e nome) e L × A × P (cm) × qtd. Por ora só
+  // cataloga os orçamentos detalhados; o relatório geral cruza R$ × m³ × categoria.
   // valor p/ <input>: sem separador de milhar (numFmt daria "1.234" → lido como 1,234)
   const numIn = v => String(Math.round((+v || 0) * 100) / 100).replace('.', ',');
-  // "1.500,50" / "1500.5" / "1500,5" → 1500.5
-  const parseMoney = s => {
-    let t = String(s || '').replace(/[^\d,.-]/g, '');
-    if (t.indexOf(',') >= 0) t = t.replace(/\./g, '').replace(',', '.');
-    const n = parseFloat(t); return isFinite(n) ? n : 0;
-  };
   const volFmt = v => (Math.round(v * 1000) / 1000).toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 });
   function modulesVolume(mods) { return (mods || []).reduce((a, m) => a + moduleVolume(m), 0); }
+  // Lista global + as já usadas em qualquer projeto (sem duplicar por caixa), em ordem alfabética.
+  function moduleCategories() {
+    const seen = new Map();
+    const add = x => { const t = String(x || '').trim(); if (t && !seen.has(t.toLowerCase())) seen.set(t.toLowerCase(), t); };
+    (db.moduleCategories || []).forEach(add);
+    db.projects.forEach(p => ((p.data && p.data.budgetModules) || []).forEach(m => add(m.category)));
+    return Array.from(seen.values()).sort((a, b) => a.localeCompare(b, 'pt'));
+  }
+  // Popup de categoria: lista de opções + "Nova categoria" (entra na lista global).
+  function openCategoryPicker(cur, onPick) {
+    const ov = el('div', 'modal-overlay dialog-overlay');
+    const card = el('div', 'modal dialog');
+    const head = el('div', 'dialog-head'); head.textContent = 'Categoria do módulo';
+    const body = el('div', 'dialog-body');
+    const pick = el('div', 'mat-pick');
+    const close = () => { ov.remove(); document.removeEventListener('keydown', onKey); };
+    moduleCategories().forEach(c => {
+      const it = el('button', 'mat-pick-item' + (c.toLowerCase() === String(cur || '').toLowerCase() ? ' sel' : '')); it.type = 'button';
+      const name = el('span', 'mat-pick-name'); name.textContent = c;
+      it.appendChild(name);
+      it.addEventListener('click', () => { close(); onPick(c); });
+      pick.appendChild(it);
+    });
+    const add = el('button', 'mat-pick-item mat-pick-add'); add.type = 'button';
+    add.innerHTML = Icons.html('add') + '<span class="mat-pick-name">Nova categoria</span>';
+    add.addEventListener('click', async () => {
+      close();
+      const name = await ui.prompt('Nova categoria', 'Nome do tipo de módulo (ex.: "Armário aéreo"):', '', { okText: 'Criar' });
+      const t = String(name || '').trim(); if (!t) return;
+      const ex = moduleCategories().find(c => c.toLowerCase() === t.toLowerCase());
+      if (!ex) { db.moduleCategories = (db.moduleCategories || []).concat([t]); saveDb(); }
+      onPick(ex || t); // nome já existente (outra caixa) → reaproveita o original
+    });
+    pick.appendChild(add);
+    body.appendChild(pick);
+    const actions = el('div', 'modal-actions');
+    const cancelBtn = el('button', 'btn'); cancelBtn.textContent = 'Cancelar';
+    actions.appendChild(cancelBtn);
+    card.appendChild(head); card.appendChild(body); card.appendChild(actions); ov.appendChild(card);
+    document.body.appendChild(ov);
+    cancelBtn.addEventListener('click', close);
+    ov.addEventListener('click', e => { if (e.target === ov) close(); });
+    function onKey(e) { if (e.key === 'Escape') { e.preventDefault(); close(); } }
+    document.addEventListener('keydown', onKey);
+  }
   function updateModulesTotal() {
     const t = $('#mod-total'); if (!t) return;
     const mods = state.budgetModules;
@@ -2462,53 +2497,66 @@
     t.textContent = mods.length ? `${n} un. · ${volFmt(modulesVolume(mods))} m³` : '';
   }
   function renderModules() {
-    const all = db.projects.map(p => p.data);
-    fillDatalist('#budget-category-list', uniqueSorted(DEFAULT_CATEGORIES.concat(all.map(d => d.budgetCategory))));
-    fillDatalist('#module-type-list', uniqueSorted(DEFAULT_MODULE_TYPES.concat(
-      ...all.map(d => (d.budgetModules || []).map(m => m.name)))));
-    fillDatalist('#module-mat-list', uniqueSorted(materialsOrdered().map(m => matLabel(m)).concat(
-      ...all.map(d => (d.budgetModules || []).map(m => m.material)))));
-    const cat = $('#budget-category'); if (cat) cat.value = state.budgetCategory || '';
-    const fp = $('#budget-final-price');
-    if (fp) fp.value = state.budgetFinalPrice != null ? numIn(state.budgetFinalPrice) : '';
     const box = $('#mod-list'); if (!box) return;
     box.innerHTML = '';
     if (!state.budgetModules.length) {
-      box.innerHTML = '<p class="empty-hint mod-empty">Nenhum módulo. Cadastre cada módulo com tipo, material e L × A × P (cm).</p>';
+      box.innerHTML = '<p class="empty-hint mod-empty">Nenhum módulo. Cadastre cada módulo com categoria, material e L × A × P (cm).</p>';
     }
     state.budgetModules.forEach((m, i) => {
       const card = el('div', 'mod-item');
-      const num = v => v ? numIn(v) : '';
-      card.innerHTML =
-        `<div class="mod-row1">` +
-          `<span class="mod-idx">${i + 1}</span>` +
-          `<input class="mod-name" data-f="name" list="module-type-list" placeholder="Tipo / nome" value="${attr(m.name)}" autocomplete="off">` +
-          `<input class="mod-mat" data-f="material" list="module-mat-list" placeholder="Material" value="${attr(m.material)}" autocomplete="off">` +
-          `<button class="icon-btn del" type="button" data-del title="Remover módulo">${Icons.html('delete')}</button>` +
-        `</div>` +
-        `<div class="mod-row2">` +
-          `<label>L<input data-f="width" inputmode="decimal" value="${num(m.width)}" placeholder="cm"></label>` +
-          `<label>A<input data-f="height" inputmode="decimal" value="${num(m.height)}" placeholder="cm"></label>` +
-          `<label>P<input data-f="depth" inputmode="decimal" value="${num(m.depth)}" placeholder="cm"></label>` +
-          `<label>Qtd<input data-f="qty" inputmode="numeric" value="${m.qty || 1}"></label>` +
-          `<span class="mod-vol">${volFmt(moduleVolume(m))} m³</span>` +
-        `</div>`;
-      card.querySelectorAll('[data-f]').forEach(inp => inp.addEventListener('input', () => {
-        const f = inp.dataset.f;
-        if (f === 'name' || f === 'material') m[f] = inp.value;
-        else if (f === 'qty') m.qty = clampQty(inp.value);
-        else m[f] = Math.max(0, parseNum(inp.value) || 0);
-        card.querySelector('.mod-vol').textContent = volFmt(moduleVolume(m)) + ' m³';
-        updateModulesTotal(); save();
-      }));
-      card.querySelector('[data-del]').addEventListener('click', async () => {
-        const ok = await ui.confirm(`Remover o módulo ${i + 1}${m.name ? ' (' + m.name + ')' : ''}?`, { danger: true, okText: 'Remover' });
+      const row1 = el('div', 'mod-row1');
+      const idx = el('span', 'mod-idx'); idx.textContent = i + 1;
+      // categoria: botão que abre a lista
+      const catBtn = el('button', 'mod-pick mod-cat' + (m.category ? '' : ' empty')); catBtn.type = 'button';
+      catBtn.textContent = m.category || 'Categoria';
+      catBtn.addEventListener('click', () => openCategoryPicker(m.category, c => { m.category = c; save(); renderModules(); }));
+      // material: chip + nome, mesmo seletor das peças (com "Novo material")
+      const matBtn = el('button', 'mod-pick mod-mat' + (m.material ? '' : ' empty')); matBtn.type = 'button';
+      const chip = el('span', 'mat-chip'); paintMatChip(chip, m.material);
+      const mname = el('span', 'mod-mat-name'); // a espessura já aparece no chip → mostra só o nome
+      mname.textContent = m.material ? (matNatives(m.material)[0] || matLabel(m.material)) : 'Material';
+      matBtn.title = m.material ? matLabel(m.material) : 'Escolher material';
+      matBtn.appendChild(chip); matBtn.appendChild(mname);
+      matBtn.addEventListener('click', () => openMaterialPicker(m.material, v => { m.material = v; save(); renderModules(); }, { allowAdd: true }));
+      const del = iconBtn('del', 'delete', 'Remover módulo', async () => {
+        const ok = await ui.confirm(`Remover o módulo ${i + 1}${m.category ? ' (' + m.category + ')' : ''}?`, { danger: true, okText: 'Remover' });
         if (!ok) return;
         state.budgetModules.splice(i, 1); save(); renderModules();
       });
+      row1.appendChild(idx); row1.appendChild(catBtn); row1.appendChild(matBtn); row1.appendChild(del);
+      const row2 = el('div', 'mod-row2');
+      const num = v => v ? numIn(v) : '';
+      row2.innerHTML =
+        `<label>L<input data-f="width" inputmode="decimal" value="${num(m.width)}" placeholder="cm"></label>` +
+        `<label>A<input data-f="height" inputmode="decimal" value="${num(m.height)}" placeholder="cm"></label>` +
+        `<label>P<input data-f="depth" inputmode="decimal" value="${num(m.depth)}" placeholder="cm"></label>` +
+        `<label>Qtd<input data-f="qty" inputmode="numeric" value="${m.qty || 1}"></label>` +
+        `<span class="mod-vol">${volFmt(moduleVolume(m))} m³</span>`;
+      row2.querySelectorAll('[data-f]').forEach(inp => {
+        selectAllOnFocus(inp);
+        inp.addEventListener('input', () => {
+          const f = inp.dataset.f;
+          if (f === 'qty') m.qty = clampQty(inp.value);
+          else m[f] = Math.max(0, parseNum(inp.value) || 0);
+          row2.querySelector('.mod-vol').textContent = volFmt(moduleVolume(m)) + ' m³';
+          updateModulesTotal(); save();
+        });
+      });
+      card.appendChild(row1); card.appendChild(row2);
       box.appendChild(card);
     });
     updateModulesTotal();
+  }
+  function addModule() {
+    // herda categoria/material do último módulo (acelera cadastrar vários parecidos)
+    const last = state.budgetModules[state.budgetModules.length - 1];
+    const mod = normalizeModule({
+      category: last ? last.category : '',
+      material: last ? last.material : (materialsOrdered()[0] || ''),
+    });
+    state.budgetModules.push(mod);
+    save(); renderModules();
+    if (!mod.category) openCategoryPicker('', c => { mod.category = c; save(); renderModules(); });
   }
 
   function row(k, v) { return `<tr>${cell(k)}${cell(v)}</tr>`; }
@@ -2730,18 +2778,7 @@
     $('#photo-viewer').addEventListener('click', e => { if (e.target.id === 'photo-viewer') $('#photo-viewer').hidden = true; });
 
     // Descrição
-    $('#budget-category').addEventListener('input', e => { state.budgetCategory = e.target.value; save(); });
-    $('#budget-final-price').addEventListener('input', e => {
-      const v = e.target.value.trim();
-      state.budgetFinalPrice = v ? parseMoney(v) : null; save();
-    });
-    $('#mod-add').addEventListener('click', () => {
-      // herda tipo/material do último módulo (acelera cadastrar vários parecidos)
-      const last = state.budgetModules[state.budgetModules.length - 1];
-      state.budgetModules.push(normalizeModule({ name: last ? last.name : '', material: last ? last.material : (materialsOrdered()[0] ? matLabel(materialsOrdered()[0]) : '') }));
-      save(); renderModules();
-      const names = $$('#mod-list .mod-name'); const n = names[names.length - 1]; if (n) n.focus();
-    });
+    $('#mod-add').addEventListener('click', addModule);
     $('#budget-description').addEventListener('input', e => {
       state.budgetDescription = e.target.value; save();
     });

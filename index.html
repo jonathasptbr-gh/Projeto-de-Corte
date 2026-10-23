@@ -163,24 +163,13 @@
         </div>
       </div>
 
-      <!-- Classificação + módulos: base p/ estimar orçamento por m³ e categoria -->
+      <!-- Módulos (categoria, material, L × A × P): catálogo p/ análise de orçamento por m³ -->
       <div class="card">
         <div class="card-head">
           <h2>Módulos</h2>
           <span class="mod-total" id="mod-total"></span>
         </div>
         <div class="card-body mod-wrap">
-          <div class="mod-meta">
-            <label>Categoria
-              <input type="text" id="budget-category" list="budget-category-list" placeholder="Ex.: Cozinha" autocomplete="off" />
-            </label>
-            <label>Valor fechado (R$)
-              <input type="text" id="budget-final-price" inputmode="decimal" placeholder="opcional" autocomplete="off" />
-            </label>
-          </div>
-          <datalist id="budget-category-list"></datalist>
-          <datalist id="module-type-list"></datalist>
-          <datalist id="module-mat-list"></datalist>
           <div class="mod-list" id="mod-list"></div>
           <button class="btn" id="mod-add" type="button" style="width:100%;justify-content:center;margin-top:8px">
             <span class="mi" data-icon="add"></span>Adicionar módulo
