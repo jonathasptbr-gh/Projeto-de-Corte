@@ -21,6 +21,10 @@
       budgetCfg: Budget.defaultCfg(),
       budgetDescription: '',
       budgetPhoto: '',
+      // Dados p/ estimar orçamento sem plano detalhado (relatório geral):
+      budgetCategory: '',      // categoria do móvel (Cozinha, Guarda-roupa…)
+      budgetFinalPrice: null,  // valor efetivamente fechado com o cliente (R$)
+      budgetModules: [],       // [{id,name,material,width,height,depth,qty}] em cm
       plan: null,
     };
   }
@@ -41,7 +45,7 @@
   // Serve para desligar peças sem excluí-las.
   // Versão exibida no cabeçalho. Reflete o app.js carregado na tela (útil para
   // saber se o cache do Service Worker já atualizou). Manter igual ao N de sw.js.
-  const APP_VERSION = 'v134';
+  const APP_VERSION = 'v135';
 
   const clampQty = v => Math.min(MAX_QTY, Math.max(1, Math.round(parseNum(v) || 1)));
 
@@ -126,10 +130,24 @@
       },
       budgetDescription: d.budgetDescription || '',
       budgetPhoto: d.budgetPhoto || '',
+      budgetCategory: typeof d.budgetCategory === 'string' ? d.budgetCategory : '',
+      budgetFinalPrice: isFinite(parseFloat(d.budgetFinalPrice)) ? parseFloat(d.budgetFinalPrice) : null,
+      budgetModules: Array.isArray(d.budgetModules) ? d.budgetModules.filter(m => m && typeof m === 'object').map(normalizeModule) : [],
       plan: (d.plan && typeof d.plan === 'object' && Array.isArray(d.plan.sheets)) ? d.plan : null,
     };
     return out;
   }
+  function normalizeModule(m) {
+    const n = v => { const x = parseFloat(v); return isFinite(x) && x > 0 ? x : 0; };
+    return {
+      id: m.id || genId(),
+      name: String(m.name || ''), material: String(m.material || ''),
+      width: n(m.width), height: n(m.height), depth: n(m.depth),
+      qty: Math.max(1, Math.min(MAX_QTY, Math.round(n(m.qty) || 1))),
+    };
+  }
+  // Volume (m³) de um módulo: L × A × P (cm) × quantidade.
+  function moduleVolume(m) { return (m.width * m.height * m.depth * (m.qty || 1)) / 1e6; }
   function makeProject(name, data) {
     return { id: genId(), name: name || 'Projeto', createdAt: Date.now(), updatedAt: Date.now(), data: normalizeData(data) };
   }
@@ -971,11 +989,12 @@
     const base = activeProject() ? activeProject().data : emptyData();
     const proj = makeProject(projectNameFromFile(fileName),
       { options: base.options, budgetCfg: base.budgetCfg });
+    clearPlanView();
     db.projects.unshift(proj); db.activeId = proj.id; state = proj.data;
     selected.clear();
     applyParsedPanels(panels);
     save();
-    refreshOptionsUI(); updateProjectName(); renderStock(); renderPanels();
+    refreshOptionsUI(); updateProjectName(); renderStock(); renderPanels(); renderPlanEmpty();
     $('#import-status').textContent = `${panels.length} peças · ${panels.reduce((a, p) => a + p.qty, 0)} un.`;
     gotoTab('panels');
     toast('Projeto: ' + proj.name);
@@ -986,6 +1005,7 @@
   // Preserva budgetCfg, options, budgetQtys, budgetDescription, budgetPhoto e nome do projeto.
   function importIntoProject(panels, targetId) {
     if (!db.projects.find(p => p.id === targetId)) return;
+    clearPlanView();
     db.activeId = targetId; state = activeProject().data;
     selected.clear();
     // Limpa materiais/cores/nomes antes de reaplicar (mantém budgetCfg, options, etc.)
@@ -994,7 +1014,7 @@
     state.materials = [];
     applyParsedPanels(panels);
     save();
-    refreshOptionsUI(); updateProjectName(); renderStock(); renderPanels();
+    refreshOptionsUI(); updateProjectName(); renderStock(); renderPanels(); renderPlanEmpty();
     $('#import-status').textContent = `${panels.length} peças · ${panels.reduce((a, p) => a + p.qty, 0)} un.`;
     gotoTab('panels');
     toast('Importado em: ' + activeProject().name);
@@ -1311,40 +1331,31 @@
       stock: state.stock.filter(s => s.width > 0 && s.length > 0),
       panels: validPanels(),
       budgetCfg: state.budgetCfg, budgetQtys: state.budgetQtys, budgetItems: db.budgetGlobal.items,
+      budgetCategory: state.budgetCategory, budgetFinalPrice: state.budgetFinalPrice,
+      budgetModules: state.budgetModules, budgetDescription: state.budgetDescription,
       planStale: planStale,
       plan: state.plan || null,
     }, null, 2);
   }
 
-  // Popup temático com os formatos de exportação (mesmo padrão do "Importar CSV").
-  function openExportDialog() {
+  // Popup temático de escolha (mesmo padrão do "Importar CSV").
+  // entries: [[ícone, título, subtítulo, ação], …]
+  function choiceDialog(title, msg, entries) {
     const ov = el('div', 'modal-overlay dialog-overlay');
     const card = el('div', 'modal dialog');
-    const head = el('div', 'dialog-head'); head.textContent = 'Exportar registro';
+    const head = el('div', 'dialog-head'); head.textContent = title;
     const body = el('div', 'dialog-body');
-    const hint = el('p', 'dialog-msg'); hint.textContent = 'Escolha o que exportar:';
+    const hint = el('p', 'dialog-msg'); hint.textContent = msg;
     body.appendChild(hint);
     const list = el('div', 'import-proj-list');
-    const addItem = (icon, title, sub, onClick) => {
+    entries.forEach(([icon, t, sub, onClick]) => {
       const btn = el('button', 'import-proj-item'); btn.type = 'button';
       btn.innerHTML = Icons.html(icon, 'import-proj-icon') +
-        `<span class="import-proj-info"><span class="import-proj-name">${esc(title)}</span>` +
+        `<span class="import-proj-info"><span class="import-proj-name">${esc(t)}</span>` +
         `<span class="import-proj-sub">${esc(sub)}</span></span>`;
       btn.addEventListener('click', () => { close(); onClick(); });
       list.appendChild(btn);
-    };
-    const stamp = new Date().toISOString().slice(0, 10);
-    const base = (($('#project-name') && $('#project-name').textContent) || 'projeto')
-      .trim().replace(/[^\w.-]+/g, '_') || 'projeto';
-    addItem('list', 'Registro completo (.md)',
-      'Materiais, estoque, peças e o plano calculado — em texto legível',
-      () => shareOrDownload(buildReportMd(), `${base}_registro_${stamp}.md`, 'text/markdown', 'Registro exportado.'));
-    addItem('table_chart', 'Dados brutos (.json)',
-      'O estado completo do projeto e o plano, sem formatação',
-      () => shareOrDownload(buildReportJson(), `${base}_dados_${stamp}.json`, 'application/json', 'Dados exportados.'));
-    addItem('download', 'Peças (.csv)',
-      'Só a lista de peças, re-importável pelo app',
-      () => exportCSV());
+    });
     body.appendChild(list);
     const actions = el('div', 'modal-actions');
     const cancelBtn = el('button', 'btn'); cancelBtn.textContent = 'Cancelar';
@@ -1356,6 +1367,287 @@
     ov.addEventListener('click', e => { if (e.target === ov) close(); });
     function onKey(e) { if (e.key === 'Escape') { e.preventDefault(); close(); } }
     document.addEventListener('keydown', onKey);
+  }
+  // Formatos de exportação do projeto ATIVO.
+  function openExportDialog() {
+    const stamp = new Date().toISOString().slice(0, 10);
+    const base = (($('#project-name') && $('#project-name').textContent) || 'projeto')
+      .trim().replace(/[^\w.-]+/g, '_') || 'projeto';
+    choiceDialog('Exportar registro', 'Escolha o que exportar:', [
+      ['list', 'Registro completo (.md)', 'Materiais, estoque, peças e o plano calculado — em texto legível',
+        () => shareOrDownload(buildReportMd(), `${base}_registro_${stamp}.md`, 'text/markdown', 'Registro exportado.')],
+      ['table_chart', 'Dados brutos (.json)', 'O estado completo do projeto e o plano, sem formatação',
+        () => shareOrDownload(buildReportJson(), `${base}_dados_${stamp}.json`, 'application/json', 'Dados exportados.')],
+      ['download', 'Peças (.csv)', 'Só a lista de peças, re-importável pelo app', () => exportCSV()],
+    ]);
+  }
+
+  // ---------- Relatório de TODOS os projetos (orçamentos p/ análise) ----------
+  // Base para uma calculadora de orçamento rápido por m³ e por categoria: para
+  // cada projeto, a categoria, os módulos (L × A × P), a descrição/observações,
+  // as métricas do plano e o orçamento linha a linha com todos os totais.
+  // Formatos: .md (legível), .json (completo, p/ análise) e dois .csv
+  // (1 linha por projeto e 1 linha por módulo — prontos p/ planilha).
+
+  // Roda fn() com `state` apontando para outro projeto (os helpers de material,
+  // peças e orçamento leem `state`) e restaura o ativo no fim.
+  function withProject(p, fn) {
+    const prev = state;
+    state = p.data;
+    try { return fn(); } finally { state = prev; }
+  }
+  // Orçamento do projeto em `state`: as mesmas contas da aba Orçamento.
+  function budgetBreakdown() {
+    const metrics = getBudgetMetrics();
+    const items = db.budgetGlobal.items, qtys = state.budgetQtys || {};
+    // fita sem fita alocada nas peças → quantidade digitada à mão (igual à tela)
+    if (metrics.bandManualMode) items.forEach(it => {
+      if (it.type === 'auto' && it.src && String(it.src).indexOf('band') === 0) metrics[it.src] = qtys[it.key] || 0;
+    });
+    const lines = items.map(it => {
+      const auto = it.type === 'auto' || it.type === 'auto-value';
+      const qty = auto ? (metrics[it.src] != null ? metrics[it.src] : 0) : (qtys[it.key] || 0);
+      return { key: it.key, label: it.label, type: it.type, unitPrice: it.type === 'value' ? null : it.price,
+        qty: qty, subtotal: Budget.subtotalItem(it, qty) };
+    });
+    return { metrics, lines, t: Budget.totals(items, qtys, metrics, state.budgetCfg) };
+  }
+  const r2 = n => Math.round((+n || 0) * 100) / 100;
+  const r3 = n => Math.round((+n || 0) * 1000) / 1000;
+  function projectRecord(p) {
+    return withProject(p, () => {
+      const ps = validPanels().filter(x => x.material);
+      const hasPlan = !!(state.plan && state.plan.sheets && state.plan.sheets.length);
+      const { metrics, lines, t } = budgetBreakdown();
+      const vol = modulesVolume(state.budgetModules);
+      const fin = state.budgetFinalPrice;
+      // Preço de referência p/ análise: o valor FECHADO quando informado; senão o Total calculado.
+      const ref = fin != null && fin > 0 ? fin : t.pix;
+      const sheetsByMat = {};
+      if (hasPlan) state.plan.sheets.forEach(s => { sheetsByMat[s.material] = (sheetsByMat[s.material] || 0) + 1; });
+      return {
+        id: p.id, name: p.name,
+        createdAt: new Date(p.createdAt).toISOString(), updatedAt: new Date(p.updatedAt).toISOString(),
+        category: (state.budgetCategory || '').trim(),
+        description: state.budgetDescription || '',
+        hasPhoto: !!state.budgetPhoto,
+        modules: state.budgetModules.map((m, i) => ({
+          n: i + 1, name: m.name, material: m.material,
+          width: m.width, height: m.height, depth: m.depth, qty: m.qty || 1,
+          volumeM3: r3(moduleVolume(m)),
+        })),
+        modulesUnits: state.budgetModules.reduce((a, m) => a + (m.qty || 1), 0),
+        volumeM3: r3(vol),
+        pieces: {
+          lines: ps.length, units: ps.reduce((a, x) => a + (x.qty || 1), 0),
+          areaM2: r3(ps.reduce((a, x) => a + x.width * x.length * (x.qty || 1), 0) / 10000),
+        },
+        materials: materialsOrdered().map(m => {
+          const pl = ps.filter(x => x.material === m);
+          return { label: matLabel(m), thickness: matThickness(m) ? +matThickness(m) : null, color: matColor(m),
+            pieces: pl.reduce((a, x) => a + (x.qty || 1), 0),
+            areaM2: r3(pl.reduce((a, x) => a + x.width * x.length * (x.qty || 1), 0) / 10000),
+            sheets: sheetsByMat[matLabel(m)] || 0 };
+        }).filter(m => m.pieces || m.sheets),
+        plan: {
+          calculated: hasPlan,
+          stale: p.id === db.activeId ? !!planStale : null,
+          sheets: hasPlan ? state.plan.sheets.length : 0,
+          sheetsWhite: metrics.sheetsWhite || 0, sheetsColor: metrics.sheetsColor || 0,
+          cuts: metrics.cuts || 0, unplaced: hasPlan ? (state.plan.unplaced || []).length : 0,
+          band22WhiteM: metrics.band22White || 0, band22ColorM: metrics.band22Color || 0,
+          band45WhiteM: metrics.band45White || 0, band45ColorM: metrics.band45Color || 0,
+          bandManual: !!metrics.bandManualMode,
+          complexityIndex: metrics.totalN || 0,
+        },
+        budget: {
+          cfg: Object.assign({}, state.budgetCfg),
+          lines: lines.map(l => Object.assign({}, l, { qty: r2(l.qty), subtotal: r2(l.subtotal) })),
+          materials: r2(t.entrada), labor: r2(t.labor), complexity: r2(t.complexTotal),
+          total: r2(t.pix), credit6x: r2(t.credit6x), credit12x: r2(t.credit12x),
+          pixClient: r2(t.pixClient), productionDays: r2(t.days),
+          finalPrice: fin != null ? r2(fin) : null,
+          referencePrice: r2(ref),
+          pricePerM3: vol > 0 ? r2(ref / vol) : null,
+          materialsPerM3: vol > 0 ? r2(t.entrada / vol) : null,
+        },
+      };
+    });
+  }
+  // Agregado por chave: soma volume e preço de referência e tira R$/m³ médio
+  // (Σ preço / Σ volume) e a faixa (mín–máx) entre os itens com volume.
+  function aggregateBy(rows, keyOf, volOf, priceOf, emptyLabel) {
+    const g = {};
+    rows.forEach(r => {
+      const k = keyOf(r) || emptyLabel;
+      const x = g[k] || (g[k] = { key: k, count: 0, volumeM3: 0, price: 0, rates: [] });
+      const v = volOf(r), pr = priceOf(r);
+      x.count++; x.volumeM3 += v; x.price += pr;
+      if (v > 0 && pr > 0) x.rates.push(pr / v);
+    });
+    return Object.keys(g).sort((a, b) => a.localeCompare(b, 'pt')).map(k => {
+      const x = g[k];
+      return { key: k, count: x.count, volumeM3: r3(x.volumeM3), price: r2(x.price),
+        pricePerM3: x.volumeM3 > 0 ? r2(x.price / x.volumeM3) : null,
+        minPerM3: x.rates.length ? r2(Math.min.apply(null, x.rates)) : null,
+        maxPerM3: x.rates.length ? r2(Math.max.apply(null, x.rates)) : null };
+    });
+  }
+  // Rateio do preço do projeto entre os módulos pela fração de VOLUME (estimativa
+  // simples p/ a análise por tipo de módulo).
+  function moduleRows(records) {
+    const out = [];
+    records.forEach(r => r.modules.forEach(m => {
+      const frac = r.volumeM3 > 0 ? m.volumeM3 / r.volumeM3 : 0;
+      out.push({ project: r, m, frac, estValue: r2(r.budget.referencePrice * frac) });
+    }));
+    return out;
+  }
+  function buildAllReport() {
+    const records = db.projects.slice().sort((a, b) => a.createdAt - b.createdAt).map(projectRecord);
+    const mods = moduleRows(records);
+    const withVol = records.filter(r => r.volumeM3 > 0 && r.budget.referencePrice > 0);
+    return {
+      app: 'projeto-corte', version: APP_VERSION, exportedAt: new Date().toISOString(),
+      units: { dimensions: 'cm', volume: 'm3', area: 'm2', money: 'BRL', band: 'm' },
+      notes: [
+        'referencePrice = finalPrice (valor fechado) quando informado; senão budget.total (Materiais + Mão de obra + Complexidade).',
+        'pricePerM3 = referencePrice / volumeM3 (soma L×A×P×qtd dos módulos).',
+        'byModuleType: preço de cada projeto rateado entre seus módulos pela fração de volume.',
+      ],
+      budgetItems: db.budgetGlobal.items,
+      summary: {
+        projects: records.length,
+        projectsWithVolumeAndPrice: withVol.length,
+        pricePerM3: (() => {
+          const v = withVol.reduce((a, r) => a + r.volumeM3, 0);
+          return v > 0 ? r2(withVol.reduce((a, r) => a + r.budget.referencePrice, 0) / v) : null;
+        })(),
+        byCategory: aggregateBy(records, r => r.category, r => r.volumeM3, r => r.volumeM3 > 0 ? r.budget.referencePrice : 0, '(sem categoria)'),
+        byModuleType: aggregateBy(mods, x => (x.m.name || '').trim(), x => x.m.volumeM3, x => x.estValue, '(sem tipo)'),
+        byModuleMaterial: aggregateBy(mods, x => (x.m.material || '').trim(), x => x.m.volumeM3, x => x.estValue, '(sem material)'),
+      },
+      projects: records,
+    };
+  }
+
+  // CSV no padrão do Excel brasileiro: ";" e vírgula decimal, com BOM.
+  function csvOf(headers, rows) {
+    const c = v => {
+      if (v == null) return '';
+      if (typeof v === 'number') return String(v).replace('.', ',');
+      if (typeof v === 'boolean') return v ? 'sim' : 'não';
+      const t = String(v).replace(/\r/g, '');
+      return /[;"\n]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t;
+    };
+    return '﻿' + [headers].concat(rows).map(r => r.map(c).join(';')).join('\r\n');
+  }
+  function buildAllProjectsCsv(rep) {
+    const items = rep.budgetItems;
+    const head = ['id', 'projeto', 'categoria', 'criado', 'atualizado', 'modulos_un', 'volume_m3',
+      'pecas_un', 'area_pecas_m2', 'plano_calculado', 'chapas', 'chapas_brancas', 'chapas_cor', 'cortes',
+      'fita22_branca_m', 'fita22_cor_m', 'fita45_branca_m', 'fita45_cor_m', 'indice_complexidade']
+      .concat(...items.map(it => [it.label + ' (qtd)', it.label + ' (R$)']))
+      .concat(['materiais_rs', 'mao_obra_pct', 'mao_obra_rs', 'complexidade_rs', 'total_rs',
+        'credito6x_rs', 'credito12x_rs', 'pix_cliente_rs', 'dias_producao', 'valor_fechado_rs',
+        'preco_referencia_rs', 'rs_por_m3', 'materiais_rs_por_m3', 'materiais_do_projeto', 'modulos', 'descricao']);
+    const rows = rep.projects.map(r => {
+      const b = r.budget, pl = r.plan;
+      return [r.id, r.name, r.category, r.createdAt.slice(0, 10), r.updatedAt.slice(0, 10), r.modulesUnits, r.volumeM3,
+        r.pieces.units, r.pieces.areaM2, pl.calculated, pl.sheets, pl.sheetsWhite, pl.sheetsColor, pl.cuts,
+        pl.band22WhiteM, pl.band22ColorM, pl.band45WhiteM, pl.band45ColorM, pl.complexityIndex]
+        .concat(...items.map(it => { const l = b.lines.find(x => x.key === it.key); return l ? [l.qty, l.subtotal] : ['', '']; }))
+        .concat([b.materials, b.cfg.laborPct, b.labor, b.complexity, b.total, b.credit6x, b.credit12x, b.pixClient,
+          b.productionDays, b.finalPrice, b.referencePrice, b.pricePerM3, b.materialsPerM3,
+          r.materials.map(m => `${m.label} (${m.sheets} ch)`).join(' | '),
+          r.modules.map(m => `${m.qty}× ${m.name || '?'} ${numIn(m.width)}×${numIn(m.height)}×${numIn(m.depth)} ${m.material}`).join(' | '),
+          r.description]);
+    });
+    return csvOf(head, rows);
+  }
+  function buildAllModulesCsv(rep) {
+    const head = ['projeto_id', 'projeto', 'categoria', 'modulo_n', 'tipo', 'material', 'largura_cm', 'altura_cm',
+      'profundidade_cm', 'qtd', 'volume_m3', 'volume_projeto_m3', 'fracao_volume', 'total_projeto_rs',
+      'valor_fechado_rs', 'preco_referencia_projeto_rs', 'valor_rateado_modulo_rs', 'rs_por_m3_projeto'];
+    const rows = moduleRows(rep.projects).map(({ project: r, m, frac, estValue }) =>
+      [r.id, r.name, r.category, m.n, m.name, m.material, m.width, m.height, m.depth, m.qty, m.volumeM3,
+        r.volumeM3, r3(frac), r.budget.total, r.budget.finalPrice, r.budget.referencePrice, estValue, r.budget.pricePerM3]);
+    return csvOf(head, rows);
+  }
+  function buildAllReportMd(rep) {
+    const out = [], add = s => out.push(s);
+    const money = v => v == null ? '—' : brl(v);
+    const vol = v => volFmt(v || 0);
+    const aggTable = list => mdTable(['Grupo', 'Registros', 'Volume m³', 'R$ (ref.)', 'R$/m³', 'Faixa R$/m³'],
+      list.map(x => [x.key, x.count, vol(x.volumeM3), money(x.price), money(x.pricePerM3),
+        x.minPerM3 != null ? `${brl(x.minPerM3)} – ${brl(x.maxPerM3)}` : '—']));
+    add('# Relatório de orçamentos — todos os projetos');
+    add('');
+    add(`Gerado em ${new Date().toLocaleString('pt-BR')} · app ${APP_VERSION} · ${rep.projects.length} projeto(s) · medidas em cm, volume em m³`);
+    add('');
+    add('> **Preço de referência** = valor fechado quando informado; senão o Total calculado (materiais + mão de obra + complexidade). ' +
+      '**R$/m³** = preço de referência ÷ volume dos módulos (L × A × P × qtd). ' +
+      'Por tipo/material de módulo, o preço do projeto é rateado entre os módulos pela fração de volume.');
+    add('');
+    add('## Resumo');
+    add('');
+    add(`- Projetos com volume e preço: **${rep.summary.projectsWithVolumeAndPrice}** de ${rep.summary.projects}`);
+    add(`- R$/m³ geral: **${money(rep.summary.pricePerM3)}**`);
+    add('');
+    add('### Por categoria'); add(''); add(aggTable(rep.summary.byCategory));
+    if (rep.summary.byModuleType.length) { add('### Por tipo de módulo'); add(''); add(aggTable(rep.summary.byModuleType)); }
+    if (rep.summary.byModuleMaterial.length) { add('### Por material de módulo'); add(''); add(aggTable(rep.summary.byModuleMaterial)); }
+    add('## Projetos');
+    add('');
+    add(mdTable(['Projeto', 'Categoria', 'Módulos', 'Volume m³', 'Total', 'Fechado', 'R$/m³'],
+      rep.projects.map(r => [r.name, r.category || '—', r.modulesUnits, vol(r.volumeM3),
+        money(r.budget.total), money(r.budget.finalPrice), money(r.budget.pricePerM3)])));
+    rep.projects.forEach(r => {
+      const b = r.budget;
+      add(`### ${r.name}`);
+      add('');
+      add(`- Categoria: **${r.category || '—'}** · criado ${r.createdAt.slice(0, 10)} · atualizado ${r.updatedAt.slice(0, 10)}`);
+      add(`- Volume: **${vol(r.volumeM3)} m³** em ${r.modulesUnits} módulo(s) · peças: ${r.pieces.units} un. / ${numFmt(r.pieces.areaM2)} m²`);
+      add(`- Plano: ${r.plan.calculated ? `${r.plan.sheets} chapa(s) (${r.plan.sheetsWhite} branca(s), ${r.plan.sheetsColor} de cor), ${r.plan.cuts} cortes` +
+        (r.plan.unplaced ? `, ${r.plan.unplaced} peça(s) fora` : '') + (r.plan.stale ? ' — desatualizado' : '') : 'não calculado'}`);
+      if (r.materials.length) add(`- Materiais: ${r.materials.map(m => `${m.label} (${numFmt(m.areaM2)} m², ${m.sheets} ch)`).join(' · ')}`);
+      add('');
+      if (r.description.trim()) {
+        add('**Observações:**');
+        add('');
+        r.description.trim().split(/\r?\n/).forEach(l => add('> ' + l));
+        add('');
+      }
+      if (r.modules.length) {
+        add(mdTable(['#', 'Tipo', 'Material', 'L', 'A', 'P', 'Qtd', 'm³'],
+          r.modules.map(m => [m.n, m.name || '—', m.material || '—', numFmt(m.width), numFmt(m.height), numFmt(m.depth), m.qty, vol(m.volumeM3)])));
+      } else { add('_Sem módulos cadastrados._'); add(''); }
+      const used = b.lines.filter(l => l.qty || l.subtotal);
+      if (used.length) add(mdTable(['Item', 'Qtd', 'Unit.', 'Subtotal'],
+        used.map(l => [l.label, numFmt(l.qty), l.unitPrice == null ? '—' : brl(l.unitPrice), brl(l.subtotal)])));
+      add(mdTable(['Totais', 'R$'], [
+        ['Materiais', brl(b.materials)], [`Mão de obra (${numFmt(b.cfg.laborPct)}%)`, brl(b.labor)],
+        ['Complexidade', brl(b.complexity)], ['**Total**', '**' + brl(b.total) + '**'],
+        ['Crédito 6x', brl(b.credit6x)], ['Crédito 12x', brl(b.credit12x)], ['Pix (cliente)', brl(b.pixClient)],
+        ['Valor fechado', money(b.finalPrice)], ['R$/m³ (ref.)', money(b.pricePerM3)],
+        ['Tempo de produção', numFmt(b.productionDays) + ' dias'],
+      ]));
+    });
+    return out.join('\n');
+  }
+  function openExportAllDialog() {
+    const stamp = new Date().toISOString().slice(0, 10);
+    const rep = () => buildAllReport();
+    choiceDialog('Relatório de todos os projetos', `${db.projects.length} projeto(s) — orçamentos, módulos e observações:`, [
+      ['list', 'Relatório (.md)', 'Resumo por categoria e tipo de módulo + cada projeto com orçamento e observações',
+        () => shareOrDownload(buildAllReportMd(rep()), `orcamentos_${stamp}.md`, 'text/markdown', 'Relatório exportado.')],
+      ['table_chart', 'Dados completos (.json)', 'Tudo estruturado, com resumos — ideal p/ análise e calculadora',
+        () => shareOrDownload(JSON.stringify(rep(), null, 2), `orcamentos_${stamp}.json`, 'application/json', 'Dados exportados.')],
+      ['download', 'Projetos (.csv)', '1 linha por projeto: categoria, m³, itens e totais do orçamento',
+        () => shareOrDownload(buildAllProjectsCsv(rep()), `orcamentos_projetos_${stamp}.csv`, 'text/csv', 'Planilha exportada.')],
+      ['download', 'Módulos (.csv)', '1 linha por módulo: tipo, material, L×A×P, m³ e valor rateado',
+        () => shareOrDownload(buildAllModulesCsv(rep()), `orcamentos_modulos_${stamp}.csv`, 'text/csv', 'Planilha exportada.')],
+    ]);
   }
 
   function initImport() {
@@ -1385,6 +1677,18 @@
     if (tab === 'budget') renderBudget();
   }
   function updateProjectName() { const p = activeProject(); $('#project-name').textContent = p ? p.name : 'Projeto'; }
+  // Limpa TODO o visual da aba Cortes (tabelas, chapas, "não couberam", aviso de
+  // desatualizado, modo de rótulo) e para a busca em andamento. Chamado ao trocar,
+  // criar, importar ou excluir projeto: nada do plano anterior pode sobrar na tela.
+  function clearPlanView() {
+    stopLiveSearch();
+    const sheetsEl = $('#plan-sheets');
+    if (sheetsEl) { sheetsEl.innerHTML = ''; sheetsEl.dataset.lbl = ''; }
+    const breakdownEl = $('#plan-breakdown'); if (breakdownEl) breakdownEl.innerHTML = '';
+    const metricsEl = $('#plan-metrics'); if (metricsEl) metricsEl.innerHTML = '';
+    const unplacedEl = $('#plan-unplaced'); if (unplacedEl) { unplacedEl.innerHTML = ''; unplacedEl.hidden = true; }
+    planStale = false; updateStaleNotice();
+  }
   function renderPlanEmpty() {
     stopLiveSearch();
     state.plan = null;
@@ -1410,6 +1714,7 @@
   }
   function setActive(id) {
     if (!db.projects.find(p => p.id === id)) return;
+    clearPlanView();
     db.activeId = id; state = activeProject().data; saveDb(); selected.clear();
     renderActive();
     resetHistory();
@@ -1443,6 +1748,7 @@
     const i = db.projects.findIndex(x => x.id === p.id);
     if (i >= 0) db.projects.splice(i, 1);
     idbDelPhoto(p.id); // remove a foto de referência do IndexedDB
+    if (p.id === db.activeId) clearPlanView();
     if (!db.projects.length) { const np = makeProject('Projeto 1', null); db.projects.push(np); db.activeId = np.id; }
     if (p.id === db.activeId) db.activeId = db.projects[0].id;
     state = activeProject().data; saveDb();
@@ -1452,6 +1758,7 @@
     const base = activeProject() ? activeProject().data : emptyData();
     const proj = makeProject(projectNameFromFile('Projeto'),
       { options: base.options, budgetCfg: base.budgetCfg });
+    clearPlanView();
     db.projects.unshift(proj); db.activeId = proj.id; state = proj.data; saveDb();
     selected.clear(); closeProjects(); renderActive(); gotoTab('panels'); resetHistory();
   }
@@ -1463,6 +1770,7 @@
     $('#proj-close').addEventListener('click', closeProjects);
     $('#proj-modal').addEventListener('click', e => { if (e.target.id === 'proj-modal') closeProjects(); });
     $('#proj-new').addEventListener('click', newProject);
+    $('#proj-export-all').addEventListener('click', () => { closeProjects(); openExportAllDialog(); });
   }
 
   // ---------- Modal: editor de fita de borda ----------
@@ -1631,7 +1939,11 @@
   }
   // Mostra o plano já salvo (sem recalcular) ou o aviso vazio.
   function showSavedPlan() {
-    if (state.plan && state.plan.sheets && state.plan.sheets.length) { showResult(state.plan); planStale = false; }
+    clearPlanView();
+    if (state.plan && state.plan.sheets && state.plan.sheets.length) {
+      try { showResult(state.plan); planStale = false; }
+      catch (e) { renderPlanEmpty(); } // plano salvo incompatível → tela limpa
+    }
     else renderPlanEmpty();
     updateStaleNotice();
   }
@@ -1858,6 +2170,7 @@
     showProgressModal();
     updateStaleNotice();
 
+    const runData = state; // projeto que pediu o cálculo
     liveWorker = new Worker('./js/optimizer-worker.js');
     liveWorker.onmessage = function (e) {
       const msg = e.data;
@@ -1911,6 +2224,8 @@
         // Payload pesado chegou — popup já está pintado na tela.
         if (liveWorker) { liveWorker.terminate(); liveWorker = null; }
         const result = relabelResult(msg.result, inp.groupLabel);
+        // Trocou de projeto no meio do cálculo → não pinta o plano de outro projeto.
+        if (state !== runData) { hideProgressModal(); return; }
         state.plan = result;
         showResult(result);
         save();
@@ -2018,6 +2333,7 @@
     renderBudgetPhoto();
     const descEl = $('#budget-description');
     if (descEl) descEl.value = state.budgetDescription || '';
+    renderModules();
 
     // Tabela de itens
     const body = $('#budget-body'); if (!body) return;
@@ -2110,6 +2426,89 @@
     }
 
     renderChart();
+  }
+
+  // ---------- Módulos + categoria (estimativa por m³) ----------
+  // Cada projeto guarda a categoria do móvel, o valor fechado e a lista de módulos
+  // (tipo, material, L × A × P em cm, qtd). Com isso o relatório geral cruza
+  // R$ × m³ × categoria/tipo e permite estimar orçamentos sem plano de corte.
+  const DEFAULT_CATEGORIES = ['Cozinha', 'Guarda-roupa', 'Closet', 'Banheiro', 'Lavanderia',
+    'Painel / Rack', 'Escritório', 'Quarto', 'Área gourmet', 'Comercial', 'Outro'];
+  const DEFAULT_MODULE_TYPES = ['Armário aéreo', 'Armário inferior', 'Balcão', 'Torre', 'Gaveteiro',
+    'Nicho', 'Prateleira', 'Painel', 'Bancada', 'Porta', 'Cabeceira', 'Mesa'];
+  function uniqueSorted(list) {
+    const seen = new Map();
+    list.forEach(x => { const t = String(x || '').trim(); if (t && !seen.has(t.toLowerCase())) seen.set(t.toLowerCase(), t); });
+    return Array.from(seen.values()).sort((a, b) => a.localeCompare(b, 'pt'));
+  }
+  function fillDatalist(id, values) {
+    const dl = $(id); if (!dl) return;
+    dl.innerHTML = values.map(v => `<option value="${attr(v)}"></option>`).join('');
+  }
+  // valor p/ <input>: sem separador de milhar (numFmt daria "1.234" → lido como 1,234)
+  const numIn = v => String(Math.round((+v || 0) * 100) / 100).replace('.', ',');
+  // "1.500,50" / "1500.5" / "1500,5" → 1500.5
+  const parseMoney = s => {
+    let t = String(s || '').replace(/[^\d,.-]/g, '');
+    if (t.indexOf(',') >= 0) t = t.replace(/\./g, '').replace(',', '.');
+    const n = parseFloat(t); return isFinite(n) ? n : 0;
+  };
+  const volFmt = v => (Math.round(v * 1000) / 1000).toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 });
+  function modulesVolume(mods) { return (mods || []).reduce((a, m) => a + moduleVolume(m), 0); }
+  function updateModulesTotal() {
+    const t = $('#mod-total'); if (!t) return;
+    const mods = state.budgetModules;
+    const n = mods.reduce((a, m) => a + (m.qty || 1), 0);
+    t.textContent = mods.length ? `${n} un. · ${volFmt(modulesVolume(mods))} m³` : '';
+  }
+  function renderModules() {
+    const all = db.projects.map(p => p.data);
+    fillDatalist('#budget-category-list', uniqueSorted(DEFAULT_CATEGORIES.concat(all.map(d => d.budgetCategory))));
+    fillDatalist('#module-type-list', uniqueSorted(DEFAULT_MODULE_TYPES.concat(
+      ...all.map(d => (d.budgetModules || []).map(m => m.name)))));
+    fillDatalist('#module-mat-list', uniqueSorted(materialsOrdered().map(m => matLabel(m)).concat(
+      ...all.map(d => (d.budgetModules || []).map(m => m.material)))));
+    const cat = $('#budget-category'); if (cat) cat.value = state.budgetCategory || '';
+    const fp = $('#budget-final-price');
+    if (fp) fp.value = state.budgetFinalPrice != null ? numIn(state.budgetFinalPrice) : '';
+    const box = $('#mod-list'); if (!box) return;
+    box.innerHTML = '';
+    if (!state.budgetModules.length) {
+      box.innerHTML = '<p class="empty-hint mod-empty">Nenhum módulo. Cadastre cada módulo com tipo, material e L × A × P (cm).</p>';
+    }
+    state.budgetModules.forEach((m, i) => {
+      const card = el('div', 'mod-item');
+      const num = v => v ? numIn(v) : '';
+      card.innerHTML =
+        `<div class="mod-row1">` +
+          `<span class="mod-idx">${i + 1}</span>` +
+          `<input class="mod-name" data-f="name" list="module-type-list" placeholder="Tipo / nome" value="${attr(m.name)}" autocomplete="off">` +
+          `<input class="mod-mat" data-f="material" list="module-mat-list" placeholder="Material" value="${attr(m.material)}" autocomplete="off">` +
+          `<button class="icon-btn del" type="button" data-del title="Remover módulo">${Icons.html('delete')}</button>` +
+        `</div>` +
+        `<div class="mod-row2">` +
+          `<label>L<input data-f="width" inputmode="decimal" value="${num(m.width)}" placeholder="cm"></label>` +
+          `<label>A<input data-f="height" inputmode="decimal" value="${num(m.height)}" placeholder="cm"></label>` +
+          `<label>P<input data-f="depth" inputmode="decimal" value="${num(m.depth)}" placeholder="cm"></label>` +
+          `<label>Qtd<input data-f="qty" inputmode="numeric" value="${m.qty || 1}"></label>` +
+          `<span class="mod-vol">${volFmt(moduleVolume(m))} m³</span>` +
+        `</div>`;
+      card.querySelectorAll('[data-f]').forEach(inp => inp.addEventListener('input', () => {
+        const f = inp.dataset.f;
+        if (f === 'name' || f === 'material') m[f] = inp.value;
+        else if (f === 'qty') m.qty = clampQty(inp.value);
+        else m[f] = Math.max(0, parseNum(inp.value) || 0);
+        card.querySelector('.mod-vol').textContent = volFmt(moduleVolume(m)) + ' m³';
+        updateModulesTotal(); save();
+      }));
+      card.querySelector('[data-del]').addEventListener('click', async () => {
+        const ok = await ui.confirm(`Remover o módulo ${i + 1}${m.name ? ' (' + m.name + ')' : ''}?`, { danger: true, okText: 'Remover' });
+        if (!ok) return;
+        state.budgetModules.splice(i, 1); save(); renderModules();
+      });
+      box.appendChild(card);
+    });
+    updateModulesTotal();
   }
 
   function row(k, v) { return `<tr>${cell(k)}${cell(v)}</tr>`; }
@@ -2331,6 +2730,18 @@
     $('#photo-viewer').addEventListener('click', e => { if (e.target.id === 'photo-viewer') $('#photo-viewer').hidden = true; });
 
     // Descrição
+    $('#budget-category').addEventListener('input', e => { state.budgetCategory = e.target.value; save(); });
+    $('#budget-final-price').addEventListener('input', e => {
+      const v = e.target.value.trim();
+      state.budgetFinalPrice = v ? parseMoney(v) : null; save();
+    });
+    $('#mod-add').addEventListener('click', () => {
+      // herda tipo/material do último módulo (acelera cadastrar vários parecidos)
+      const last = state.budgetModules[state.budgetModules.length - 1];
+      state.budgetModules.push(normalizeModule({ name: last ? last.name : '', material: last ? last.material : (materialsOrdered()[0] ? matLabel(materialsOrdered()[0]) : '') }));
+      save(); renderModules();
+      const names = $$('#mod-list .mod-name'); const n = names[names.length - 1]; if (n) n.focus();
+    });
     $('#budget-description').addEventListener('input', e => {
       state.budgetDescription = e.target.value; save();
     });
